@@ -1,0 +1,59 @@
+{
+  "name": "@scandrop/desktop",
+  "version": "3.0.0",
+  "private": true,
+  "main": "dist/main/main/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:service": "tsc -p tsconfig.service.json",
+    "build:converter": "tsc -p tsconfig.converter.json",
+    "build": "npm run build:renderer && npm run build:main && npm run build:service && npm run build:converter",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.scandrop.desktop",
+    "productName": "Scan Drop",
+    "artifactName": "ScanDropSetup.${ext}",
+    "directories": {
+      "output": "dist/installer"
+    },
+    "win": {
+      "target": ["nsis"],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Scan Drop",
+      "installerLanguages": ["en_US"]
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ]
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3",
+    "lucide-react": "^0.378.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

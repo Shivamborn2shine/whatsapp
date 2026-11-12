@@ -1,0 +1,29 @@
+{
+  "name": "scan-drop",
+  "version": "3.0.0",
+  "description": "Scan Drop — Windows Desktop Edition + SaaS Subscription Platform",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "desktop"
+  ],
+  "scripts": {
+    "dev:server": "npm --prefix server run dev",
+    "dev:desktop": "npm --prefix desktop run dev",
+    "build:shared": "npm --prefix shared run build",
+    "build:server": "npm --prefix server run build",
+    "build:desktop": "npm --prefix desktop run build",
+    "start:server": "npm --prefix server start",
+    "test": "npm --prefix server test && npm --prefix desktop test"
+  },
+  "keywords": [
+    "scan-drop",
+    "print-shop",
+    "qr-upload",
+    "windows-desktop",
+    "pdf-tools"
+  ],
+  "author": "Scan Drop Founder",
+  "license": "Proprietary"
+}
