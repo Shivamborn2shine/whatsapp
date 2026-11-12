@@ -3,11 +3,17 @@ const path = require('path');
 
 console.log('🚀 Building Scan Drop Web Portal for Netlify...');
 
-const outDir = path.resolve(__dirname, 'dist_netlify');
-if (fs.existsSync(outDir)) {
-  fs.rmSync(outDir, { recursive: true, force: true });
+const outDirs = [
+  path.resolve(__dirname, 'dist_netlify'),
+  path.resolve(__dirname, 'public'),
+  path.resolve(__dirname)
+];
+
+for (const dir of [outDirs[0], outDirs[1]]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
-fs.mkdirSync(outDir, { recursive: true });
 
 // Copy or generate index.html
 const indexHtml = `<!DOCTYPE html>
@@ -342,10 +348,13 @@ const indexHtml = `<!DOCTYPE html>
 </body>
 </html>`;
 
-fs.writeFileSync(path.join(outDir, 'index.html'), indexHtml);
+for (const dir of [outDirs[0], outDirs[1]]) {
+  fs.writeFileSync(path.join(dir, 'index.html'), indexHtml);
+  fs.writeFileSync(path.join(dir, '_redirects'), `/*    /index.html   200\n`);
+}
+// Also ensure root has index.html and _redirects
+fs.writeFileSync(path.join(outDirs[2], 'index.html'), indexHtml);
+fs.writeFileSync(path.join(outDirs[2], '_redirects'), `/*    /index.html   200\n`);
 
-// Create _redirects for Netlify SPA routing
-const redirects = `/*    /index.html   200\n`;
-fs.writeFileSync(path.join(outDir, '_redirects'), redirects);
+console.log('✅ Netlify web build completed in dist_netlify/, public/, and root');
 
-console.log('✅ Netlify web build completed in dist_netlify/');
