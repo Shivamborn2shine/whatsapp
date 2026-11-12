@@ -9,6 +9,8 @@
     "desktop"
   ],
   "scripts": {
+    "build": "node build_netlify.js",
+    "build:netlify": "node build_netlify.js",
     "dev:server": "npm --prefix server run dev",
     "dev:desktop": "npm --prefix desktop run dev",
     "build:shared": "npm --prefix shared run build",

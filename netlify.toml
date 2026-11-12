@@ -1,0 +1,12 @@
+[build]
+  command = "node build_netlify.js"
+  publish = "dist_netlify"
+
+[build.environment]
+  NODE_VERSION = "20"
+  ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
