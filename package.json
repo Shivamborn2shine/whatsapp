@@ -3,11 +3,6 @@
   "version": "3.0.0",
   "description": "Scan Drop — Windows Desktop Edition + SaaS Subscription Platform",
   "private": true,
-  "workspaces": [
-    "shared",
-    "server",
-    "desktop"
-  ],
   "scripts": {
     "build": "node build_netlify.js",
     "build:netlify": "node build_netlify.js",
