@@ -359,7 +359,8 @@
       const container = document.getElementById('workspaceContent');
 
       if (['inbox', 'processing', 'completed'].includes(currentTab)) {
-        const filtered = shopSubs.filter(s => s.status === currentTab && (
+        const targetStatus = currentTab === 'inbox' ? 'incoming' : currentTab;
+        const filtered = shopSubs.filter(s => s.status === targetStatus && (
           !q || s.id.toLowerCase().includes(q) || (s.customerName || '').toLowerCase().includes(q)
         ));
 

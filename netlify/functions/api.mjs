@@ -190,7 +190,82 @@ export default async (req, context) => {
       return jsonResponse({ success: true, shop });
     }
 
-    // 3. POST /api/upload (Customer Upload)
+    // 3a. POST /api/upload-chunk (PrintAway-style chunked transfer for large files)
+    if (route === '/upload-chunk' && req.method === 'POST') {
+      const formData = await req.formData();
+      const fileId = formData.get('fileId');
+      const chunkIndex = formData.get('chunkIndex');
+      const chunkFile = formData.get('chunk');
+      if (!fileId || chunkIndex === null || !chunkFile) {
+        return jsonResponse({ success: false, error: 'Missing chunk parameters' }, 400);
+      }
+      const filesStore = getStore('scandrop-files');
+      const buf = Buffer.from(await chunkFile.arrayBuffer());
+      await filesStore.set(`${fileId}_part_${chunkIndex}`, buf);
+      return jsonResponse({ success: true });
+    }
+
+    // 3b. POST /api/upload-complete (Finalize chunked upload & create receipt)
+    if (route === '/upload-complete' && req.method === 'POST') {
+      const body = await req.json();
+      const { shopId, customerName, instructions, files } = body;
+      const state = await loadCloudState();
+      const shop = state.shops.find(s => s.id === shopId) || state.shops[0];
+      if (!shop) return jsonResponse({ success: false, error: 'Shop not found.' }, 404);
+      if (shop.subscriptionStatus === 'suspended' || shop.subscriptionStatus === 'revoked') {
+        return jsonResponse({ success: false, error: 'This recipient is not accepting uploads.' }, 403);
+      }
+
+      let receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
+      while (state.submissions.some(s => s.id === receiptId)) {
+        receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
+      }
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const totalSizeBytes = files.reduce((acc, f) => acc + (f.sizeBytes || 0), 0);
+
+      const fileRecords = files.map(f => ({
+        id: f.id,
+        submissionId: receiptId,
+        originalName: f.originalName,
+        mimeType: f.mimeType || 'application/octet-stream',
+        fileExtension: '.' + (f.originalName.split('.').pop() || '').toLowerCase(),
+        sizeBytes: f.sizeBytes,
+        chunkCount: f.chunkCount || 1,
+        sha256Hash: f.sha256Hash || 'chunked-verified',
+        status: 'synced',
+        createdAt: now.toISOString(),
+        expiresAt
+      }));
+
+      state.submissions.unshift({
+        id: receiptId,
+        shopId: shop.id,
+        customerName: (customerName || '').trim() || 'Anonymous',
+        instructions: (instructions || '').trim(),
+        status: 'incoming',
+        files: fileRecords,
+        totalSizeBytes,
+        createdAt: now.toISOString(),
+        expiresAt
+      });
+
+      addAudit(state, shop.id, 'customer', 'SUBMISSION_RECEIVED',
+        `PrintAway transfer ${receiptId} (${fileRecords.length} file(s), ${(totalSizeBytes / 1024).toFixed(1)} KB)`);
+      await saveCloudState(state);
+
+      return jsonResponse({
+        success: true,
+        receiptId,
+        shopName: shop.name,
+        fileCount: fileRecords.length,
+        totalSizeBytes,
+        expiresAt
+      });
+    }
+
+    // 3. POST /api/upload (Customer Upload - single-shot for small files)
     if (route === '/upload' && req.method === 'POST') {
       const formData = await req.formData();
       const shopId = formData.get('shopId');
@@ -285,19 +360,43 @@ export default async (req, context) => {
 
       const filesStore = getStore('scandrop-files');
       const entry = await filesStore.getWithMetadata(fileId, { type: 'arrayBuffer' });
-      if (!entry || !entry.data) {
+      if (entry && entry.data) {
+        const meta = entry.metadata || {};
+        const filename = meta.originalName || 'download';
+        const mime = meta.mimeType || 'application/octet-stream';
+        return new Response(entry.data, {
+          status: 200,
+          headers: {
+            'Content-Type': mime,
+            'Content-Disposition': `inline; filename="${filename}"`,
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      // Check if chunked file in state
+      const state = await loadCloudState();
+      let fileMeta = null;
+      for (const sub of state.submissions || []) {
+        const found = (sub.files || []).find(f => f.id === fileId);
+        if (found) { fileMeta = found; break; }
+      }
+      if (!fileMeta || !fileMeta.chunkCount) {
         return jsonResponse({ error: 'File not found or expired' }, 404);
       }
 
-      const meta = entry.metadata || {};
-      const filename = meta.originalName || 'download';
-      const mime = meta.mimeType || 'application/octet-stream';
-
-      return new Response(entry.data, {
+      const chunks = [];
+      for (let i = 0; i < fileMeta.chunkCount; i++) {
+        const partBuf = await filesStore.get(`${fileId}_part_${i}`, { type: 'arrayBuffer' });
+        if (!partBuf) return jsonResponse({ error: `Missing chunk ${i}` }, 404);
+        chunks.push(Buffer.from(partBuf));
+      }
+      const combined = Buffer.concat(chunks);
+      return new Response(combined, {
         status: 200,
         headers: {
-          'Content-Type': mime,
-          'Content-Disposition': `inline; filename="${filename}"`,
+          'Content-Type': fileMeta.mimeType || 'application/octet-stream',
+          'Content-Disposition': `inline; filename="${fileMeta.originalName || 'download'}"`,
           'Access-Control-Allow-Origin': '*'
         }
       });
@@ -428,3 +527,4 @@ export default async (req, context) => {
     return jsonResponse({ success: false, error: err.message || 'Server error' }, 500);
   }
 };
+

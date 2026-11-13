@@ -87,7 +87,7 @@ const customerHtml = `<!DOCTYPE html>
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
           </svg>
           <div class="dropzone-text">Tap to select or drop files here</div>
-          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 5MB per upload)</div>
+          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 50MB • PrintAway Chunked Transfer)</div>
         </div>
 
         <div class="file-list" id="fileList"></div>
@@ -163,7 +163,8 @@ const customerHtml = `<!DOCTYPE html>
 
   <script>
     const ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.docx'];
-    const MAX_TOTAL_BYTES = 5 * 1024 * 1024; // 5MB safe limit for Netlify Functions
+    const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50MB via PrintAway Chunked Transfer
+    const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk
     let selectedFiles = [];
     let activeShop = null;
 
@@ -227,7 +228,7 @@ const customerHtml = `<!DOCTYPE html>
         }
         const currentTotal = selectedFiles.reduce((a, b) => a + b.size, 0);
         if (currentTotal + f.size > MAX_TOTAL_BYTES) {
-          alert('Total upload size exceeds 5MB limit per transfer.');
+          alert('Total upload size exceeds 50MB limit per transfer.');
           continue;
         }
         if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
@@ -263,67 +264,94 @@ const customerHtml = `<!DOCTYPE html>
       });
     }
 
-    document.getElementById('uploadForm').addEventListener('submit', (e) => {
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (selectedFiles.length === 0 || !activeShop) return;
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Uploading to Cloud...';
+      submitBtn.textContent = 'Transferring via PrintAway...';
       const progressBar = document.getElementById('progressBar');
       const progressFill = document.getElementById('progressFill');
       progressBar.style.display = 'block';
-      progressFill.style.width = '10%';
+      progressFill.style.width = '5%';
 
-      const formData = new FormData();
-      formData.append('shopId', activeShop.id);
-      formData.append('customerName', document.getElementById('customerName').value.trim());
-      formData.append('instructions', document.getElementById('instructions').value.trim());
-      selectedFiles.forEach(f => formData.append('files', f, f.name));
+      try {
+        let totalChunks = 0;
+        const fileChunkCounts = selectedFiles.map(f => {
+          const c = Math.max(1, Math.ceil(f.size / CHUNK_SIZE));
+          totalChunks += c;
+          return c;
+        });
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/upload', true);
+        let uploadedChunks = 0;
+        const uploadedMeta = [];
 
-      xhr.upload.onprogress = (evt) => {
-        if (evt.lengthComputable) {
-          progressFill.style.width = Math.round((evt.loaded / evt.total) * 90) + '%';
-        }
-      };
+        for (let fi = 0; fi < selectedFiles.length; fi++) {
+          const f = selectedFiles[fi];
+          const fileId = 'file_' + Date.now() + '_' + fi + '_' + Math.floor(Math.random() * 1000);
+          const chunkCount = fileChunkCounts[fi];
 
-      xhr.onload = () => {
-        progressFill.style.width = '100%';
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (xhr.status === 200 && data.success) {
-            document.getElementById('uploadCard').style.display = 'none';
-            document.getElementById('receiptCard').style.display = 'block';
-            document.getElementById('receiptIdText').textContent = data.receiptId;
-            document.getElementById('receiptShopName').textContent = data.shopName;
-            document.getElementById('receiptFileCount').textContent = data.fileCount;
-            document.getElementById('receiptTotalSize').textContent = data.totalSizeBytes >= 1024 * 1024
-              ? (data.totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
-              : (data.totalSizeBytes / 1024).toFixed(1) + ' KB';
-          } else {
-            alert('Upload failed: ' + (data.error || 'Unknown error'));
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Send Files';
-            progressBar.style.display = 'none';
+          for (let ci = 0; ci < chunkCount; ci++) {
+            const start = ci * CHUNK_SIZE;
+            const end = Math.min(f.size, start + CHUNK_SIZE);
+            const blobChunk = f.slice(start, end);
+
+            const fd = new FormData();
+            fd.append('fileId', fileId);
+            fd.append('chunkIndex', String(ci));
+            fd.append('chunk', blobChunk, f.name);
+
+            const chunkRes = await fetch('/api/upload-chunk', { method: 'POST', body: fd });
+            if (!chunkRes.ok) {
+              const errData = await chunkRes.json().catch(() => ({}));
+              throw new Error(errData.error || 'Chunk upload failed');
+            }
+
+            uploadedChunks++;
+            progressFill.style.width = Math.round((uploadedChunks / totalChunks) * 90) + '%';
           }
-        } catch (err) {
-          alert('Upload error: Invalid server response');
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Send Files';
-          progressBar.style.display = 'none';
-        }
-      };
 
-      xhr.onerror = () => {
-        alert('Network error during upload.');
+          uploadedMeta.push({
+            id: fileId,
+            originalName: f.name,
+            mimeType: f.type || 'application/octet-stream',
+            sizeBytes: f.size,
+            chunkCount
+          });
+        }
+
+        const completeRes = await fetch('/api/upload-complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopId: activeShop.id,
+            customerName: document.getElementById('customerName').value.trim(),
+            instructions: document.getElementById('instructions').value.trim(),
+            files: uploadedMeta
+          })
+        });
+
+        const data = await completeRes.json();
+        progressFill.style.width = '100%';
+
+        if (completeRes.ok && data.success) {
+          document.getElementById('uploadCard').style.display = 'none';
+          document.getElementById('receiptCard').style.display = 'block';
+          document.getElementById('receiptIdText').textContent = data.receiptId;
+          document.getElementById('receiptShopName').textContent = data.shopName;
+          document.getElementById('receiptFileCount').textContent = data.fileCount;
+          document.getElementById('receiptTotalSize').textContent = data.totalSizeBytes >= 1024 * 1024
+            ? (data.totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
+            : (data.totalSizeBytes / 1024).toFixed(1) + ' KB';
+        } else {
+          throw new Error(data.error || 'Failed to finalize transfer');
+        }
+      } catch (err) {
+        alert('Transfer failed: ' + err.message);
         submitBtn.disabled = false;
         submitBtn.textContent = 'Send Files';
         progressBar.style.display = 'none';
-      };
-
-      xhr.send(formData);
+      }
     });
 
     function resetUploadForm() {
@@ -1135,7 +1163,8 @@ const workspaceHtml = `<!DOCTYPE html>
       const container = document.getElementById('workspaceContent');
 
       if (['inbox', 'processing', 'completed'].includes(currentTab)) {
-        const filtered = shopSubs.filter(s => s.status === currentTab && (
+        const targetStatus = currentTab === 'inbox' ? 'incoming' : currentTab;
+        const filtered = shopSubs.filter(s => s.status === targetStatus && (
           !q || s.id.toLowerCase().includes(q) || (s.customerName || '').toLowerCase().includes(q)
         ));
 
