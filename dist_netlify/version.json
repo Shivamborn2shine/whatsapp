@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "3.2.0",
+    "version":  "3.2.1",
     "releaseDate":  "2026-11-13",
-    "releaseNotes":  "Support up to 500MB file uploads via 10MB chunked direct-to-PC tunnel transfer, streaming file downloads, and SHA-256 verified OTA auto-updates.",
-    "sha256":  "a1a2e310a2a8c18165d4f4217dfde0e9ba216308a5a5995af6b48a728b7954f5",
+    "releaseNotes":  "Fixed DPI button wrapping in Scan Drop PC Station so Auto-Start and Check Updates buttons are always visible, alongside 500MB chunked uploads and OTA updates.",
+    "sha256":  "8e5821c4f0c01ec0a43692a3fad7ed7e0fa1bd89725bf7f7c18267d5ee24dde8",
     "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
