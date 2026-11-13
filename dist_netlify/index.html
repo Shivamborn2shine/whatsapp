@@ -79,19 +79,8 @@
         </div>
 
         <div class="form-group">
-          <label for="serviceCategory">Service Needed</label>
-          <select id="serviceCategory">
-            <option value="Black & White Print">Black & White Print</option>
-            <option value="Color Print">Color Print</option>
-            <option value="Document Lamination">Document Lamination</option>
-            <option value="Document Scanning">Document Scanning</option>
-            <option value="Other / Custom">Other / Custom</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="instructions">Special Instructions (Optional)</label>
-          <textarea id="instructions" rows="2" placeholder="e.g. 2 copies, double-sided, pages 1 to 5 only"></textarea>
+          <label for="instructions">Note / Message (Optional)</label>
+          <textarea id="instructions" rows="2" placeholder="e.g. Any note or instructions (optional)"></textarea>
         </div>
 
         <div class="progress-bar" id="progressBar">
@@ -300,8 +289,7 @@
         const submission = {
           id: receiptId,
           shopId: activeShop.id,
-          customerName: document.getElementById('customerName').value.trim() || 'Anonymous Customer',
-          serviceCategory: document.getElementById('serviceCategory').value,
+          customerName: document.getElementById('customerName').value.trim() || 'Anonymous',
           instructions: document.getElementById('instructions').value.trim(),
           status: 'incoming',
           files: fileRecords,

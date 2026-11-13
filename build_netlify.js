@@ -98,8 +98,7 @@ const sharedStoreJs = `
           id: 'SD-1042',
           shopId: 'shop_quickprint_01',
           customerName: 'Vikram Malhotra',
-          serviceCategory: 'Color Print',
-          instructions: '2 copies on A4 paper',
+          instructions: 'Please check the attached documents',
           status: 'incoming',
           files: [],
           totalSizeBytes: 0,
@@ -328,19 +327,8 @@ const customerHtml = `<!DOCTYPE html>
         </div>
 
         <div class="form-group">
-          <label for="serviceCategory">Service Needed</label>
-          <select id="serviceCategory">
-            <option value="Black & White Print">Black & White Print</option>
-            <option value="Color Print">Color Print</option>
-            <option value="Document Lamination">Document Lamination</option>
-            <option value="Document Scanning">Document Scanning</option>
-            <option value="Other / Custom">Other / Custom</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="instructions">Special Instructions (Optional)</label>
-          <textarea id="instructions" rows="2" placeholder="e.g. 2 copies, double-sided, pages 1 to 5 only"></textarea>
+          <label for="instructions">Note / Message (Optional)</label>
+          <textarea id="instructions" rows="2" placeholder="e.g. Any note or instructions (optional)"></textarea>
         </div>
 
         <div class="progress-bar" id="progressBar">
@@ -549,8 +537,7 @@ const customerHtml = `<!DOCTYPE html>
         const submission = {
           id: receiptId,
           shopId: activeShop.id,
-          customerName: document.getElementById('customerName').value.trim() || 'Anonymous Customer',
-          serviceCategory: document.getElementById('serviceCategory').value,
+          customerName: document.getElementById('customerName').value.trim() || 'Anonymous',
           instructions: document.getElementById('instructions').value.trim(),
           status: 'incoming',
           files: fileRecords,
@@ -1622,7 +1609,7 @@ const workspaceHtml = `<!DOCTYPE html>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <div style="display:flex;align-items:center;gap:10px;">
                 <strong style="font-size:19px;color:#38bdf8;">\${sub.id}</strong>
-                <span class="badge badge-blue">\${sub.serviceCategory}</span>
+                \${sub.serviceCategory ? \`<span class="badge badge-blue">\${sub.serviceCategory}</span>\` : ''}
                 <span style="font-size:13px;font-weight:600;">\${sub.customerName}</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
