@@ -17,7 +17,7 @@ namespace ScanDrop.Native
         private readonly string _inboxDir;
         private readonly string _stateFile;
         private readonly int _port;
-        private readonly TunnelManager _tunnel;
+        private TunnelManager _tunnel;
         private readonly object _stateLock = new object();
         private HttpListener _listener;
         private Thread _listenThread;
@@ -38,16 +38,38 @@ namespace ScanDrop.Native
             if (!Directory.Exists(_inboxDir)) Directory.CreateDirectory(_inboxDir);
         }
 
+        public void SetTunnel(TunnelManager tunnel)
+        {
+            _tunnel = tunnel;
+        }
+
+        public int Port { get { return _actualPort; } }
+        private int _actualPort;
+
         public void Start()
         {
-            _listener = new HttpListener();
-            _listener.Prefixes.Add(string.Format(CultureInfo.InvariantCulture, "http://127.0.0.1:{0}/", _port));
-            _listener.Prefixes.Add(string.Format(CultureInfo.InvariantCulture, "http://localhost:{0}/", _port));
-            _listener.Start();
+            for (int candidate = _port; candidate < _port + 10; candidate++)
+            {
+                var l = new HttpListener();
+                l.Prefixes.Add(string.Format(CultureInfo.InvariantCulture, "http://127.0.0.1:{0}/", candidate));
+                l.Prefixes.Add(string.Format(CultureInfo.InvariantCulture, "http://localhost:{0}/", candidate));
+                try
+                {
+                    l.Start();
+                    _listener = l;
+                    _actualPort = candidate;
+                    break;
+                }
+                catch
+                {
+                    try { l.Close(); } catch { }
+                    if (candidate == _port + 9) throw;
+                }
+            }
 
             _listenThread = new Thread(ListenLoop) { IsBackground = true };
             _listenThread.Start();
-            Log("Local HTTP server listening on http://127.0.0.1:" + _port + "/workspace/");
+            Log("Local HTTP server listening on http://127.0.0.1:" + _actualPort + "/workspace/");
         }
 
         private void ListenLoop()
@@ -676,3 +698,4 @@ namespace ScanDrop.Native
         }
     }
 }
+
