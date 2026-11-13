@@ -284,6 +284,9 @@
     let localDerived = [];
     let pairedShopId = localStorage.getItem('scandrop_paired_shop_id') || 'shop_quickprint_01';
     let activePrintFile = null;
+    let activeApiBase = '';
+    const isLocalHost = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    function apiUrl(p) { return (activeApiBase || '') + p; }
 
     const TAB_META = {
       inbox: ['Incoming Customer Submissions', 'Files sent by customers through your Scan Drop QR'],
@@ -357,8 +360,28 @@
     async function fetchCloudState() {
       try {
         const res = await fetch('/api/state');
-        const data = await res.json();
+        let data = await res.json();
         if (data.success) {
+          // If opened on Netlify while the Shopkeeper PC Tunnel is online, connect directly to the Shop PC!
+          const cloudShop = (data.state.shops || []).find(s => s.id === pairedShopId) || (data.state.shops || [])[0];
+          if (!isLocalHost && data.storageMode !== 'local-pc' && cloudShop && cloudShop.tunnelOnline && cloudShop.tunnelUrl) {
+            try {
+              const tBase = cloudShop.tunnelUrl.replace(//$/, '');
+              const tRes = await fetch(tBase + '/api/state', { signal: AbortSignal.timeout(4000) });
+              const tData = await tRes.json();
+              if (tData && tData.success) {
+                activeApiBase = tBase;
+                data = tData;
+              } else {
+                activeApiBase = '';
+              }
+            } catch {
+              activeApiBase = '';
+            }
+          } else {
+            activeApiBase = '';
+          }
+
           cloudState = data.state;
           cloudPlans = data.plans;
           const badge = document.getElementById('storageTunnelBadge');
@@ -384,7 +407,7 @@
     async function executePair() {
       const code = document.getElementById('pairCodeInput').value.trim();
       if (!code) return;
-      const res = await fetch('/api/pair', {
+      const res = await fetch(apiUrl('/api/pair'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pairingCode: code })
@@ -403,7 +426,7 @@
 
     async function updateSubStatus(subId, newStatus, e) {
       if (e) e.stopPropagation();
-      await fetch('/api/submission/status', {
+      await fetch(apiUrl('/api/submission/status'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ submissionId: subId, status: newStatus })
@@ -414,7 +437,7 @@
     async function deleteSubmissions(ids) {
       if (!ids || ids.length === 0) return;
       if (!confirm('Permanently delete ' + ids.length + ' submission(s)?')) return;
-      await fetch('/api/submission/delete', {
+      await fetch(apiUrl('/api/submission/delete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ submissionIds: ids })
@@ -443,7 +466,7 @@
     function previewFile(fileId, fileName, ext, localBlobUrl = null) {
       const body = document.getElementById('previewBody');
       document.getElementById('previewTitle').textContent = fileName;
-      const fileUrl = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
+      const fileUrl = localBlobUrl || apiUrl('/api/file?id=' + encodeURIComponent(fileId));
       if (ext === '.pdf') {
         body.innerHTML = `<iframe src="${fileUrl}" style="width:100%;height:100%;border:none;"></iframe>`;
       } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
@@ -459,7 +482,7 @@
     }
 
     function downloadFile(fileId, fileName, localBlobUrl = null) {
-      const url = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
+      const url = localBlobUrl || apiUrl('/api/file?id=' + encodeURIComponent(fileId) + '&download=1');
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;
@@ -468,7 +491,7 @@
     }
 
     function openPrintModal(fileId, fileName, localBlobUrl = null) {
-      activePrintFile = { id: fileId, name: fileName, url: localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId)) };
+      activePrintFile = { id: fileId, name: fileName, url: localBlobUrl || apiUrl('/api/file?id=' + encodeURIComponent(fileId)) };
       document.getElementById('printFileLabel').textContent = 'Document: ' + fileName;
       openModal('printModal');
     }
@@ -490,7 +513,7 @@
       const pdfDoc = await PDFLib.PDFDocument.create();
       const [w, h] = [595.28, 841.89];
       for (const f of imgs) {
-        const res = await fetch('/api/file?id=' + encodeURIComponent(f.id));
+        const res = await fetch(apiUrl('/api/file?id=' + encodeURIComponent(f.id)));
         const bytes = await res.arrayBuffer();
         const img = f.fileExtension === '.png' ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const page = pdfDoc.addPage([w, h]);
@@ -521,7 +544,7 @@
 
       const pdfDoc = await PDFLib.PDFDocument.create();
       for (const cb of checkboxes) {
-        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const res = await fetch(apiUrl('/api/file?id=' + encodeURIComponent(cb.value)));
         const bytes = await res.arrayBuffer();
         const isPng = cb.dataset.ext === '.png';
         const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
@@ -546,7 +569,7 @@
       if (checkboxes.length < 2) { alert('Select at least 2 PDF files to merge.'); return; }
       const mergedPdf = await PDFLib.PDFDocument.create();
       for (const cb of checkboxes) {
-        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const res = await fetch(apiUrl('/api/file?id=' + encodeURIComponent(cb.value)));
         const bytes = await res.arrayBuffer();
         const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
         const pages = await mergedPdf.copyPages(src, src.getPageIndices());

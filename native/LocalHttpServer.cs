@@ -168,6 +168,26 @@ namespace ScanDrop.Native
                     return;
                 }
 
+                if (path == "/api/receipt" && req.HttpMethod == "GET")
+                {
+                    string rid = (req.QueryString["id"] ?? "").Trim().ToUpperInvariant();
+                    var state = LoadState();
+                    var subs = state["submissions"] as List<object>;
+                    Dictionary<string, object> found = null;
+                    if (subs != null)
+                    {
+                        foreach (Dictionary<string, object> s in subs)
+                        {
+                            if (GetStr(s, "id") == rid && GetStr(s, "status") != "expired") { found = s; break; }
+                        }
+                    }
+                    if (found == null)
+                        WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Receipt not found or expired." } });
+                    else
+                        WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "submission", found } });
+                    return;
+                }
+
                 if (path == "/api/submission/status" && req.HttpMethod == "POST")
                 {
                     var body = ReadJsonBody(req);
@@ -202,34 +222,51 @@ namespace ScanDrop.Native
                 if (path == "/api/submission/delete" && req.HttpMethod == "POST")
                 {
                     var body = ReadJsonBody(req);
-                    string subId = GetStr(body, "submissionId");
+                    var idsToDelete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    string singleId = GetStr(body, "submissionId");
+                    if (!string.IsNullOrEmpty(singleId)) idsToDelete.Add(singleId);
+                    object rawList;
+                    if (body != null && body.TryGetValue("submissionIds", out rawList) && rawList is System.Collections.IEnumerable)
+                    {
+                        foreach (var item in (System.Collections.IEnumerable)rawList)
+                        {
+                            string sId = Convert.ToString(item);
+                            if (!string.IsNullOrEmpty(sId)) idsToDelete.Add(sId);
+                        }
+                    }
+
+                    int deletedCount = 0;
                     lock (_stateLock)
                     {
                         var state = LoadStateUnsafe();
                         var subs = state["submissions"] as List<object>;
-                        int foundIdx = -1;
                         string shopId = null;
                         if (subs != null)
                         {
-                            for (int i = 0; i < subs.Count; i++)
+                            for (int i = subs.Count - 1; i >= 0; i--)
                             {
                                 var s = subs[i] as Dictionary<string, object>;
-                                if (GetStr(s, "id") == subId) { foundIdx = i; shopId = GetStr(s, "shopId"); break; }
+                                string curId = GetStr(s, "id");
+                                if (idsToDelete.Contains(curId))
+                                {
+                                    shopId = GetStr(s, "shopId");
+                                    subs.RemoveAt(i);
+                                    deletedCount++;
+                                    string subDir = Path.Combine(_inboxDir, curId);
+                                    if (Directory.Exists(subDir)) try { Directory.Delete(subDir, true); } catch { }
+                                }
                             }
-                            if (foundIdx >= 0) subs.RemoveAt(foundIdx);
                         }
-                        if (foundIdx < 0)
+                        if (deletedCount == 0)
                         {
                             WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Submission not found" } });
                             return;
                         }
-                        string subDir = Path.Combine(_inboxDir, subId);
-                        if (Directory.Exists(subDir)) try { Directory.Delete(subDir, true); } catch { }
-                        AddAudit(state, shopId, "shopkeeper", "SUBMISSION_DELETED", "Deleted " + subId + " from local SSD");
+                        AddAudit(state, shopId, "shopkeeper", "SUBMISSION_DELETED", "Deleted " + deletedCount + " submission(s) from local SSD");
                         SaveStateUnsafe(state);
                     }
                     FireSubmissionsChanged();
-                    WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+                    WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "deletedCount", deletedCount } });
                     return;
                 }
 

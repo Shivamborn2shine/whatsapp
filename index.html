@@ -61,13 +61,13 @@
 
     <div class="card" id="uploadCard">
       <form id="uploadForm">
-        <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.docx" style="display:none;">
+        <input type="file" id="fileInput" multiple style="display:none;">
         <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
           <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
           </svg>
           <div class="dropzone-text">Tap to select or drop files here</div>
-          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 50MB • PrintAway Chunked Transfer)</div>
+          <div class="dropzone-sub">All Documents, Images & Archives supported (Max 100MB • Direct PC Tunnel)</div>
         </div>
 
         <div class="file-list" id="fileList"></div>
@@ -142,9 +142,9 @@
   </div>
 
   <script>
-    const ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.docx'];
-    const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50MB via PrintAway Chunked Transfer
-    const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk
+    const BLOCKED_EXTS = ['.exe', '.bat', '.cmd', '.msi', '.vbs', '.ps1', '.scr'];
+    const MAX_TOTAL_BYTES = 100 * 1024 * 1024; // 100MB via Direct PC Tunnel / 50MB Cloud Fallback
+    const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk for cloud fallback
     let selectedFiles = [];
     let activeShop = null;
 
@@ -203,14 +203,14 @@
 
     function handleFiles(files) {
       for (const f of files) {
-        const ext = '.' + f.name.split('.').pop().toLowerCase();
-        if (!ALLOWED_EXTS.includes(ext)) {
-          alert('Unsupported file type: ' + f.name + '. Allowed: PDF, JPG, PNG, DOCX.');
+        const ext = f.name.includes('.') ? '.' + f.name.split('.').pop().toLowerCase() : '';
+        if (BLOCKED_EXTS.includes(ext)) {
+          alert('Executable files (' + ext + ') are blocked for security.');
           continue;
         }
         const currentTotal = selectedFiles.reduce((a, b) => a + b.size, 0);
         if (currentTotal + f.size > MAX_TOTAL_BYTES) {
-          alert('Total upload size exceeds 50MB limit per transfer.');
+          alert('Total upload size exceeds 100MB limit per transfer.');
           continue;
         }
         if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
@@ -293,11 +293,17 @@
         if (activeShop.tunnelOnline && activeShop.tunnelUrl) {
           try {
             submitBtn.textContent = '⚡ Sending directly to Shop PC...';
+            const totalSizeBytes = selectedFiles.reduce((a, b) => a + b.size, 0);
             const directData = await tryDirectTunnelUpload(activeShop.tunnelUrl, progressFill);
             progressFill.style.width = '100%';
             document.getElementById('uploadCard').style.display = 'none';
-            document.getElementById('receiptBox').style.display = 'block';
-            document.getElementById('receiptCode').textContent = directData.receiptId;
+            document.getElementById('receiptCard').style.display = 'block';
+            document.getElementById('receiptIdText').textContent = directData.receiptId;
+            document.getElementById('receiptShopName').textContent = activeShop.name || 'Shop PC (Direct SSD)';
+            document.getElementById('receiptFileCount').textContent = directData.fileCount || selectedFiles.length;
+            document.getElementById('receiptTotalSize').textContent = totalSizeBytes >= 1024 * 1024
+              ? (totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
+              : (totalSizeBytes / 1024).toFixed(1) + ' KB';
             return;
           } catch (tunnelErr) {
             console.warn('Direct tunnel failed, falling back to cloud PrintAway:', tunnelErr);
@@ -402,8 +408,17 @@
       resEl.style.display = 'block';
       resEl.textContent = 'Checking...';
       try {
-        const res = await fetch('/api/receipt?id=' + encodeURIComponent(code));
-        const data = await res.json();
+        let res, data;
+        if (activeShop && activeShop.tunnelOnline && activeShop.tunnelUrl) {
+          try {
+            res = await fetch(activeShop.tunnelUrl.replace(//$/, '') + '/api/receipt?id=' + encodeURIComponent(code));
+            data = await res.json();
+          } catch {}
+        }
+        if (!res || !res.ok || !data || !data.success) {
+          res = await fetch('/api/receipt?id=' + encodeURIComponent(code));
+          data = await res.json();
+        }
         if (!res.ok || !data.success) {
           resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
           return;
