@@ -122,11 +122,62 @@ namespace ScanDrop.Native
                     WriteJson(res, 200, new Dictionary<string, object>
                     {
                         { "success", true },
+                        { "appVersion", AutoUpdater.CurrentVersion },
                         { "storageMode", "local-pc" },
                         { "inboxDir", _inboxDir },
-                        { "tunnelUrl", _tunnel.LiveTunnelUrl },
-                        { "tunnelOnline", !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) },
-                        { "tunnelProvider", _tunnel.ActiveProviderName }
+                        { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
+                        { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) },
+                        { "tunnelProvider", _tunnel != null ? _tunnel.ActiveProviderName : null }
+                    });
+                    return;
+                }
+
+                if ((path == "/api/version" && req.HttpMethod == "GET") || (path == "/api/update/check" && req.HttpMethod == "POST"))
+                {
+                    var upd = AutoUpdater.CheckForUpdate();
+                    bool uiUpdated = AutoUpdater.SyncWorkspaceUi(_rootDir);
+                    WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "currentVersion", upd.CurrentVersion },
+                        { "latestVersion", upd.LatestVersion },
+                        { "updateAvailable", upd.UpdateAvailable },
+                        { "releaseNotes", upd.ReleaseNotes },
+                        { "downloadUrl", upd.DownloadUrl },
+                        { "uiUpdated", uiUpdated }
+                    });
+                    return;
+                }
+
+                if (path == "/api/update/apply" && req.HttpMethod == "POST")
+                {
+                    var upd = AutoUpdater.CheckForUpdate();
+                    if (!upd.UpdateAvailable)
+                    {
+                        WriteJson(res, 200, new Dictionary<string, object>
+                        {
+                            { "success", true },
+                            { "updating", false },
+                            { "message", "Already running the latest version (" + upd.CurrentVersion + ")." }
+                        });
+                        return;
+                    }
+                    WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "updating", true },
+                        { "targetVersion", upd.LatestVersion },
+                        { "message", "Downloading v" + upd.LatestVersion + " and restarting ScanDrop.exe..." }
+                    });
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        string err;
+                        AutoUpdater.ApplyUpdate(upd, () =>
+                        {
+                            try { if (_tunnel != null) _tunnel.Dispose(); } catch { }
+                            try { Dispose(); } catch { }
+                        }, out err);
+                        if (!string.IsNullOrEmpty(err)) Log("Auto-update error: " + err);
                     });
                     return;
                 }
@@ -147,11 +198,12 @@ namespace ScanDrop.Native
                     WriteJson(res, 200, new Dictionary<string, object>
                     {
                         { "success", true },
+                        { "appVersion", AutoUpdater.CurrentVersion },
                         { "plans", GetPlans() },
                         { "state", state },
                         { "storageMode", "local-pc" },
-                        { "tunnelUrl", _tunnel.LiveTunnelUrl },
-                        { "tunnelOnline", !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) }
+                        { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
+                        { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) }
                     });
                     return;
                 }

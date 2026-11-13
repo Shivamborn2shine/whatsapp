@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -27,8 +29,8 @@ namespace ScanDrop.Native
             _cloudQrUrl = cloudQrUrl;
             _port = port;
 
-            Text = "Scan Drop — Local PC Storage & Tunnel Station";
-            Size = new Size(760, 520);
+            Text = "Scan Drop v" + AutoUpdater.CurrentVersion + " — Local PC Storage & Tunnel Station";
+            Size = new Size(780, 540);
             MinimumSize = new Size(680, 460);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(244, 247, 251);
@@ -36,6 +38,8 @@ namespace ScanDrop.Native
 
             BuildUi();
             SetupTray();
+
+            Shown += (s, e) => ThreadPool.QueueUserWorkItem(_ => { Thread.Sleep(3000); RunUpdateCheck(false); });
 
             _tunnel.OnStatusMessage += AppendLog;
             _server.OnLog += AppendLog;
@@ -109,7 +113,10 @@ namespace ScanDrop.Native
             _autoStartBtn = new Button { Text = IsAutoStartEnabled() ? "✅ Auto-Start ON" : "Auto-Start OFF", AutoSize = true, Height = 34, BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             _autoStartBtn.Click += (s, e) => ToggleAutoStart();
 
-            btnRow.Controls.AddRange(new Control[] { openWsBtn, openDirBtn, copyQrBtn, restartBtn, _autoStartBtn });
+            var updateBtn = new Button { Text = "🔄 Check Updates", AutoSize = true, Height = 34, BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
+            updateBtn.Click += (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(true));
+
+            btnRow.Controls.AddRange(new Control[] { openWsBtn, openDirBtn, copyQrBtn, restartBtn, _autoStartBtn, updateBtn });
 
             _logBox = new TextBox
             {
@@ -208,5 +215,66 @@ namespace ScanDrop.Native
             }
             catch (Exception ex) { AppendLog("Auto-Start error: " + ex.Message); }
         }
+
+        private void RunUpdateCheck(bool interactive)
+        {
+            try
+            {
+                string rootDir = Path.GetDirectoryName(_server.InboxDir);
+                if (AutoUpdater.SyncWorkspaceUi(rootDir))
+                {
+                    AppendLog("✨ Synced latest Workspace UI from cloud CDN.");
+                }
+
+                var info = AutoUpdater.CheckForUpdate();
+                if (!info.UpdateAvailable)
+                {
+                    if (interactive && !IsDisposed)
+                    {
+                        AppendLog("Scan Drop v" + info.CurrentVersion + " is up to date.");
+                        BeginInvoke((Action)(() =>
+                            MessageBox.Show("You are running the latest version (v" + info.CurrentVersion + ").", "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                    }
+                    return;
+                }
+
+                AppendLog("🔔 Update available: v" + info.LatestVersion + " (current v" + info.CurrentVersion + ")");
+                if (IsDisposed) return;
+                BeginInvoke((Action)(() =>
+                {
+                    var res = MessageBox.Show(
+                        "Scan Drop v" + info.LatestVersion + " is available!\n\n" +
+                        (string.IsNullOrEmpty(info.ReleaseNotes) ? "" : info.ReleaseNotes + "\n\n") +
+                        "Install and restart ScanDrop.exe now?",
+                        "Scan Drop Update Available",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Information);
+
+                    if (res == DialogResult.Yes)
+                    {
+                        AppendLog("⬇️ Downloading & verifying ScanDrop v" + info.LatestVersion + "...");
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            string err;
+                            if (!AutoUpdater.ApplyUpdate(info, () =>
+                            {
+                                try { _tunnel.Dispose(); } catch { }
+                                try { _server.Dispose(); } catch { }
+                            }, out err) && !IsDisposed)
+                            {
+                                AppendLog("❌ Update failed: " + err);
+                                BeginInvoke((Action)(() =>
+                                    MessageBox.Show("Update failed: " + err, "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                            }
+                        });
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                if (interactive) AppendLog("Update check failed: " + ex.Message);
+            }
+        }
     }
 }
+

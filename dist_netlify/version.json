@@ -1,0 +1,8 @@
+﻿{
+    "version":  "3.1.0",
+    "releaseDate":  "2026-11-13",
+    "releaseNotes":  "Local PC SSD storage, Cloudflare + OpenSSH multi-provider tunnel, light-mode workspace UI, and 1-click SHA-256 verified auto-updates.",
+    "sha256":  "8f2e21a35e78f8da4be184e9506e40e8bb650a5e6bc3127878eabb63ae40e740",
+    "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
+    "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
+}

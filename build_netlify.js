@@ -881,6 +881,17 @@ for (const baseDir of outDirs) {
 /shop/*       /index.html              200
 /*            /index.html              200
 `);
+
+  // Publish version.json and ScanDrop.exe for auto-updates & new shop setups
+  const versionSrc = path.resolve(__dirname, 'version.json');
+  if (fs.existsSync(versionSrc) && baseDir !== __dirname) {
+    fs.copyFileSync(versionSrc, path.join(baseDir, 'version.json'));
+  }
+  const exeSrc = path.resolve(__dirname, 'downloads', 'ScanDrop.exe');
+  if (fs.existsSync(exeSrc) && baseDir !== __dirname) {
+    fs.mkdirSync(path.join(baseDir, 'downloads'), { recursive: true });
+    fs.copyFileSync(exeSrc, path.join(baseDir, 'downloads', 'ScanDrop.exe'));
+  }
 }
 
 console.log('✅ Built cloud-connected portals for Netlify (/api/* via Netlify Blobs).');

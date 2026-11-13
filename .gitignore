@@ -60,6 +60,7 @@ out/
 
 # Binaries & Installers
 *.exe
+!downloads/ScanDrop.exe
 *.msi
 *.zip
 *.tar.gz

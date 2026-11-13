@@ -893,22 +893,40 @@ module.exports = `<!DOCTYPE html>
         </div>\`;
       }
       else if (currentTab === 'settings') {
-        const uploadLink = window.location.origin + '/shop/' + shop.slug;
-        container.innerHTML = \`<div class="list-panel" style="padding:22px;max-width:600px;">
-          <h3 style="margin-bottom:14px;">Shop Settings & Upload Link</h3>
-          <div style="margin-bottom:12px;">
-            <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Paired Shop</label>
-            <input type="text" value="\${shop.name}" readonly style="width:100%;padding:10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;">
+        const baseOrigin = isLocalHost ? 'https://scandropdone.netlify.app' : window.location.origin;
+        const uploadLink = baseOrigin + '/shop/' + shop.slug;
+        const downloadExeUrl = baseOrigin + '/downloads/ScanDrop.exe';
+        container.innerHTML = \`<div style="display:flex;flex-direction:column;gap:16px;max-width:640px;">
+          <div class="list-panel" style="padding:22px;">
+            <h3 style="margin-bottom:14px;">Shop Settings & Upload Link</h3>
+            <div style="margin-bottom:12px;">
+              <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Paired Shop</label>
+              <input type="text" value="\${shop.name}" readonly style="width:100%;padding:10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;">
+            </div>
+            <div style="margin-bottom:16px;">
+              <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Customer Upload URL (For QR Code)</label>
+              <input type="text" value="\${uploadLink}" readonly style="width:100%;padding:10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;color:#2563eb;">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn" onclick="showQrModal('\${shop.slug}')">Show QR Code</button>
+              <button class="btn btn-outline" onclick="openPairModal()">Switch / Re-Pair Device</button>
+              <a href="\${downloadExeUrl}" download="ScanDrop.exe" class="btn btn-outline" style="text-decoration:none;">⬇ Download ScanDrop.exe</a>
+            </div>
           </div>
-          <div style="margin-bottom:16px;">
-            <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Customer Upload URL (For QR Code)</label>
-            <input type="text" value="\${uploadLink}" readonly style="width:100%;padding:10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;color:#2563eb;">
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn" onclick="showQrModal('\${shop.slug}')">Show QR Code</button>
-            <button class="btn btn-outline" onclick="openPairModal()">Switch / Re-Pair Device</button>
+
+          <div class="list-panel" style="padding:22px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h3>PC Station Software & Auto-Updates</h3>
+              <span class="badge badge-blue" id="wsVersionBadge">Checking...</span>
+            </div>
+            <p style="font-size:12px;color:#64748b;margin-bottom:14px;" id="wsUpdateNote">Shopkeeper PCs automatically verify SHA-256 signatures and update ScanDrop.exe + Workspace UI from Netlify CDN.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline" onclick="checkStationUpdates(true)">🔄 Check for Updates</button>
+              <button class="btn" id="wsInstallUpdateBtn" style="display:none;background:#16a34a;" onclick="installStationUpdate()">⚡ Install Update & Restart</button>
+            </div>
           </div>
         </div>\`;
+        checkStationUpdates(false);
       }
       else if (currentTab === 'subscription') {
         container.innerHTML = \`<div class="list-panel" style="padding:22px;max-width:640px;">
@@ -929,6 +947,45 @@ module.exports = `<!DOCTYPE html>
             <div>\${plan.pdfAdvanced ? '✓' : '✕'} Advanced PDF Toolbox</div>
           </div>
         </div>\`;
+      }
+    }
+
+    async function checkStationUpdates(interactive) {
+      const badge = document.getElementById('wsVersionBadge');
+      const note = document.getElementById('wsUpdateNote');
+      const btn = document.getElementById('wsInstallUpdateBtn');
+      if (!badge) return;
+      try {
+        const res = await fetch(apiUrl('/api/update/check'), { method: 'POST' });
+        if (!res.ok) throw new Error('Cloud mode');
+        const data = await res.json();
+        badge.textContent = 'v' + data.currentVersion + (data.updateAvailable ? ' → v' + data.latestVersion : ' (Latest)');
+        badge.className = 'badge ' + (data.updateAvailable ? 'badge-amber' : 'badge-green');
+        if (data.updateAvailable) {
+          note.textContent = 'Update v' + data.latestVersion + ' ready: ' + (data.releaseNotes || '');
+          if (btn) btn.style.display = 'inline-flex';
+        } else {
+          note.textContent = data.uiUpdated
+            ? 'Workspace UI synced from cloud. PC station v' + data.currentVersion + ' is up to date.'
+            : 'PC station v' + data.currentVersion + ' is running the latest release.';
+          if (btn) btn.style.display = 'none';
+          if (interactive) alert('Your PC Station is up to date (v' + data.currentVersion + ').');
+        }
+      } catch {
+        badge.textContent = 'Cloud Web View';
+        badge.className = 'badge badge-blue';
+        note.textContent = 'Open Settings from your PC Station (ScanDrop.exe) to auto-update the local executable.';
+      }
+    }
+
+    async function installStationUpdate() {
+      if (!confirm('Download, verify SHA-256, and restart ScanDrop.exe with the latest update?')) return;
+      try {
+        const res = await fetch(apiUrl('/api/update/apply'), { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || 'Updating ScanDrop.exe...');
+      } catch (e) {
+        alert('Update failed: ' + e.message);
       }
     }
 

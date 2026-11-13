@@ -178,11 +178,15 @@ namespace ScanDrop.Native
                     if (!health.Contains("\"storageMode\":\"local-pc\""))
                         throw new Exception("Health check failed: " + health);
 
+                    string ver = wc.DownloadString("http://127.0.0.1:" + server.Port + "/api/version");
+                    if (!ver.Contains("\"currentVersion\""))
+                        throw new Exception("Version endpoint check failed: " + ver);
+
                     string ws = wc.DownloadString("http://127.0.0.1:" + server.Port + "/workspace/");
                     if (!ws.Contains("Scan Drop"))
                         throw new Exception("Workspace HTML check failed.");
                 }
-                Console.WriteLine("PASS: LocalHttpServer /api/health & /workspace/ verified on port " + server.Port);
+                Console.WriteLine("PASS: LocalHttpServer /api/health, /api/version & /workspace/ verified on port " + server.Port);
                 return 0;
             }
         }
