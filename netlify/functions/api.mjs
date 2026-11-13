@@ -179,7 +179,15 @@ export default async (req, context) => {
     // 1. GET /api/state
     if (route === '/state' && req.method === 'GET') {
       const state = await loadCloudState();
-      return jsonResponse({ success: true, plans: PLANS, state });
+      const nowMs = Date.now();
+      const enrichedState = {
+        ...state,
+        shops: (state.shops || []).map(s => ({
+          ...s,
+          tunnelOnline: Boolean(s.tunnelUrl && s.tunnelUpdatedAt && (nowMs - new Date(s.tunnelUpdatedAt).getTime()) < 120000)
+        }))
+      };
+      return jsonResponse({ success: true, plans: PLANS, state: enrichedState });
     }
 
     // 2. GET /api/shop?slug=...

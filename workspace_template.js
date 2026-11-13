@@ -367,7 +367,10 @@ module.exports = `<!DOCTYPE html>
           if (!isLocalHost && data.storageMode !== 'local-pc' && cloudShop && cloudShop.tunnelOnline && cloudShop.tunnelUrl) {
             try {
               const tBase = cloudShop.tunnelUrl.replace(/[/]+$/, '');
-              const tRes = await fetch(tBase + '/api/state', { signal: AbortSignal.timeout(4000) });
+              const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+              const timer = ctrl ? setTimeout(() => ctrl.abort(), 5000) : null;
+              const tRes = await fetch(tBase + '/api/state', ctrl ? { signal: ctrl.signal } : {});
+              if (timer) clearTimeout(timer);
               const tData = await tRes.json();
               if (tData && tData.success) {
                 activeApiBase = tBase;
