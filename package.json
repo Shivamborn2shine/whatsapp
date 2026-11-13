@@ -22,5 +22,8 @@
     "pdf-tools"
   ],
   "author": "Scan Drop Founder",
-  "license": "Proprietary"
+  "license": "Proprietary",
+  "dependencies": {
+    "@netlify/blobs": "^11.1.9"
+  }
 }

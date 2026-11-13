@@ -1,6 +1,7 @@
 [build]
   command = "node build_netlify.js"
   publish = "dist_netlify"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"

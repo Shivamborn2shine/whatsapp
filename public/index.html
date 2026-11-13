@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Scan Drop — Send Files to Shop</title>
+  <title>Scan Drop — Send Files</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <style>
     :root {
@@ -35,8 +35,8 @@
     .file-remove { color: #ef4444; cursor: pointer; font-weight: bold; padding: 2px 8px; border: none; background: none; font-size: 15px; }
     .form-group { margin-top: 16px; }
     label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
-    input, select, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: #fff; color: var(--text); outline: none; }
-    input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    input, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: #fff; color: var(--text); outline: none; }
+    input:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
     .btn-submit { width: 100%; background: var(--primary); color: white; border: none; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 20px; transition: background 0.2s; box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
     .btn-submit:hover { background: var(--primary-hover); }
     .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; box-shadow: none; }
@@ -46,7 +46,6 @@
     .receipt-badge { font-size: 34px; font-weight: 900; color: var(--primary); letter-spacing: 1px; margin: 12px 0; }
     .retention-alert { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.4; margin-top: 16px; text-align: left; }
     .error-banner { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; display: none; }
-    .status-tracker { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); text-align: left; }
     .footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: auto; padding: 16px 0; }
   </style>
 </head>
@@ -54,7 +53,7 @@
   <div class="container">
     <div class="header">
       <div class="logo-badge">⚡ Scan Drop Direct</div>
-      <h1 class="shop-title" id="shopTitle">QuickPrint Xerox & Stationery</h1>
+      <h1 class="shop-title" id="shopTitle">Loading...</h1>
       <p class="shop-tagline" id="shopTagline">Scan. Drop. Done.</p>
     </div>
 
@@ -68,7 +67,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
           </svg>
           <div class="dropzone-text">Tap to select or drop files here</div>
-          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 100MB per file)</div>
+          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 5MB per upload)</div>
         </div>
 
         <div class="file-list" id="fileList"></div>
@@ -80,14 +79,14 @@
 
         <div class="form-group">
           <label for="instructions">Note / Message (Optional)</label>
-          <textarea id="instructions" rows="2" placeholder="e.g. Any note or instructions (optional)"></textarea>
+          <textarea id="instructions" rows="2" placeholder="e.g. Any note or message (optional)"></textarea>
         </div>
 
         <div class="progress-bar" id="progressBar">
           <div class="progress-fill" id="progressFill"></div>
         </div>
 
-        <button type="submit" class="btn-submit" id="submitBtn" disabled>Send Files to Shop</button>
+        <button type="submit" class="btn-submit" id="submitBtn" disabled>Send Files</button>
       </form>
     </div>
 
@@ -95,13 +94,13 @@
     <div class="card receipt-container" id="receiptCard">
       <div style="font-size: 46px; color: var(--success); margin-bottom: 6px;">✓</div>
       <h2 style="font-size: 20px; font-weight: 800;">Files Sent Successfully!</h2>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Show this receipt code to the shopkeeper</p>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Share this receipt code with the recipient</p>
       
       <div class="receipt-badge" id="receiptIdText">SD-XXXX</div>
 
       <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: left; font-size: 13px;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span style="color: var(--text-muted);">Shop:</span>
+          <span style="color: var(--text-muted);">Recipient:</span>
           <strong id="receiptShopName">-</strong>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -110,16 +109,16 @@
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
           <span style="color: var(--text-muted);">Total Size:</span>
-          <strong id="receiptTotalSize">0 MB</strong>
+          <strong id="receiptTotalSize">0 KB</strong>
         </div>
         <div style="display: flex; justify-content: space-between;">
           <span style="color: var(--text-muted);">Status:</span>
-          <strong id="receiptStatusBadge" style="color: var(--primary);">Received by Shop</strong>
+          <strong style="color: var(--primary);">Delivered to Panel</strong>
         </div>
       </div>
 
       <div class="retention-alert">
-        <strong>🔒 24-Hour Privacy Retention:</strong> Your files are delivered directly to the shop computer and automatically permanently deleted after 24 hours. No registration or payment needed here.
+        <strong>🔒 24-Hour Privacy Retention:</strong> Your files are delivered securely over the internet and automatically permanently deleted after 24 hours.
       </div>
 
       <button onclick="resetUploadForm()" class="btn-submit" style="background: #f1f5f9; color: #334155; box-shadow: none; margin-top: 16px;">
@@ -138,43 +137,50 @@
     </div>
 
     <div class="footer">
-      Powered by <strong>Scan Drop</strong> • Fast & Private File Delivery
+      Powered by <strong>Scan Drop</strong> • Fast & Private File Sharing
     </div>
   </div>
 
-  <script src="/shared-store.js"></script>
   <script>
     const ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.docx'];
-    const MAX_FILE_SIZE = 100 * 1024 * 1024;
+    const MAX_TOTAL_BYTES = 5 * 1024 * 1024; // 5MB safe limit for Netlify Functions
     let selectedFiles = [];
     let activeShop = null;
-    let activeReceiptId = null;
 
-    function resolveCurrentShop() {
-      const state = ScanDropStore.loadState();
-      const params = new URLSearchParams(window.location.search);
-      let slug = params.get('shop');
-      if (!slug && window.location.pathname.startsWith('/shop/')) {
-        slug = window.location.pathname.replace('/shop/', '').split('/')[0];
-      }
-      activeShop = state.shops.find(s => s.slug === slug) || state.shops[0];
+    async function resolveCurrentShop() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        let slug = params.get('shop') || '';
+        if (!slug && window.location.pathname.startsWith('/shop/')) {
+          slug = window.location.pathname.replace('/shop/', '').split('/')[0];
+        }
 
-      if (!activeShop) {
+        const res = await fetch('/api/shop?slug=' + encodeURIComponent(slug));
+        const data = await res.json();
+        activeShop = data.shop;
+
+        if (!activeShop) {
+          document.getElementById('shopTitle').textContent = 'Shop Not Found';
+          document.getElementById('shopUnavailableBanner').style.display = 'block';
+          document.getElementById('shopUnavailableBanner').textContent = 'Shop not found. Please scan a valid QR code.';
+          document.getElementById('uploadCard').style.display = 'none';
+          return;
+        }
+
+        document.getElementById('shopTitle').textContent = activeShop.name;
+        document.getElementById('shopTagline').textContent = activeShop.tagline || 'Scan. Drop. Done.';
+
+        if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked') {
+          document.getElementById('shopUnavailableBanner').style.display = 'block';
+          document.getElementById('shopUnavailableBanner').textContent = 'This recipient is currently not accepting uploads.';
+          document.getElementById('submitBtn').disabled = true;
+          document.getElementById('dropzone').style.pointerEvents = 'none';
+          document.getElementById('dropzone').style.opacity = '0.5';
+        }
+      } catch (err) {
+        document.getElementById('shopTitle').textContent = 'Scan Drop';
         document.getElementById('shopUnavailableBanner').style.display = 'block';
-        document.getElementById('shopUnavailableBanner').textContent = 'Shop not found. Please scan a valid shop QR code.';
-        document.getElementById('uploadCard').style.display = 'none';
-        return;
-      }
-
-      document.getElementById('shopTitle').textContent = activeShop.name;
-      document.getElementById('shopTagline').textContent = activeShop.tagline || 'Scan. Drop. Done.';
-
-      if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked') {
-        document.getElementById('shopUnavailableBanner').style.display = 'block';
-        document.getElementById('shopUnavailableBanner').textContent = 'This shop is currently not accepting file uploads.';
-        document.getElementById('submitBtn').disabled = true;
-        document.getElementById('dropzone').style.pointerEvents = 'none';
-        document.getElementById('dropzone').style.opacity = '0.5';
+        document.getElementById('shopUnavailableBanner').textContent = 'Could not connect to cloud server.';
       }
     }
 
@@ -184,11 +190,7 @@
     const submitBtn = document.getElementById('submitBtn');
 
     fileInput.addEventListener('change', (e) => handleFiles(Array.from(e.target.files)));
-
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
-    });
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
     dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
     dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
@@ -203,8 +205,9 @@
           alert('Unsupported file type: ' + f.name + '. Allowed: PDF, JPG, PNG, DOCX.');
           continue;
         }
-        if (f.size > MAX_FILE_SIZE) {
-          alert('File too large: ' + f.name + ' (Max 100MB).');
+        const currentTotal = selectedFiles.reduce((a, b) => a + b.size, 0);
+        if (currentTotal + f.size > MAX_TOTAL_BYTES) {
+          alert('Total upload size exceeds 5MB limit per transfer.');
           continue;
         }
         if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
@@ -240,84 +243,67 @@
       });
     }
 
-    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    document.getElementById('uploadForm').addEventListener('submit', (e) => {
       e.preventDefault();
       if (selectedFiles.length === 0 || !activeShop) return;
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Sending Files...';
+      submitBtn.textContent = 'Uploading to Cloud...';
       const progressBar = document.getElementById('progressBar');
       const progressFill = document.getElementById('progressFill');
       progressBar.style.display = 'block';
-      progressFill.style.width = '20%';
+      progressFill.style.width = '10%';
 
-      try {
-        const state = ScanDropStore.loadState();
-        let receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
-        while (state.submissions.some(s => s.id === receiptId)) {
-          receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
+      const formData = new FormData();
+      formData.append('shopId', activeShop.id);
+      formData.append('customerName', document.getElementById('customerName').value.trim());
+      formData.append('instructions', document.getElementById('instructions').value.trim());
+      selectedFiles.forEach(f => formData.append('files', f, f.name));
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload', true);
+
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable) {
+          progressFill.style.width = Math.round((evt.loaded / evt.total) * 90) + '%';
         }
+      };
 
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-        const fileRecords = [];
-        let totalSizeBytes = 0;
-
-        for (let i = 0; i < selectedFiles.length; i++) {
-          const f = selectedFiles[i];
-          const fileId = 'file_' + receiptId + '_' + (i + 1);
-          const ext = '.' + f.name.split('.').pop().toLowerCase();
-          const sha256 = await ScanDropStore.computeSha256(f);
-          await ScanDropStore.saveFileBlob(fileId, f, f.name, f.type);
-
-          fileRecords.push({
-            id: fileId,
-            submissionId: receiptId,
-            originalName: f.name,
-            mimeType: f.type,
-            fileExtension: ext,
-            sizeBytes: f.size,
-            sha256Hash: sha256,
-            status: 'synced',
-            createdAt: now.toISOString(),
-            expiresAt
-          });
-          totalSizeBytes += f.size;
-          progressFill.style.width = Math.round(((i + 1) / selectedFiles.length) * 100) + '%';
+      xhr.onload = () => {
+        progressFill.style.width = '100%';
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status === 200 && data.success) {
+            document.getElementById('uploadCard').style.display = 'none';
+            document.getElementById('receiptCard').style.display = 'block';
+            document.getElementById('receiptIdText').textContent = data.receiptId;
+            document.getElementById('receiptShopName').textContent = data.shopName;
+            document.getElementById('receiptFileCount').textContent = data.fileCount;
+            document.getElementById('receiptTotalSize').textContent = data.totalSizeBytes >= 1024 * 1024
+              ? (data.totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
+              : (data.totalSizeBytes / 1024).toFixed(1) + ' KB';
+          } else {
+            alert('Upload failed: ' + (data.error || 'Unknown error'));
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Send Files';
+            progressBar.style.display = 'none';
+          }
+        } catch (err) {
+          alert('Upload error: Invalid server response');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Send Files';
+          progressBar.style.display = 'none';
         }
+      };
 
-        const submission = {
-          id: receiptId,
-          shopId: activeShop.id,
-          customerName: document.getElementById('customerName').value.trim() || 'Anonymous',
-          instructions: document.getElementById('instructions').value.trim(),
-          status: 'incoming',
-          files: fileRecords,
-          totalSizeBytes,
-          createdAt: now.toISOString(),
-          expiresAt
-        };
-
-        state.submissions.unshift(submission);
-        ScanDropStore.addAudit(state, activeShop.id, 'customer', 'SUBMISSION_RECEIVED',
-          'Customer uploaded ' + receiptId + ' (' + fileRecords.length + ' files)');
-        ScanDropStore.saveState(state);
-
-        activeReceiptId = receiptId;
-        document.getElementById('uploadCard').style.display = 'none';
-        document.getElementById('receiptCard').style.display = 'block';
-        document.getElementById('receiptIdText').textContent = receiptId;
-        document.getElementById('receiptShopName').textContent = activeShop.name;
-        document.getElementById('receiptFileCount').textContent = fileRecords.length;
-        document.getElementById('receiptTotalSize').textContent = totalSizeBytes >= 1024 * 1024
-          ? (totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
-          : (totalSizeBytes / 1024).toFixed(1) + ' KB';
-      } catch (err) {
-        alert('Upload failed: ' + err.message);
+      xhr.onerror = () => {
+        alert('Network error during upload.');
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Send Files to Shop';
+        submitBtn.textContent = 'Send Files';
         progressBar.style.display = 'none';
-      }
+      };
+
+      xhr.send(formData);
     });
 
     function resetUploadForm() {
@@ -326,27 +312,33 @@
       renderFileList();
       document.getElementById('progressBar').style.display = 'none';
       document.getElementById('progressFill').style.width = '0%';
-      submitBtn.textContent = 'Send Files to Shop';
+      submitBtn.textContent = 'Send Files';
       document.getElementById('uploadCard').style.display = 'block';
       document.getElementById('receiptCard').style.display = 'none';
     }
 
-    function trackReceipt() {
+    async function trackReceipt() {
       const code = document.getElementById('lookupInput').value.trim().toUpperCase();
       const resEl = document.getElementById('lookupResult');
       if (!code) return;
-      const state = ScanDropStore.loadState();
-      const sub = state.submissions.find(s => s.id === code);
       resEl.style.display = 'block';
-      if (!sub) {
-        resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
-        return;
+      resEl.textContent = 'Checking...';
+      try {
+        const res = await fetch('/api/receipt?id=' + encodeURIComponent(code));
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
+          return;
+        }
+        const sub = data.submission;
+        const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
+        resEl.innerHTML = `<div style="background:#f1f5f9;padding:10px;border-radius:8px;">
+          <strong>${sub.id}</strong> • Status: <strong style="text-transform:capitalize;color:#2563eb;">${sub.status}</strong><br>
+          Files: ${(sub.files || []).length} • Auto-deletes in ${remHrs} hrs
+        </div>`;
+      } catch (err) {
+        resEl.innerHTML = '<span style="color:#ef4444;">Could not check receipt status.</span>';
       }
-      const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
-      resEl.innerHTML = `<div style="background:#f1f5f9;padding:10px;border-radius:8px;">
-        <strong>${sub.id}</strong> • Status: <strong style="text-transform:capitalize;color:#2563eb;">${sub.status}</strong><br>
-        Files: ${(sub.files || []).length} • Auto-deletes in ${remHrs} hrs
-      </div>`;
     }
 
     resolveCurrentShop();

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('🚀 Building Scan Drop Separate Web Portals for Netlify...');
+console.log('🚀 Building Scan Drop Cloud-Connected Portals for Netlify...');
 
 const outDirs = [
   path.resolve(__dirname, 'dist_netlify'),
@@ -16,242 +16,14 @@ for (const baseDir of outDirs) {
 }
 
 // ============================================================================
-// 1. SHARED CLIENT-SIDE STORE (localStorage + IndexedDB for real file blobs)
-// ============================================================================
-const sharedStoreJs = `
-(function(global) {
-  const STATE_KEY = 'scandrop_state_v3';
-  const DB_NAME = 'scandrop_files_db';
-  const STORE_NAME = 'files';
-
-  const PLANS = [
-    {
-      id: 'plan_free_trial',
-      name: 'Free / Trial',
-      tier: 'free',
-      priceText: '\$0 / 30 days',
-      maxDevices: 1,
-      maxMonthlySubmissions: 50,
-      batchConversion: false,
-      pdfAdvanced: false,
-      printerProfiles: false
-    },
-    {
-      id: 'plan_pro_monthly',
-      name: 'Pro Monthly',
-      tier: 'pro',
-      priceText: '\$29 / month',
-      maxDevices: 1,
-      maxMonthlySubmissions: 1000,
-      batchConversion: true,
-      pdfAdvanced: true,
-      printerProfiles: true
-    },
-    {
-      id: 'plan_business_monthly',
-      name: 'Business Multi-PC',
-      tier: 'business',
-      priceText: '\$69 / month',
-      maxDevices: 5,
-      maxMonthlySubmissions: 10000,
-      batchConversion: true,
-      pdfAdvanced: true,
-      printerProfiles: true
-    }
-  ];
-
-  function getDefaultState() {
-    const now = new Date();
-    const expiry30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    const expiry24h = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-    return {
-      shops: [
-        {
-          id: 'shop_quickprint_01',
-          slug: 'quickprint',
-          name: 'QuickPrint Xerox & Stationery',
-          tagline: 'Scan. Drop. Done.',
-          ownerName: 'Ramesh Kumar',
-          ownerEmail: 'ramesh@quickprint.local',
-          ownerPhone: '+91 98765 43210',
-          planId: 'plan_pro_monthly',
-          subscriptionStatus: 'active',
-          pairingCode: 'SD-PAIR-7890',
-          expiryDate: expiry30,
-          createdAt: now.toISOString()
-        }
-      ],
-      devices: [
-        {
-          id: 'dev_counter_01',
-          shopId: 'shop_quickprint_01',
-          deviceName: 'Shop Counter PC 1',
-          windowsVersion: 'Windows 11 Pro',
-          appVersion: '3.0.0',
-          status: 'active',
-          lastHeartbeatAt: now.toISOString(),
-          lastIp: '192.168.1.42'
-        }
-      ],
-      submissions: [
-        {
-          id: 'SD-1042',
-          shopId: 'shop_quickprint_01',
-          customerName: 'Vikram Malhotra',
-          instructions: 'Please check the attached documents',
-          status: 'incoming',
-          files: [],
-          totalSizeBytes: 0,
-          createdAt: now.toISOString(),
-          expiresAt: expiry24h
-        }
-      ],
-      derivedFiles: [],
-      printerProfiles: [
-        { id: 'prof_1', name: 'A4 Black & White', paperSize: 'A4', color: false, orientation: 'portrait', duplex: 'simplex' },
-        { id: 'prof_2', name: 'A4 Full Color', paperSize: 'A4', color: true, orientation: 'portrait', duplex: 'simplex' },
-        { id: 'prof_3', name: 'Photo 4x6 Glossy', paperSize: 'Photo4x6', color: true, orientation: 'portrait', duplex: 'simplex' }
-      ],
-      auditEvents: [
-        {
-          id: 'evt_seed_1',
-          shopId: 'shop_quickprint_01',
-          actorType: 'founder',
-          eventType: 'SHOP_CREATED',
-          description: 'QuickPrint Xerox & Stationery initialized with Pro Monthly plan',
-          createdAt: now.toISOString()
-        }
-      ],
-      workspaceConfig: {
-        pairedShopId: 'shop_quickprint_01',
-        deviceId: 'dev_counter_01',
-        deviceName: 'Shop Counter PC 1',
-        storageRoot: 'C:\\\\Users\\\\Shop\\\\ScanDrop'
-      }
-    };
-  }
-
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(STATE_KEY);
-      if (!raw) {
-        const def = getDefaultState();
-        saveState(def);
-        return def;
-      }
-      const state = JSON.parse(raw);
-      // Run 24-hour retention cleanup automatically
-      const nowIso = new Date().toISOString();
-      let changed = false;
-      state.submissions.forEach(sub => {
-        if (sub.status !== 'expired' && sub.expiresAt <= nowIso) {
-          sub.status = 'expired';
-          (sub.files || []).forEach(f => deleteFileBlob(f.id));
-          state.auditEvents.unshift({
-            id: 'evt_' + Date.now() + '_' + sub.id,
-            shopId: sub.shopId,
-            actorType: 'system',
-            eventType: 'RETENTION_PURGED',
-            description: 'Submission ' + sub.id + ' reached 24-hour retention limit and was purged.',
-            createdAt: nowIso
-          });
-          changed = true;
-        }
-      });
-      if (changed) saveState(state);
-      return state;
-    } catch (e) {
-      return getDefaultState();
-    }
-  }
-
-  function saveState(state) {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
-  }
-
-  function addAudit(state, shopId, actorType, eventType, description) {
-    state.auditEvents.unshift({
-      id: 'evt_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-      shopId: shopId || null,
-      actorType,
-      eventType,
-      description,
-      createdAt: new Date().toISOString()
-    });
-    if (state.auditEvents.length > 200) state.auditEvents.length = 200;
-  }
-
-  // IndexedDB helpers for real file storage
-  function openFilesDb() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-  async function saveFileBlob(id, blob, name, type) {
-    const db = await openFilesDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).put({ id, blob, name, type });
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  async function getFileBlob(id) {
-    const db = await openFilesDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const req = tx.objectStore(STORE_NAME).get(id);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-  async function deleteFileBlob(id) {
-    try {
-      const db = await openFilesDb();
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).delete(id);
-    } catch (e) {}
-  }
-
-  async function computeSha256(fileOrBlob) {
-    const buf = await fileOrBlob.arrayBuffer();
-    const hashBuf = await crypto.subtle.digest('SHA-256', buf);
-    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  global.ScanDropStore = {
-    PLANS,
-    loadState,
-    saveState,
-    addAudit,
-    saveFileBlob,
-    getFileBlob,
-    deleteFileBlob,
-    computeSha256
-  };
-})(window);
-`;
-
-// ============================================================================
-// 2. CUSTOMER UPLOAD PORTAL (index.html) - SEPARATE, NO PAYMENT/PRICING, NO ADMIN TABS
+// 1. CUSTOMER UPLOAD PORTAL (index.html) - REAL CLOUD UPLOAD (/api/upload)
 // ============================================================================
 const customerHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Scan Drop — Send Files to Shop</title>
+  <title>Scan Drop — Send Files</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <style>
     :root {
@@ -283,8 +55,8 @@ const customerHtml = `<!DOCTYPE html>
     .file-remove { color: #ef4444; cursor: pointer; font-weight: bold; padding: 2px 8px; border: none; background: none; font-size: 15px; }
     .form-group { margin-top: 16px; }
     label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
-    input, select, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: #fff; color: var(--text); outline: none; }
-    input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    input, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: #fff; color: var(--text); outline: none; }
+    input:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
     .btn-submit { width: 100%; background: var(--primary); color: white; border: none; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 20px; transition: background 0.2s; box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
     .btn-submit:hover { background: var(--primary-hover); }
     .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; box-shadow: none; }
@@ -294,7 +66,6 @@ const customerHtml = `<!DOCTYPE html>
     .receipt-badge { font-size: 34px; font-weight: 900; color: var(--primary); letter-spacing: 1px; margin: 12px 0; }
     .retention-alert { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.4; margin-top: 16px; text-align: left; }
     .error-banner { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; display: none; }
-    .status-tracker { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); text-align: left; }
     .footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: auto; padding: 16px 0; }
   </style>
 </head>
@@ -302,7 +73,7 @@ const customerHtml = `<!DOCTYPE html>
   <div class="container">
     <div class="header">
       <div class="logo-badge">⚡ Scan Drop Direct</div>
-      <h1 class="shop-title" id="shopTitle">QuickPrint Xerox & Stationery</h1>
+      <h1 class="shop-title" id="shopTitle">Loading...</h1>
       <p class="shop-tagline" id="shopTagline">Scan. Drop. Done.</p>
     </div>
 
@@ -316,7 +87,7 @@ const customerHtml = `<!DOCTYPE html>
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
           </svg>
           <div class="dropzone-text">Tap to select or drop files here</div>
-          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 100MB per file)</div>
+          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 5MB per upload)</div>
         </div>
 
         <div class="file-list" id="fileList"></div>
@@ -328,14 +99,14 @@ const customerHtml = `<!DOCTYPE html>
 
         <div class="form-group">
           <label for="instructions">Note / Message (Optional)</label>
-          <textarea id="instructions" rows="2" placeholder="e.g. Any note or instructions (optional)"></textarea>
+          <textarea id="instructions" rows="2" placeholder="e.g. Any note or message (optional)"></textarea>
         </div>
 
         <div class="progress-bar" id="progressBar">
           <div class="progress-fill" id="progressFill"></div>
         </div>
 
-        <button type="submit" class="btn-submit" id="submitBtn" disabled>Send Files to Shop</button>
+        <button type="submit" class="btn-submit" id="submitBtn" disabled>Send Files</button>
       </form>
     </div>
 
@@ -343,13 +114,13 @@ const customerHtml = `<!DOCTYPE html>
     <div class="card receipt-container" id="receiptCard">
       <div style="font-size: 46px; color: var(--success); margin-bottom: 6px;">✓</div>
       <h2 style="font-size: 20px; font-weight: 800;">Files Sent Successfully!</h2>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Show this receipt code to the shopkeeper</p>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Share this receipt code with the recipient</p>
       
       <div class="receipt-badge" id="receiptIdText">SD-XXXX</div>
 
       <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: left; font-size: 13px;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span style="color: var(--text-muted);">Shop:</span>
+          <span style="color: var(--text-muted);">Recipient:</span>
           <strong id="receiptShopName">-</strong>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -358,16 +129,16 @@ const customerHtml = `<!DOCTYPE html>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
           <span style="color: var(--text-muted);">Total Size:</span>
-          <strong id="receiptTotalSize">0 MB</strong>
+          <strong id="receiptTotalSize">0 KB</strong>
         </div>
         <div style="display: flex; justify-content: space-between;">
           <span style="color: var(--text-muted);">Status:</span>
-          <strong id="receiptStatusBadge" style="color: var(--primary);">Received by Shop</strong>
+          <strong style="color: var(--primary);">Delivered to Panel</strong>
         </div>
       </div>
 
       <div class="retention-alert">
-        <strong>🔒 24-Hour Privacy Retention:</strong> Your files are delivered directly to the shop computer and automatically permanently deleted after 24 hours. No registration or payment needed here.
+        <strong>🔒 24-Hour Privacy Retention:</strong> Your files are delivered securely over the internet and automatically permanently deleted after 24 hours.
       </div>
 
       <button onclick="resetUploadForm()" class="btn-submit" style="background: #f1f5f9; color: #334155; box-shadow: none; margin-top: 16px;">
@@ -386,43 +157,50 @@ const customerHtml = `<!DOCTYPE html>
     </div>
 
     <div class="footer">
-      Powered by <strong>Scan Drop</strong> • Fast & Private File Delivery
+      Powered by <strong>Scan Drop</strong> • Fast & Private File Sharing
     </div>
   </div>
 
-  <script src="/shared-store.js"></script>
   <script>
     const ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.docx'];
-    const MAX_FILE_SIZE = 100 * 1024 * 1024;
+    const MAX_TOTAL_BYTES = 5 * 1024 * 1024; // 5MB safe limit for Netlify Functions
     let selectedFiles = [];
     let activeShop = null;
-    let activeReceiptId = null;
 
-    function resolveCurrentShop() {
-      const state = ScanDropStore.loadState();
-      const params = new URLSearchParams(window.location.search);
-      let slug = params.get('shop');
-      if (!slug && window.location.pathname.startsWith('/shop/')) {
-        slug = window.location.pathname.replace('/shop/', '').split('/')[0];
-      }
-      activeShop = state.shops.find(s => s.slug === slug) || state.shops[0];
+    async function resolveCurrentShop() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        let slug = params.get('shop') || '';
+        if (!slug && window.location.pathname.startsWith('/shop/')) {
+          slug = window.location.pathname.replace('/shop/', '').split('/')[0];
+        }
 
-      if (!activeShop) {
+        const res = await fetch('/api/shop?slug=' + encodeURIComponent(slug));
+        const data = await res.json();
+        activeShop = data.shop;
+
+        if (!activeShop) {
+          document.getElementById('shopTitle').textContent = 'Shop Not Found';
+          document.getElementById('shopUnavailableBanner').style.display = 'block';
+          document.getElementById('shopUnavailableBanner').textContent = 'Shop not found. Please scan a valid QR code.';
+          document.getElementById('uploadCard').style.display = 'none';
+          return;
+        }
+
+        document.getElementById('shopTitle').textContent = activeShop.name;
+        document.getElementById('shopTagline').textContent = activeShop.tagline || 'Scan. Drop. Done.';
+
+        if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked') {
+          document.getElementById('shopUnavailableBanner').style.display = 'block';
+          document.getElementById('shopUnavailableBanner').textContent = 'This recipient is currently not accepting uploads.';
+          document.getElementById('submitBtn').disabled = true;
+          document.getElementById('dropzone').style.pointerEvents = 'none';
+          document.getElementById('dropzone').style.opacity = '0.5';
+        }
+      } catch (err) {
+        document.getElementById('shopTitle').textContent = 'Scan Drop';
         document.getElementById('shopUnavailableBanner').style.display = 'block';
-        document.getElementById('shopUnavailableBanner').textContent = 'Shop not found. Please scan a valid shop QR code.';
-        document.getElementById('uploadCard').style.display = 'none';
-        return;
-      }
-
-      document.getElementById('shopTitle').textContent = activeShop.name;
-      document.getElementById('shopTagline').textContent = activeShop.tagline || 'Scan. Drop. Done.';
-
-      if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked') {
-        document.getElementById('shopUnavailableBanner').style.display = 'block';
-        document.getElementById('shopUnavailableBanner').textContent = 'This shop is currently not accepting file uploads.';
-        document.getElementById('submitBtn').disabled = true;
-        document.getElementById('dropzone').style.pointerEvents = 'none';
-        document.getElementById('dropzone').style.opacity = '0.5';
+        document.getElementById('shopUnavailableBanner').textContent = 'Could not connect to cloud server.';
       }
     }
 
@@ -432,11 +210,7 @@ const customerHtml = `<!DOCTYPE html>
     const submitBtn = document.getElementById('submitBtn');
 
     fileInput.addEventListener('change', (e) => handleFiles(Array.from(e.target.files)));
-
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
-    });
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
     dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
     dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
@@ -451,8 +225,9 @@ const customerHtml = `<!DOCTYPE html>
           alert('Unsupported file type: ' + f.name + '. Allowed: PDF, JPG, PNG, DOCX.');
           continue;
         }
-        if (f.size > MAX_FILE_SIZE) {
-          alert('File too large: ' + f.name + ' (Max 100MB).');
+        const currentTotal = selectedFiles.reduce((a, b) => a + b.size, 0);
+        if (currentTotal + f.size > MAX_TOTAL_BYTES) {
+          alert('Total upload size exceeds 5MB limit per transfer.');
           continue;
         }
         if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
@@ -488,84 +263,67 @@ const customerHtml = `<!DOCTYPE html>
       });
     }
 
-    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    document.getElementById('uploadForm').addEventListener('submit', (e) => {
       e.preventDefault();
       if (selectedFiles.length === 0 || !activeShop) return;
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Sending Files...';
+      submitBtn.textContent = 'Uploading to Cloud...';
       const progressBar = document.getElementById('progressBar');
       const progressFill = document.getElementById('progressFill');
       progressBar.style.display = 'block';
-      progressFill.style.width = '20%';
+      progressFill.style.width = '10%';
 
-      try {
-        const state = ScanDropStore.loadState();
-        let receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
-        while (state.submissions.some(s => s.id === receiptId)) {
-          receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
+      const formData = new FormData();
+      formData.append('shopId', activeShop.id);
+      formData.append('customerName', document.getElementById('customerName').value.trim());
+      formData.append('instructions', document.getElementById('instructions').value.trim());
+      selectedFiles.forEach(f => formData.append('files', f, f.name));
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload', true);
+
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable) {
+          progressFill.style.width = Math.round((evt.loaded / evt.total) * 90) + '%';
         }
+      };
 
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-        const fileRecords = [];
-        let totalSizeBytes = 0;
-
-        for (let i = 0; i < selectedFiles.length; i++) {
-          const f = selectedFiles[i];
-          const fileId = 'file_' + receiptId + '_' + (i + 1);
-          const ext = '.' + f.name.split('.').pop().toLowerCase();
-          const sha256 = await ScanDropStore.computeSha256(f);
-          await ScanDropStore.saveFileBlob(fileId, f, f.name, f.type);
-
-          fileRecords.push({
-            id: fileId,
-            submissionId: receiptId,
-            originalName: f.name,
-            mimeType: f.type,
-            fileExtension: ext,
-            sizeBytes: f.size,
-            sha256Hash: sha256,
-            status: 'synced',
-            createdAt: now.toISOString(),
-            expiresAt
-          });
-          totalSizeBytes += f.size;
-          progressFill.style.width = Math.round(((i + 1) / selectedFiles.length) * 100) + '%';
+      xhr.onload = () => {
+        progressFill.style.width = '100%';
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status === 200 && data.success) {
+            document.getElementById('uploadCard').style.display = 'none';
+            document.getElementById('receiptCard').style.display = 'block';
+            document.getElementById('receiptIdText').textContent = data.receiptId;
+            document.getElementById('receiptShopName').textContent = data.shopName;
+            document.getElementById('receiptFileCount').textContent = data.fileCount;
+            document.getElementById('receiptTotalSize').textContent = data.totalSizeBytes >= 1024 * 1024
+              ? (data.totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
+              : (data.totalSizeBytes / 1024).toFixed(1) + ' KB';
+          } else {
+            alert('Upload failed: ' + (data.error || 'Unknown error'));
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Send Files';
+            progressBar.style.display = 'none';
+          }
+        } catch (err) {
+          alert('Upload error: Invalid server response');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Send Files';
+          progressBar.style.display = 'none';
         }
+      };
 
-        const submission = {
-          id: receiptId,
-          shopId: activeShop.id,
-          customerName: document.getElementById('customerName').value.trim() || 'Anonymous',
-          instructions: document.getElementById('instructions').value.trim(),
-          status: 'incoming',
-          files: fileRecords,
-          totalSizeBytes,
-          createdAt: now.toISOString(),
-          expiresAt
-        };
-
-        state.submissions.unshift(submission);
-        ScanDropStore.addAudit(state, activeShop.id, 'customer', 'SUBMISSION_RECEIVED',
-          'Customer uploaded ' + receiptId + ' (' + fileRecords.length + ' files)');
-        ScanDropStore.saveState(state);
-
-        activeReceiptId = receiptId;
-        document.getElementById('uploadCard').style.display = 'none';
-        document.getElementById('receiptCard').style.display = 'block';
-        document.getElementById('receiptIdText').textContent = receiptId;
-        document.getElementById('receiptShopName').textContent = activeShop.name;
-        document.getElementById('receiptFileCount').textContent = fileRecords.length;
-        document.getElementById('receiptTotalSize').textContent = totalSizeBytes >= 1024 * 1024
-          ? (totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
-          : (totalSizeBytes / 1024).toFixed(1) + ' KB';
-      } catch (err) {
-        alert('Upload failed: ' + err.message);
+      xhr.onerror = () => {
+        alert('Network error during upload.');
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Send Files to Shop';
+        submitBtn.textContent = 'Send Files';
         progressBar.style.display = 'none';
-      }
+      };
+
+      xhr.send(formData);
     });
 
     function resetUploadForm() {
@@ -574,27 +332,33 @@ const customerHtml = `<!DOCTYPE html>
       renderFileList();
       document.getElementById('progressBar').style.display = 'none';
       document.getElementById('progressFill').style.width = '0%';
-      submitBtn.textContent = 'Send Files to Shop';
+      submitBtn.textContent = 'Send Files';
       document.getElementById('uploadCard').style.display = 'block';
       document.getElementById('receiptCard').style.display = 'none';
     }
 
-    function trackReceipt() {
+    async function trackReceipt() {
       const code = document.getElementById('lookupInput').value.trim().toUpperCase();
       const resEl = document.getElementById('lookupResult');
       if (!code) return;
-      const state = ScanDropStore.loadState();
-      const sub = state.submissions.find(s => s.id === code);
       resEl.style.display = 'block';
-      if (!sub) {
-        resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
-        return;
+      resEl.textContent = 'Checking...';
+      try {
+        const res = await fetch('/api/receipt?id=' + encodeURIComponent(code));
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
+          return;
+        }
+        const sub = data.submission;
+        const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
+        resEl.innerHTML = \`<div style="background:#f1f5f9;padding:10px;border-radius:8px;">
+          <strong>\${sub.id}</strong> • Status: <strong style="text-transform:capitalize;color:#2563eb;">\${sub.status}</strong><br>
+          Files: \${(sub.files || []).length} • Auto-deletes in \${remHrs} hrs
+        </div>\`;
+      } catch (err) {
+        resEl.innerHTML = '<span style="color:#ef4444;">Could not check receipt status.</span>';
       }
-      const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
-      resEl.innerHTML = \`<div style="background:#f1f5f9;padding:10px;border-radius:8px;">
-        <strong>\${sub.id}</strong> • Status: <strong style="text-transform:capitalize;color:#2563eb;">\${sub.status}</strong><br>
-        Files: \${(sub.files || []).length} • Auto-deletes in \${remHrs} hrs
-      </div>\`;
     }
 
     resolveCurrentShop();
@@ -603,7 +367,7 @@ const customerHtml = `<!DOCTYPE html>
 </html>`;
 
 // ============================================================================
-// 3. FOUNDER SUPER ADMIN DASHBOARD (superadmin/index.html) - SEPARATE PORTAL
+// 2. FOUNDER SUPER ADMIN DASHBOARD (superadmin/index.html) - CLOUD API
 // ============================================================================
 const superadminHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -679,26 +443,11 @@ const superadminHtml = `<!DOCTYPE html>
 
   <div class="container">
     <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Registered Shops</div>
-        <div class="stat-val" id="statShops">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Active Subscriptions</div>
-        <div class="stat-val" id="statSubs" style="color: #34d399;">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Active Windows PCs</div>
-        <div class="stat-val" id="statDevices" style="color: #60a5fa;">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Total Submissions</div>
-        <div class="stat-val" id="statSubmissions">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Processed Volume</div>
-        <div class="stat-val" id="statStorage">0 MB</div>
-      </div>
+      <div class="stat-card"><div class="stat-label">Registered Shops</div><div class="stat-val" id="statShops">-</div></div>
+      <div class="stat-card"><div class="stat-label">Active Subscriptions</div><div class="stat-val" id="statSubs" style="color: #34d399;">-</div></div>
+      <div class="stat-card"><div class="stat-label">Active Windows PCs</div><div class="stat-val" id="statDevices" style="color: #60a5fa;">-</div></div>
+      <div class="stat-card"><div class="stat-label">Total Submissions</div><div class="stat-val" id="statSubmissions">-</div></div>
+      <div class="stat-card"><div class="stat-label">Processed Volume</div><div class="stat-val" id="statStorage">-</div></div>
     </div>
 
     <div class="tabs">
@@ -708,17 +457,16 @@ const superadminHtml = `<!DOCTYPE html>
       <button class="tab-btn" onclick="switchTab('auditTab', this)">Audit Events</button>
     </div>
 
-    <!-- Shops Tab -->
     <div id="shopsTab" class="tab-content">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Registered Print Shops (B2B Subscribers)</div>
+          <div class="card-title">Registered Shops (B2B Subscribers)</div>
           <button class="btn" onclick="openCreateShopModal()">+ Register New Shop</button>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Shop Name / Customer QR URL</th>
+              <th>Shop Name / Customer Upload Link</th>
               <th>Shopkeeper & Contact</th>
               <th>Plan Tier</th>
               <th>Status</th>
@@ -728,73 +476,36 @@ const superadminHtml = `<!DOCTYPE html>
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="shopsTableBody"></tbody>
+          <tbody id="shopsTableBody"><tr><td colspan="8" style="text-align:center;">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
 
-    <!-- Devices Tab -->
     <div id="devicesTab" class="tab-content" style="display:none;">
       <div class="card">
-        <div class="card-header">
-          <div class="card-title">Paired Windows Devices Fleet</div>
-        </div>
+        <div class="card-header"><div class="card-title">Paired Windows Devices Fleet</div></div>
         <table>
-          <thead>
-            <tr>
-              <th>Device Name</th>
-              <th>Shop Assigned</th>
-              <th>OS / App Version</th>
-              <th>Status</th>
-              <th>Last Heartbeat</th>
-              <th>Last IP</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Device Name</th><th>Shop Assigned</th><th>OS / App Version</th><th>Status</th><th>Last Heartbeat</th><th>Last IP</th><th>Actions</th></tr></thead>
           <tbody id="devicesTableBody"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- Plans Tab -->
     <div id="plansTab" class="tab-content" style="display:none;">
       <div class="card">
-        <div class="card-header">
-          <div class="card-title">Shopkeeper SaaS Pricing Plans & Entitlements</div>
-        </div>
+        <div class="card-header"><div class="card-title">Shopkeeper SaaS Pricing Plans & Entitlements</div></div>
         <table>
-          <thead>
-            <tr>
-              <th>Plan Name</th>
-              <th>Tier</th>
-              <th>Shopkeeper Fee</th>
-              <th>Max Devices</th>
-              <th>Monthly Submissions</th>
-              <th>Batch Conversion</th>
-              <th>Advanced PDF</th>
-              <th>Printer Profiles</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Plan Name</th><th>Tier</th><th>Shopkeeper Fee</th><th>Max Devices</th><th>Monthly Submissions</th><th>Batch Conversion</th><th>Advanced PDF</th><th>Printer Profiles</th></tr></thead>
           <tbody id="plansTableBody"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- Audit Tab -->
     <div id="auditTab" class="tab-content" style="display:none;">
       <div class="card">
-        <div class="card-header">
-          <div class="card-title">System Audit & Security Trail</div>
-        </div>
+        <div class="card-header"><div class="card-title">System Audit & Security Trail</div></div>
         <table>
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Actor</th>
-              <th>Event Type</th>
-              <th>Description</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Timestamp</th><th>Actor</th><th>Event Type</th><th>Description</th></tr></thead>
           <tbody id="auditTableBody"></tbody>
         </table>
       </div>
@@ -806,32 +517,17 @@ const superadminHtml = `<!DOCTYPE html>
     <div class="modal-content">
       <h3 style="margin-bottom: 16px;">Register New Shop</h3>
       <form id="createShopForm">
-        <div class="form-group">
-          <label>Shop Business Name</label>
-          <input type="text" id="newShopName" placeholder="e.g. Metro Print & Graphics" required>
-        </div>
-        <div class="form-group">
-          <label>Shop URL Slug (for customer QR)</label>
-          <input type="text" id="newShopSlug" placeholder="e.g. metro-print" required>
-        </div>
-        <div class="form-group">
-          <label>Shopkeeper Name</label>
-          <input type="text" id="newShopOwner" placeholder="e.g. Anand Patel" required>
-        </div>
-        <div class="form-group">
-          <label>Shopkeeper Email</label>
-          <input type="email" id="newShopEmail" placeholder="e.g. anand@metroprint.com" required>
-        </div>
-        <div class="form-group">
-          <label>Shopkeeper Phone</label>
-          <input type="text" id="newShopPhone" placeholder="e.g. +91 98765 00000">
-        </div>
+        <div class="form-group"><label>Shop Business Name</label><input type="text" id="newShopName" placeholder="e.g. Metro Print & Graphics" required></div>
+        <div class="form-group"><label>Shop URL Slug (for customer QR)</label><input type="text" id="newShopSlug" placeholder="e.g. metro-print" required></div>
+        <div class="form-group"><label>Shopkeeper Name</label><input type="text" id="newShopOwner" placeholder="e.g. Anand Patel" required></div>
+        <div class="form-group"><label>Shopkeeper Email</label><input type="email" id="newShopEmail" placeholder="e.g. anand@metroprint.com" required></div>
+        <div class="form-group"><label>Shopkeeper Phone</label><input type="text" id="newShopPhone" placeholder="e.g. +91 98765 00000"></div>
         <div class="form-group">
           <label>Subscription Plan</label>
           <select id="newShopPlan">
             <option value="plan_free_trial">Free / 30-Day Trial (1 PC)</option>
-            <option value="plan_pro_monthly">Pro Monthly (\$29/mo - 1 PC)</option>
-            <option value="plan_business_monthly">Business Multi-PC (\$69/mo - 5 PCs)</option>
+            <option value="plan_pro_monthly">Pro Monthly ($29/mo - 1 PC)</option>
+            <option value="plan_business_monthly">Business Multi-PC ($69/mo - 5 PCs)</option>
           </select>
         </div>
         <div class="modal-actions">
@@ -860,14 +556,11 @@ const superadminHtml = `<!DOCTYPE html>
         <label>Plan Tier</label>
         <select id="managePlanId">
           <option value="plan_free_trial">Free / Trial</option>
-          <option value="plan_pro_monthly">Pro Monthly (\$29/mo)</option>
-          <option value="plan_business_monthly">Business Multi-PC (\$69/mo)</option>
+          <option value="plan_pro_monthly">Pro Monthly ($29/mo)</option>
+          <option value="plan_business_monthly">Business Multi-PC ($69/mo)</option>
         </select>
       </div>
-      <div class="form-group">
-        <label>Shopkeeper Billing / Payment Reference (Optional)</label>
-        <input type="text" id="managePaymentRef" placeholder="e.g. UPI-TXN-984321 / INV-102">
-      </div>
+      <div class="form-group"><label>Shopkeeper Billing / Payment Reference (Optional)</label><input type="text" id="managePaymentRef" placeholder="e.g. UPI-TXN-984321 / INV-102"></div>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" onclick="closeModal('manageSubModal')">Cancel</button>
         <button type="button" class="btn" onclick="saveSubscriptionChange()">Update License</button>
@@ -875,20 +568,31 @@ const superadminHtml = `<!DOCTYPE html>
     </div>
   </div>
 
-  <script src="/shared-store.js"></script>
   <script>
+    let cachedData = null;
+
     function switchTab(tabId, btn) {
       document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
       document.getElementById(tabId).style.display = 'block';
       btn.classList.add('active');
-      renderAll();
+      if (cachedData) renderData(cachedData);
     }
 
-    function renderAll() {
-      const state = ScanDropStore.loadState();
+    async function fetchAndRender() {
+      try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        if (data.success) {
+          cachedData = data;
+          renderData(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch cloud state:', err);
+      }
+    }
 
-      // Overview stats
+    function renderData({ state, plans }) {
       document.getElementById('statShops').textContent = state.shops.length;
       document.getElementById('statSubs').textContent = state.shops.filter(s => s.subscriptionStatus === 'active').length;
       document.getElementById('statDevices').textContent = state.devices.filter(d => d.status === 'active').length;
@@ -896,18 +600,17 @@ const superadminHtml = `<!DOCTYPE html>
       const totalBytes = state.submissions.reduce((acc, s) => acc + (s.totalSizeBytes || 0), 0);
       document.getElementById('statStorage').textContent = (totalBytes / (1024 * 1024)).toFixed(2) + ' MB';
 
-      // Shops Table
       const shopsBody = document.getElementById('shopsTableBody');
       shopsBody.innerHTML = '';
       state.shops.forEach(s => {
-        const plan = ScanDropStore.PLANS.find(p => p.id === s.planId) || ScanDropStore.PLANS[0];
+        const plan = plans.find(p => p.id === s.planId) || plans[0];
         const devCount = state.devices.filter(d => d.shopId === s.id && d.status === 'active').length;
-        const uploadUrl = window.location.origin + '/?shop=' + s.slug;
+        const uploadUrl = window.location.origin + '/shop/' + s.slug;
         const tr = document.createElement('tr');
         tr.innerHTML = \`
           <td>
             <strong>\${s.name}</strong><br>
-            <a href="\${uploadUrl}" target="_blank" style="color: #60a5fa; font-size: 11px;">Customer Upload Link ↗</a>
+            <a href="\${uploadUrl}" target="_blank" style="color: #60a5fa; font-size: 11px;">\${uploadUrl} ↗</a>
           </td>
           <td>\${s.ownerName}<br><span style="font-size:11px;color:var(--text-muted);">\${s.ownerEmail}</span></td>
           <td><strong>\${plan.name}</strong><br><span style="font-size:11px;color:#818cf8;">\${plan.priceText}</span></td>
@@ -930,7 +633,6 @@ const superadminHtml = `<!DOCTYPE html>
         shopsBody.appendChild(tr);
       });
 
-      // Devices Table
       const devBody = document.getElementById('devicesTableBody');
       devBody.innerHTML = '';
       state.devices.forEach(d => {
@@ -945,17 +647,16 @@ const superadminHtml = `<!DOCTYPE html>
           <td><code>\${d.lastIp}</code></td>
           <td>
             \${d.status === 'active'
-              ? \`<button class="btn btn-sm btn-danger" onclick="revokeDevice('\${d.id}')">Revoke PC</button>\`
-              : \`<button class="btn btn-sm btn-secondary" onclick="restoreDevice('\${d.id}')">Restore</button>\`}
+              ? \`<button class="btn btn-sm btn-danger" onclick="deviceAction('\${d.id}', 'revoke_device')">Revoke PC</button>\`
+              : \`<button class="btn btn-sm btn-secondary" onclick="deviceAction('\${d.id}', 'restore_device')">Restore</button>\`}
           </td>
         \`;
         devBody.appendChild(tr);
       });
 
-      // Plans Table
       const plansBody = document.getElementById('plansTableBody');
       plansBody.innerHTML = '';
-      ScanDropStore.PLANS.forEach(p => {
+      plans.forEach(p => {
         const tr = document.createElement('tr');
         tr.innerHTML = \`
           <td><strong>\${p.name}</strong></td>
@@ -970,7 +671,6 @@ const superadminHtml = `<!DOCTYPE html>
         plansBody.appendChild(tr);
       });
 
-      // Audit Table
       const auditBody = document.getElementById('auditTableBody');
       auditBody.innerHTML = '';
       state.auditEvents.forEach(l => {
@@ -985,65 +685,47 @@ const superadminHtml = `<!DOCTYPE html>
       });
     }
 
-    function copyCode(code) {
-      navigator.clipboard.writeText(code);
-      alert('Copied pairing code: ' + code);
-    }
+    function copyCode(code) { navigator.clipboard.writeText(code); alert('Copied: ' + code); }
+    function openCreateShopModal() { document.getElementById('createShopModal').classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-    function openCreateShopModal() {
-      document.getElementById('createShopModal').classList.add('open');
-    }
-    function closeModal(id) {
-      document.getElementById(id).classList.remove('open');
-    }
-
-    document.getElementById('createShopForm').addEventListener('submit', (e) => {
+    document.getElementById('createShopForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const state = ScanDropStore.loadState();
-      const slug = document.getElementById('newShopSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-      if (state.shops.some(s => s.slug === slug)) {
-        alert('Slug already exists. Choose another.');
-        return;
+      const res = await fetch('/api/superadmin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_shop',
+          name: document.getElementById('newShopName').value.trim(),
+          slug: document.getElementById('newShopSlug').value.trim(),
+          ownerName: document.getElementById('newShopOwner').value.trim(),
+          ownerEmail: document.getElementById('newShopEmail').value.trim(),
+          ownerPhone: document.getElementById('newShopPhone').value.trim(),
+          planId: document.getElementById('newShopPlan').value
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        closeModal('createShopModal');
+        document.getElementById('createShopForm').reset();
+        await fetchAndRender();
+        alert('Shop registered! Pairing code: ' + data.shop.pairingCode);
+      } else {
+        alert('Error: ' + data.error);
       }
-      const shopId = 'shop_' + Date.now();
-      const pairingCode = 'SD-PAIR-' + Math.floor(1000 + Math.random() * 9000);
-      const now = new Date();
-      const expiryDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-      const newShop = {
-        id: shopId,
-        slug,
-        name: document.getElementById('newShopName').value.trim(),
-        tagline: 'Scan. Drop. Done.',
-        ownerName: document.getElementById('newShopOwner').value.trim(),
-        ownerEmail: document.getElementById('newShopEmail').value.trim(),
-        ownerPhone: document.getElementById('newShopPhone').value.trim(),
-        planId: document.getElementById('newShopPlan').value,
-        subscriptionStatus: 'active',
-        pairingCode,
-        expiryDate,
-        createdAt: now.toISOString()
-      };
-
-      state.shops.unshift(newShop);
-      ScanDropStore.addAudit(state, shopId, 'founder', 'SHOP_CREATED', 'Registered shop ' + newShop.name + ' (Pairing: ' + pairingCode + ')');
-      ScanDropStore.saveState(state);
-
-      closeModal('createShopModal');
-      document.getElementById('createShopForm').reset();
-      renderAll();
-      alert('Shop registered! Pairing code: ' + pairingCode);
     });
 
-    function regenPairingCode(shopId) {
-      const state = ScanDropStore.loadState();
-      const shop = state.shops.find(s => s.id === shopId);
-      if (!shop) return;
-      shop.pairingCode = 'SD-PAIR-' + Math.floor(1000 + Math.random() * 9000);
-      ScanDropStore.addAudit(state, shopId, 'founder', 'PAIRING_CODE_REGENERATED', 'Generated new pairing code ' + shop.pairingCode);
-      ScanDropStore.saveState(state);
-      renderAll();
-      alert('New pairing code: ' + shop.pairingCode);
+    async function regenPairingCode(shopId) {
+      const res = await fetch('/api/superadmin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'regen_code', shopId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchAndRender();
+        alert('New pairing code: ' + data.pairingCode);
+      }
     }
 
     function openManageSub(shopId, planId) {
@@ -1052,67 +734,45 @@ const superadminHtml = `<!DOCTYPE html>
       document.getElementById('manageSubModal').classList.add('open');
     }
 
-    function saveSubscriptionChange() {
-      const shopId = document.getElementById('manageShopId').value;
-      const action = document.getElementById('manageAction').value;
-      const planId = document.getElementById('managePlanId').value;
-      const payRef = document.getElementById('managePaymentRef').value.trim();
-
-      const state = ScanDropStore.loadState();
-      const shop = state.shops.find(s => s.id === shopId);
-      if (!shop) return;
-
-      shop.planId = planId;
-      if (action === 'renew') {
-        const base = new Date(shop.expiryDate) > new Date() ? new Date(shop.expiryDate) : new Date();
-        shop.expiryDate = new Date(base.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        shop.subscriptionStatus = 'active';
-      } else if (action === 'suspend') {
-        shop.subscriptionStatus = 'suspended';
-      } else if (action === 'reactivate') {
-        shop.subscriptionStatus = 'active';
-      } else if (action === 'revoke') {
-        shop.subscriptionStatus = 'revoked';
-      }
-
-      ScanDropStore.addAudit(state, shopId, 'founder', 'SUBSCRIPTION_UPDATED',
-        'Action: ' + action + ', Plan: ' + planId + (payRef ? ', Ref: ' + payRef : ''));
-      ScanDropStore.saveState(state);
-      closeModal('manageSubModal');
-      renderAll();
-    }
-
-    function revokeDevice(deviceId) {
-      if (!confirm('Revoke this Windows PC?')) return;
-      const state = ScanDropStore.loadState();
-      const dev = state.devices.find(d => d.id === deviceId);
-      if (dev) {
-        dev.status = 'revoked';
-        ScanDropStore.addAudit(state, dev.shopId, 'founder', 'DEVICE_REVOKED', 'Revoked device ' + dev.deviceName);
-        ScanDropStore.saveState(state);
-        renderAll();
+    async function saveSubscriptionChange() {
+      const res = await fetch('/api/superadmin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_subscription',
+          shopId: document.getElementById('manageShopId').value,
+          subAction: document.getElementById('manageAction').value,
+          planId: document.getElementById('managePlanId').value,
+          paymentRef: document.getElementById('managePaymentRef').value.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        closeModal('manageSubModal');
+        await fetchAndRender();
+      } else {
+        alert('Error: ' + data.error);
       }
     }
 
-    function restoreDevice(deviceId) {
-      const state = ScanDropStore.loadState();
-      const dev = state.devices.find(d => d.id === deviceId);
-      if (dev) {
-        dev.status = 'active';
-        ScanDropStore.addAudit(state, dev.shopId, 'founder', 'DEVICE_RESTORED', 'Restored device ' + dev.deviceName);
-        ScanDropStore.saveState(state);
-        renderAll();
-      }
+    async function deviceAction(deviceId, action) {
+      const res = await fetch('/api/superadmin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, deviceId })
+      });
+      const data = await res.json();
+      if (data.success) await fetchAndRender();
     }
 
-    renderAll();
-    setInterval(renderAll, 3000);
+    fetchAndRender();
+    setInterval(fetchAndRender, 4000);
   </script>
 </body>
 </html>`;
 
 // ============================================================================
-// 4. SHOPKEEPER WORKSPACE (workspace/index.html) - SEPARATE PORTAL
+// 3. SHOPKEEPER WORKSPACE (workspace/index.html) - CLOUD SYNCED PANEL
 // ============================================================================
 const workspaceHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -1197,8 +857,8 @@ const workspaceHtml = `<!DOCTYPE html>
           <span style="font-size:10px;color:var(--muted);font-weight:700;">PLAN</span>
           <span class="badge badge-blue" id="sidebarPlanBadge">PRO</span>
         </div>
-        <div style="font-size:12px;font-weight:700;" id="sidebarShopName">Loading...</div>
-        <div style="font-size:11px;color:var(--success);margin-top:3px;" id="sidebarStatus">● Active • 72h Grace</div>
+        <div style="font-size:12px;font-weight:700;" id="sidebarShopName">Connecting...</div>
+        <div style="font-size:11px;color:var(--success);margin-top:3px;" id="sidebarStatus">● Live Cloud Sync</div>
       </div>
     </div>
   </aside>
@@ -1207,19 +867,21 @@ const workspaceHtml = `<!DOCTYPE html>
     <header class="topbar">
       <h2 id="viewTitle" style="font-size:17px;font-weight:800;">Incoming Customer Submissions</h2>
       <div style="display:flex;align-items:center;gap:10px;">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search receipt or customer (Ctrl+F)" oninput="renderCurrentView()">
-        <button class="btn btn-secondary" onclick="renderCurrentView()" title="Refresh (F5)">↻ Refresh</button>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search receipt or sender (Ctrl+F)" oninput="renderCurrentView()">
+        <button class="btn btn-secondary" onclick="fetchCloudState()" title="Refresh (F5)">↻ Sync Now</button>
         <button class="btn btn-secondary" onclick="openPairModal()">🔗 Pair PC</button>
       </div>
     </header>
 
-    <div class="content-scroll" id="workspaceContent"></div>
+    <div class="content-scroll" id="workspaceContent">
+      <div style="text-align:center;padding:60px;color:var(--muted);">Syncing with Scan Drop Cloud...</div>
+    </div>
   </main>
 
   <!-- PAIR MODAL -->
   <div class="modal-overlay" id="pairModal">
     <div class="modal-box">
-      <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Pair Shop Windows PC</h3>
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Pair Shop PC</h3>
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Enter the pairing code issued in the Founder Super Admin console (e.g. <code>SD-PAIR-7890</code>).</p>
       <input type="text" id="pairCodeInput" placeholder="SD-PAIR-7890" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:15px;font-weight:700;margin-bottom:16px;">
       <div style="display:flex;justify-content:flex-end;gap:10px;">
@@ -1282,10 +944,12 @@ const workspaceHtml = `<!DOCTYPE html>
     </div>
   </div>
 
-  <script src="/shared-store.js"></script>
   <script>
     let currentTab = 'inbox';
-    let currentPreviewUrl = null;
+    let cloudState = null;
+    let cloudPlans = [];
+    let localDerived = [];
+    let pairedShopId = localStorage.getItem('scandrop_paired_shop_id') || 'shop_quickprint_01';
     let activePrintFile = null;
 
     const TAB_TITLES = {
@@ -1313,262 +977,157 @@ const workspaceHtml = `<!DOCTYPE html>
     function openModal(id) { document.getElementById(id).classList.add('open'); }
     function closeModal(id) { document.getElementById(id).classList.remove('open'); }
     function openPairModal() { openModal('pairModal'); }
+    function closePreview() { closeModal('previewModal'); document.getElementById('previewBody').innerHTML = ''; }
 
-    function closePreview() {
-      if (currentPreviewUrl) { URL.revokeObjectURL(currentPreviewUrl); currentPreviewUrl = null; }
-      closeModal('previewModal');
+    async function fetchCloudState() {
+      try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        if (data.success) {
+          cloudState = data.state;
+          cloudPlans = data.plans;
+          renderCurrentView();
+        }
+      } catch (err) {
+        console.error('Sync error:', err);
+      }
     }
 
-    function executePair() {
+    async function executePair() {
       const code = document.getElementById('pairCodeInput').value.trim();
       if (!code) return;
-      const state = ScanDropStore.loadState();
-      const shop = state.shops.find(s => s.pairingCode === code);
-      if (!shop) {
-        alert('Invalid pairing code. Check Founder Super Admin console.');
+      const res = await fetch('/api/pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingCode: code })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert('Pairing failed: ' + (data.error || 'Invalid code'));
         return;
       }
-      if (shop.subscriptionStatus === 'revoked' || shop.subscriptionStatus === 'suspended') {
-        alert('Cannot pair: Shop subscription is ' + shop.subscriptionStatus);
-        return;
-      }
-      state.workspaceConfig.pairedShopId = shop.id;
-      ScanDropStore.addAudit(state, shop.id, 'shop_staff', 'DEVICE_PAIRED', 'Shop workspace paired to ' + shop.name);
-      ScanDropStore.saveState(state);
+      pairedShopId = data.shop.id;
+      localStorage.setItem('scandrop_paired_shop_id', pairedShopId);
       closeModal('pairModal');
-      renderCurrentView();
-      alert('Paired successfully to ' + shop.name + '!');
+      await fetchCloudState();
+      alert('Paired successfully to ' + data.shop.name + '!');
     }
 
-    function updateSubStatus(subId, newStatus) {
-      const state = ScanDropStore.loadState();
-      const sub = state.submissions.find(s => s.id === subId);
-      if (!sub) return;
-      sub.status = newStatus;
-      ScanDropStore.addAudit(state, sub.shopId, 'shop_staff', 'STATUS_UPDATED', 'Submission ' + subId + ' moved to ' + newStatus);
-      ScanDropStore.saveState(state);
-      renderCurrentView();
+    async function updateSubStatus(subId, newStatus) {
+      await fetch('/api/submission/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: subId, status: newStatus })
+      });
+      await fetchCloudState();
     }
 
-    async function previewFileById(fileId, fileName, ext, isDerived = false) {
-      const record = await ScanDropStore.getFileBlob(fileId);
+    function previewFile(fileId, fileName, ext, localBlobUrl = null) {
       const body = document.getElementById('previewBody');
       document.getElementById('previewTitle').textContent = fileName;
-      body.innerHTML = '';
+      const fileUrl = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
 
-      if (!record || !record.blob) {
-        body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:30px;">Sample seeded item (no local binary uploaded). Upload a real file on the Customer Portal to preview live!</div>';
+      if (ext === '.pdf') {
+        body.innerHTML = \`<iframe src="\${fileUrl}" style="width:100%;height:100%;border:none;"></iframe>\`;
+      } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+        body.innerHTML = \`<img src="\${fileUrl}" style="max-width:100%;max-height:100%;object-fit:contain;">\`;
       } else {
-        currentPreviewUrl = URL.createObjectURL(record.blob);
-        if (ext === '.pdf' || record.type === 'application/pdf') {
-          body.innerHTML = \`<iframe src="\${currentPreviewUrl}" style="width:100%;height:100%;border:none;"></iframe>\`;
-        } else if (['.jpg', '.jpeg', '.png'].includes(ext) || record.type.startsWith('image/')) {
-          body.innerHTML = \`<img src="\${currentPreviewUrl}" style="max-width:100%;max-height:100%;object-fit:contain;">\`;
-        } else {
-          body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:30px;">DOCX Preview: Click "Open Working Copy" to download & open in Microsoft Word / LibreOffice.</div>';
-        }
+        body.innerHTML = \`<div style="color:#94a3b8;text-align:center;padding:30px;">
+          <p style="margin-bottom:12px;">Document Preview not rendered in browser for \${ext}.</p>
+          <a href="\${fileUrl}" download="\${fileName}" class="btn">Download & Open in App</a>
+        </div>\`;
       }
-
-      document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName);
+      document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName, localBlobUrl);
       openModal('previewModal');
     }
 
-    async function openWorkingCopy(fileId, fileName, subId) {
-      const record = await ScanDropStore.getFileBlob(fileId);
-      if (!record || !record.blob) {
-        alert('No file payload found for this seeded item. Upload a file via Customer Portal first.');
-        return;
-      }
-      const state = ScanDropStore.loadState();
-      const copyId = 'der_' + Date.now();
-      const copyName = 'WorkingCopy_' + fileName;
-      await ScanDropStore.saveFileBlob(copyId, record.blob, copyName, record.type);
-      state.derivedFiles.unshift({
-        id: copyId,
-        submissionId: subId,
-        displayName: copyName,
-        outputFormat: fileName.split('.').pop(),
-        sizeBytes: record.blob.size,
-        createdAt: new Date().toISOString()
-      });
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'WORKING_COPY_CREATED',
-        'Created protected working copy ' + copyName + ' (original preserved)');
-      ScanDropStore.saveState(state);
-
-      // Trigger download so staff can open it in Word/Acrobat/Photoshop
-      const url = URL.createObjectURL(record.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = copyName;
-      a.click();
-      URL.revokeObjectURL(url);
-      renderCurrentView();
-    }
-
-    async function exportFile(fileId, fileName) {
-      const record = await ScanDropStore.getFileBlob(fileId);
-      if (!record || !record.blob) {
-        alert('No file payload found to export.');
-        return;
-      }
-      const url = URL.createObjectURL(record.blob);
+    function downloadFile(fileId, fileName, localBlobUrl = null) {
+      const url = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;
+      a.target = '_blank';
       a.click();
-      URL.revokeObjectURL(url);
     }
 
-    function openPrintModal(fileId, fileName) {
-      activePrintFile = { id: fileId, name: fileName };
+    function openPrintModal(fileId, fileName, localBlobUrl = null) {
+      activePrintFile = { id: fileId, name: fileName, url: localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId)) };
       document.getElementById('printFileLabel').textContent = 'Document: ' + fileName;
       openModal('printModal');
     }
 
-    async function executePrint() {
+    function executePrint() {
       if (!activePrintFile) return;
-      const record = await ScanDropStore.getFileBlob(activePrintFile.id);
-      const profile = document.getElementById('printProfileSelect').value;
-      const copies = document.getElementById('printCopiesInput').value;
-
-      const state = ScanDropStore.loadState();
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'MANUAL_PRINT',
-        'Printed ' + activePrintFile.name + ' (' + copies + ' copies, ' + profile + ')');
-      ScanDropStore.saveState(state);
       closeModal('printModal');
-
-      if (record && record.blob) {
-        const url = URL.createObjectURL(record.blob);
-        const win = window.open(url, '_blank');
-        if (win) {
-          win.onload = () => { win.focus(); win.print(); };
-        } else {
-          window.print();
-        }
+      const win = window.open(activePrintFile.url, '_blank');
+      if (win) {
+        win.onload = () => { win.focus(); win.print(); };
       } else {
         window.print();
       }
     }
 
-    // Real client-side PDF Tools using pdf-lib
     async function convertImagesToPdf() {
       const checkboxes = Array.from(document.querySelectorAll('.img-pdf-check:checked'));
-      if (checkboxes.length === 0) {
-        alert('Select at least one image (JPG/PNG) to convert to PDF.');
-        return;
-      }
-      if (!window.PDFLib) {
-        alert('PDF engine still loading. Please try again in a moment.');
-        return;
-      }
-
+      if (checkboxes.length === 0) { alert('Select at least one image.'); return; }
       const paper = document.getElementById('pdfPaperSelect').value;
       const orient = document.getElementById('pdfOrientSelect').value;
-      const sizes = {
-        A4: [595.28, 841.89],
-        A5: [419.53, 595.28],
-        Letter: [612, 792],
-        Legal: [612, 1008],
-        Photo4x6: [288, 432]
-      };
+      const sizes = { A4: [595.28, 841.89], A5: [419.53, 595.28], Letter: [612, 792], Legal: [612, 1008], Photo4x6: [288, 432] };
       let [w, h] = sizes[paper] || sizes.A4;
       if (orient === 'landscape') [w, h] = [h, w];
 
       const pdfDoc = await PDFLib.PDFDocument.create();
       for (const cb of checkboxes) {
-        const rec = await ScanDropStore.getFileBlob(cb.value);
-        if (!rec || !rec.blob) continue;
-        const bytes = await rec.blob.arrayBuffer();
-        let img;
-        if (rec.type === 'image/png' || rec.name.toLowerCase().endsWith('.png')) {
-          img = await pdfDoc.embedPng(bytes);
-        } else {
-          img = await pdfDoc.embedJpg(bytes);
-        }
+        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const bytes = await res.arrayBuffer();
+        const isPng = cb.dataset.ext === '.png';
+        const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const page = pdfDoc.addPage([w, h]);
         const margin = 20;
-        const maxW = w - margin * 2;
-        const maxH = h - margin * 2;
-        const scale = Math.min(maxW / img.width, maxH / img.height);
+        const scale = Math.min((w - margin * 2) / img.width, (h - margin * 2) / img.height);
         const dw = img.width * scale;
         const dh = img.height * scale;
-        page.drawImage(img, {
-          x: margin + (maxW - dw) / 2,
-          y: margin + (maxH - dh) / 2,
-          width: dw,
-          height: dh
-        });
+        page.drawImage(img, { x: margin + (w - margin * 2 - dw) / 2, y: margin + (h - margin * 2 - dh) / 2, width: dw, height: dh });
       }
-
       const pdfBytes = await pdfDoc.save();
-      const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const outId = 'der_pdf_' + Date.now();
-      const outName = 'Converted_' + paper + '_' + Date.now() + '.pdf';
-      await ScanDropStore.saveFileBlob(outId, pdfBlob, outName, 'application/pdf');
-
-      const state = ScanDropStore.loadState();
-      state.derivedFiles.unshift({
-        id: outId,
-        submissionId: null,
-        displayName: outName,
-        outputFormat: 'pdf',
-        sizeBytes: pdfBlob.size,
-        createdAt: new Date().toISOString()
-      });
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'IMAGE_TO_PDF',
-        'Converted ' + checkboxes.length + ' image(s) to ' + outName);
-      ScanDropStore.saveState(state);
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = 'Converted_' + paper + '_' + Date.now() + '.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
       renderCurrentView();
-      alert('PDF generated: ' + outName);
+      alert('PDF generated: ' + name);
     }
 
     async function mergeSelectedPdfs() {
       const checkboxes = Array.from(document.querySelectorAll('.merge-pdf-check:checked'));
-      if (checkboxes.length < 2) {
-        alert('Select at least 2 PDF files to merge.');
-        return;
-      }
+      if (checkboxes.length < 2) { alert('Select at least 2 PDF files to merge.'); return; }
       const mergedPdf = await PDFLib.PDFDocument.create();
       for (const cb of checkboxes) {
-        const rec = await ScanDropStore.getFileBlob(cb.value);
-        if (!rec || !rec.blob) continue;
-        const bytes = await rec.blob.arrayBuffer();
+        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const bytes = await res.arrayBuffer();
         const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
         const pages = await mergedPdf.copyPages(src, src.getPageIndices());
         pages.forEach(p => mergedPdf.addPage(p));
       }
       const outBytes = await mergedPdf.save();
-      const outBlob = new Blob([outBytes], { type: 'application/pdf' });
-      const outId = 'der_merge_' + Date.now();
-      const outName = 'Merged_' + Date.now() + '.pdf';
-      await ScanDropStore.saveFileBlob(outId, outBlob, outName, 'application/pdf');
-
-      const state = ScanDropStore.loadState();
-      state.derivedFiles.unshift({
-        id: outId,
-        submissionId: null,
-        displayName: outName,
-        outputFormat: 'pdf',
-        sizeBytes: outBlob.size,
-        createdAt: new Date().toISOString()
-      });
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'MERGE_PDF',
-        'Merged ' + checkboxes.length + ' PDFs into ' + outName);
-      ScanDropStore.saveState(state);
+      const blob = new Blob([outBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = 'Merged_' + Date.now() + '.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
       renderCurrentView();
-      alert('Merged PDF created: ' + outName);
+      alert('Merged PDF created: ' + name);
     }
 
     function renderCurrentView() {
-      const state = ScanDropStore.loadState();
-      const shop = state.shops.find(s => s.id === state.workspaceConfig.pairedShopId) || state.shops[0];
-      const plan = ScanDropStore.PLANS.find(p => p.id === shop.planId) || ScanDropStore.PLANS[0];
+      if (!cloudState) return;
+      const shop = cloudState.shops.find(s => s.id === pairedShopId) || cloudState.shops[0];
+      const plan = cloudPlans.find(p => p.id === shop.planId) || cloudPlans[0];
 
       document.getElementById('sidebarShopName').textContent = shop.name;
       document.getElementById('sidebarPlanBadge').textContent = plan.tier.toUpperCase();
-      document.getElementById('sidebarStatus').textContent = '● ' + shop.subscriptionStatus.toUpperCase() + ' • 72h Grace';
+      document.getElementById('sidebarStatus').textContent = '● ' + shop.subscriptionStatus.toUpperCase() + ' • Cloud Sync';
 
-      const shopSubs = state.submissions.filter(s => s.shopId === shop.id && s.status !== 'expired');
+      const shopSubs = (cloudState.submissions || []).filter(s => s.shopId === shop.id && s.status !== 'expired');
       document.getElementById('badgeInbox').textContent = shopSubs.filter(s => s.status === 'incoming').length;
       document.getElementById('badgeProcessing').textContent = shopSubs.filter(s => s.status === 'processing').length;
 
@@ -1584,7 +1143,7 @@ const workspaceHtml = `<!DOCTYPE html>
           container.innerHTML = \`<div style="text-align:center;padding:70px 20px;color:var(--muted);">
             <div style="font-size:36px;margin-bottom:10px;opacity:0.5;">📥</div>
             <h3>No submissions in \${currentTab}</h3>
-            <p style="font-size:13px;margin-top:6px;">Customer uploads sent via the QR portal will appear here automatically.</p>
+            <p style="font-size:13px;margin-top:6px;">Upload files at <a href="/shop/\${shop.slug}" target="_blank" style="color:#60a5fa;">/shop/\${shop.slug}</a> and they will appear here automatically.</p>
           </div>\`;
           return;
         }
@@ -1598,8 +1157,8 @@ const workspaceHtml = `<!DOCTYPE html>
                 <div style="font-size:11px;color:var(--muted);">\${(f.sizeBytes / 1024).toFixed(1)} KB • SHA-256 Verified</div>
               </div>
               <div style="display:flex;gap:6px;">
-                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="previewFileById('\${f.id}', '\${f.originalName}', '\${f.fileExtension}')">👁 Preview</button>
-                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="openWorkingCopy('\${f.id}', '\${f.originalName}', '\${sub.id}')">↗ Open Copy</button>
+                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="previewFile('\${f.id}', '\${f.originalName}', '\${f.fileExtension}')">👁 Preview</button>
+                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="downloadFile('\${f.id}', '\${f.originalName}')">⬇ Download</button>
                 <button class="btn" style="padding:5px 8px;" onclick="openPrintModal('\${f.id}', '\${f.originalName}')">🖨 Print</button>
               </div>
             </div>
@@ -1609,7 +1168,6 @@ const workspaceHtml = `<!DOCTYPE html>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <div style="display:flex;align-items:center;gap:10px;">
                 <strong style="font-size:19px;color:#38bdf8;">\${sub.id}</strong>
-                \${sub.serviceCategory ? \`<span class="badge badge-blue">\${sub.serviceCategory}</span>\` : ''}
                 <span style="font-size:13px;font-weight:600;">\${sub.customerName}</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
@@ -1618,18 +1176,19 @@ const workspaceHtml = `<!DOCTYPE html>
                 \${sub.status === 'processing' ? \`<button class="btn" style="background:#10b981;" onclick="updateSubStatus('\${sub.id}', 'completed')">Mark Completed</button>\` : ''}
               </div>
             </div>
-            \${sub.instructions ? \`<div style="background:var(--bg);padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border-left:3px solid #38bdf8;"><strong>Instructions:</strong> \${sub.instructions}</div>\` : ''}
-            <div style="display:flex;flex-wrap:wrap;gap:10px;">\${filesHtml || '<span style="font-size:12px;color:var(--muted);">No files attached to this sample entry.</span>'}</div>
+            \${sub.instructions ? \`<div style="background:var(--bg);padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border-left:3px solid #38bdf8;"><strong>Note:</strong> \${sub.instructions}</div>\` : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:10px;">\${filesHtml}</div>
           </div>\`;
         }).join('');
       }
       else if (currentTab === 'fileManager') {
         container.innerHTML = \`<div class="sub-card">
-          <h3 style="margin-bottom:12px;">Submission Directories (<code>\${state.workspaceConfig.storageRoot}</code>)</h3>
-          \${shopSubs.map(sub => \`<div style="background:var(--bg);padding:10px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-            <div><strong>\${sub.status === 'incoming' ? 'Incoming' : sub.status === 'processing' ? 'Processing' : 'Completed'}/\${sub.id}/</strong> — \${sub.customerName} (\${(sub.files || []).length} files)</div>
-            <span class="badge badge-green">24h Protected</span>
-          </div>\`).join('')}
+          <h3 style="margin-bottom:12px;">Cloud-Synced Submission Folders</h3>
+          \${shopSubs.length === 0 ? '<p style="color:var(--muted);font-size:13px;">No active submissions.</p>' :
+            shopSubs.map(sub => \`<div style="background:var(--bg);padding:10px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+              <div><strong>\${sub.status}/\${sub.id}/</strong> — \${sub.customerName} (\${(sub.files || []).length} files)</div>
+              <span class="badge badge-green">24h Protected</span>
+            </div>\`).join('')}
         </div>\`;
       }
       else if (currentTab === 'pdfTools') {
@@ -1641,7 +1200,7 @@ const workspaceHtml = `<!DOCTYPE html>
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-bottom:18px;">
             <div class="sub-card">
               <h3 style="margin-bottom:8px;">🖼️ Image-to-PDF Converter</h3>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine customer images into one print-ready PDF.</p>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine uploaded images into one PDF.</p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
                 <select id="pdfPaperSelect" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;">
                   <option value="A4">A4</option><option value="A5">A5</option><option value="Letter">Letter</option><option value="Legal">Legal</option><option value="Photo4x6">4x6 Photo</option>
@@ -1652,14 +1211,14 @@ const workspaceHtml = `<!DOCTYPE html>
               </div>
               <div style="max-height:120px;overflow-y:auto;margin-bottom:12px;background:var(--bg);padding:8px;border-radius:8px;">
                 \${imgs.length === 0 ? '<span style="font-size:12px;color:var(--muted);">No JPG/PNG images uploaded yet.</span>' :
-                  imgs.map(i => \`<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="img-pdf-check" value="\${i.id}"> \${i.originalName}</label>\`).join('')}
+                  imgs.map(i => \`<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="img-pdf-check" value="\${i.id}" data-ext="\${i.fileExtension}"> \${i.originalName}</label>\`).join('')}
               </div>
               <button class="btn" onclick="convertImagesToPdf()">Generate PDF</button>
             </div>
 
             <div class="sub-card">
               <h3 style="margin-bottom:8px;">📑 Merge Multiple PDFs</h3>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine 2 or more PDF files into one document.</p>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine 2 or more PDFs into one document.</p>
               <div style="max-height:158px;overflow-y:auto;margin-bottom:12px;background:var(--bg);padding:8px;border-radius:8px;">
                 \${pdfs.length === 0 ? '<span style="font-size:12px;color:var(--muted);">No PDF files uploaded yet.</span>' :
                   pdfs.map(p => \`<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="merge-pdf-check" value="\${p.id}"> \${p.originalName}</label>\`).join('')}
@@ -1669,14 +1228,14 @@ const workspaceHtml = `<!DOCTYPE html>
           </div>
 
           <div class="sub-card">
-            <h3 style="margin-bottom:12px;">Derived & Converted Outputs</h3>
-            \${state.derivedFiles.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted or working copy files yet.</p>' :
-              state.derivedFiles.map(d => \`<div class="file-chip" style="margin-bottom:8px;">
+            <h3 style="margin-bottom:12px;">Generated PDF Outputs</h3>
+            \${localDerived.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No generated PDFs in this session yet.</p>' :
+              localDerived.map(d => \`<div class="file-chip" style="margin-bottom:8px;">
                 <div><strong>\${d.displayName}</strong> <span style="font-size:11px;color:var(--muted);">(\${(d.sizeBytes / 1024).toFixed(1)} KB)</span></div>
                 <div style="display:flex;gap:6px;">
-                  <button class="btn btn-secondary" onclick="previewFileById('\${d.id}', '\${d.displayName}', '.\${d.outputFormat}', true)">👁 Preview</button>
-                  <button class="btn btn-secondary" onclick="exportFile('\${d.id}', '\${d.displayName}')">⬇ Export</button>
-                  <button class="btn" onclick="openPrintModal('\${d.id}', '\${d.displayName}')">🖨 Print</button>
+                  <button class="btn btn-secondary" onclick="previewFile('\${d.id}', '\${d.displayName}', '.pdf', '\${d.blobUrl}')">👁 Preview</button>
+                  <button class="btn btn-secondary" onclick="downloadFile('\${d.id}', '\${d.displayName}', '\${d.blobUrl}')">⬇ Download</button>
+                  <button class="btn" onclick="openPrintModal('\${d.id}', '\${d.displayName}', '\${d.blobUrl}')">🖨 Print</button>
                 </div>
               </div>\`).join('')}
           </div>
@@ -1687,7 +1246,7 @@ const workspaceHtml = `<!DOCTYPE html>
           <h3 style="margin-bottom:6px;">Saved Printer Profiles & Manual Policy</h3>
           <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Automatic printing is permanently disabled. Staff explicitly initiate all print jobs.</p>
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;">
-            \${state.printerProfiles.map(p => \`<div style="background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--border);">
+            \${(cloudState.printerProfiles || []).map(p => \`<div style="background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--border);">
               <strong>\${p.name}</strong>
               <div style="font-size:12px;color:var(--muted);margin-top:6px;">Paper: \${p.paperSize} • \${p.color ? 'Color' : 'B&W'} • \${p.orientation}</div>
             </div>\`).join('')}
@@ -1700,7 +1259,7 @@ const workspaceHtml = `<!DOCTYPE html>
           <table>
             <thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Description</th></tr></thead>
             <tbody>
-              \${state.auditEvents.map(e => \`<tr>
+              \${(cloudState.auditEvents || []).map(e => \`<tr>
                 <td style="font-size:11px;color:var(--muted);">\${new Date(e.createdAt).toLocaleTimeString()}</td>
                 <td><span class="badge badge-blue">\${e.actorType}</span></td>
                 <td><code>\${e.eventType}</code></td>
@@ -1711,15 +1270,16 @@ const workspaceHtml = `<!DOCTYPE html>
         </div>\`;
       }
       else if (currentTab === 'settings') {
+        const uploadLink = window.location.origin + '/shop/' + shop.slug;
         container.innerHTML = \`<div class="sub-card" style="max-width:600px;">
-          <h3 style="margin-bottom:14px;">Shop Settings & Storage</h3>
+          <h3 style="margin-bottom:14px;">Shop Settings & Upload Link</h3>
           <div style="margin-bottom:12px;">
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Paired Shop</label>
             <input type="text" value="\${shop.name}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
           </div>
           <div style="margin-bottom:16px;">
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Local Managed Root Directory</label>
-            <input type="text" value="\${state.workspaceConfig.storageRoot}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Customer Upload URL (For QR Code)</label>
+            <input type="text" value="\${uploadLink}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#60a5fa;">
           </div>
           <button class="btn btn-secondary" onclick="openPairModal()">Switch / Re-Pair Device</button>
         </div>\`;
@@ -1746,21 +1306,19 @@ const workspaceHtml = `<!DOCTYPE html>
       }
     }
 
-    // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
-      else if (e.key === 'F5') { e.preventDefault(); renderCurrentView(); }
+      else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(); }
       else if (e.key === 'Escape') { closePreview(); closeModal('printModal'); closeModal('pairModal'); }
     });
 
-    renderCurrentView();
-    setInterval(renderCurrentView, 4000);
+    fetchCloudState();
+    setInterval(fetchCloudState, 3500);
   </script>
 </body>
 </html>`;
 
 for (const baseDir of outDirs) {
-  fs.writeFileSync(path.join(baseDir, 'shared-store.js'), sharedStoreJs);
   fs.writeFileSync(path.join(baseDir, 'index.html'), customerHtml);
   fs.writeFileSync(path.join(baseDir, 'superadmin', 'index.html'), superadminHtml);
   fs.writeFileSync(path.join(baseDir, 'workspace', 'index.html'), workspaceHtml);
@@ -1774,4 +1332,4 @@ for (const baseDir of outDirs) {
 `);
 }
 
-console.log('✅ Built separate Customer (/), Super Admin (/superadmin), and Shop Workspace (/workspace) portals.');
+console.log('✅ Built cloud-connected portals for Netlify (/api/* via Netlify Blobs).');

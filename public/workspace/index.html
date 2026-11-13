@@ -81,8 +81,8 @@
           <span style="font-size:10px;color:var(--muted);font-weight:700;">PLAN</span>
           <span class="badge badge-blue" id="sidebarPlanBadge">PRO</span>
         </div>
-        <div style="font-size:12px;font-weight:700;" id="sidebarShopName">Loading...</div>
-        <div style="font-size:11px;color:var(--success);margin-top:3px;" id="sidebarStatus">● Active • 72h Grace</div>
+        <div style="font-size:12px;font-weight:700;" id="sidebarShopName">Connecting...</div>
+        <div style="font-size:11px;color:var(--success);margin-top:3px;" id="sidebarStatus">● Live Cloud Sync</div>
       </div>
     </div>
   </aside>
@@ -91,19 +91,21 @@
     <header class="topbar">
       <h2 id="viewTitle" style="font-size:17px;font-weight:800;">Incoming Customer Submissions</h2>
       <div style="display:flex;align-items:center;gap:10px;">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search receipt or customer (Ctrl+F)" oninput="renderCurrentView()">
-        <button class="btn btn-secondary" onclick="renderCurrentView()" title="Refresh (F5)">↻ Refresh</button>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search receipt or sender (Ctrl+F)" oninput="renderCurrentView()">
+        <button class="btn btn-secondary" onclick="fetchCloudState()" title="Refresh (F5)">↻ Sync Now</button>
         <button class="btn btn-secondary" onclick="openPairModal()">🔗 Pair PC</button>
       </div>
     </header>
 
-    <div class="content-scroll" id="workspaceContent"></div>
+    <div class="content-scroll" id="workspaceContent">
+      <div style="text-align:center;padding:60px;color:var(--muted);">Syncing with Scan Drop Cloud...</div>
+    </div>
   </main>
 
   <!-- PAIR MODAL -->
   <div class="modal-overlay" id="pairModal">
     <div class="modal-box">
-      <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Pair Shop Windows PC</h3>
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Pair Shop PC</h3>
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Enter the pairing code issued in the Founder Super Admin console (e.g. <code>SD-PAIR-7890</code>).</p>
       <input type="text" id="pairCodeInput" placeholder="SD-PAIR-7890" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:15px;font-weight:700;margin-bottom:16px;">
       <div style="display:flex;justify-content:flex-end;gap:10px;">
@@ -166,10 +168,12 @@
     </div>
   </div>
 
-  <script src="/shared-store.js"></script>
   <script>
     let currentTab = 'inbox';
-    let currentPreviewUrl = null;
+    let cloudState = null;
+    let cloudPlans = [];
+    let localDerived = [];
+    let pairedShopId = localStorage.getItem('scandrop_paired_shop_id') || 'shop_quickprint_01';
     let activePrintFile = null;
 
     const TAB_TITLES = {
@@ -197,262 +201,157 @@
     function openModal(id) { document.getElementById(id).classList.add('open'); }
     function closeModal(id) { document.getElementById(id).classList.remove('open'); }
     function openPairModal() { openModal('pairModal'); }
+    function closePreview() { closeModal('previewModal'); document.getElementById('previewBody').innerHTML = ''; }
 
-    function closePreview() {
-      if (currentPreviewUrl) { URL.revokeObjectURL(currentPreviewUrl); currentPreviewUrl = null; }
-      closeModal('previewModal');
+    async function fetchCloudState() {
+      try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        if (data.success) {
+          cloudState = data.state;
+          cloudPlans = data.plans;
+          renderCurrentView();
+        }
+      } catch (err) {
+        console.error('Sync error:', err);
+      }
     }
 
-    function executePair() {
+    async function executePair() {
       const code = document.getElementById('pairCodeInput').value.trim();
       if (!code) return;
-      const state = ScanDropStore.loadState();
-      const shop = state.shops.find(s => s.pairingCode === code);
-      if (!shop) {
-        alert('Invalid pairing code. Check Founder Super Admin console.');
+      const res = await fetch('/api/pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingCode: code })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert('Pairing failed: ' + (data.error || 'Invalid code'));
         return;
       }
-      if (shop.subscriptionStatus === 'revoked' || shop.subscriptionStatus === 'suspended') {
-        alert('Cannot pair: Shop subscription is ' + shop.subscriptionStatus);
-        return;
-      }
-      state.workspaceConfig.pairedShopId = shop.id;
-      ScanDropStore.addAudit(state, shop.id, 'shop_staff', 'DEVICE_PAIRED', 'Shop workspace paired to ' + shop.name);
-      ScanDropStore.saveState(state);
+      pairedShopId = data.shop.id;
+      localStorage.setItem('scandrop_paired_shop_id', pairedShopId);
       closeModal('pairModal');
-      renderCurrentView();
-      alert('Paired successfully to ' + shop.name + '!');
+      await fetchCloudState();
+      alert('Paired successfully to ' + data.shop.name + '!');
     }
 
-    function updateSubStatus(subId, newStatus) {
-      const state = ScanDropStore.loadState();
-      const sub = state.submissions.find(s => s.id === subId);
-      if (!sub) return;
-      sub.status = newStatus;
-      ScanDropStore.addAudit(state, sub.shopId, 'shop_staff', 'STATUS_UPDATED', 'Submission ' + subId + ' moved to ' + newStatus);
-      ScanDropStore.saveState(state);
-      renderCurrentView();
+    async function updateSubStatus(subId, newStatus) {
+      await fetch('/api/submission/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: subId, status: newStatus })
+      });
+      await fetchCloudState();
     }
 
-    async function previewFileById(fileId, fileName, ext, isDerived = false) {
-      const record = await ScanDropStore.getFileBlob(fileId);
+    function previewFile(fileId, fileName, ext, localBlobUrl = null) {
       const body = document.getElementById('previewBody');
       document.getElementById('previewTitle').textContent = fileName;
-      body.innerHTML = '';
+      const fileUrl = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
 
-      if (!record || !record.blob) {
-        body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:30px;">Sample seeded item (no local binary uploaded). Upload a real file on the Customer Portal to preview live!</div>';
+      if (ext === '.pdf') {
+        body.innerHTML = `<iframe src="${fileUrl}" style="width:100%;height:100%;border:none;"></iframe>`;
+      } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+        body.innerHTML = `<img src="${fileUrl}" style="max-width:100%;max-height:100%;object-fit:contain;">`;
       } else {
-        currentPreviewUrl = URL.createObjectURL(record.blob);
-        if (ext === '.pdf' || record.type === 'application/pdf') {
-          body.innerHTML = `<iframe src="${currentPreviewUrl}" style="width:100%;height:100%;border:none;"></iframe>`;
-        } else if (['.jpg', '.jpeg', '.png'].includes(ext) || record.type.startsWith('image/')) {
-          body.innerHTML = `<img src="${currentPreviewUrl}" style="max-width:100%;max-height:100%;object-fit:contain;">`;
-        } else {
-          body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:30px;">DOCX Preview: Click "Open Working Copy" to download & open in Microsoft Word / LibreOffice.</div>';
-        }
+        body.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:30px;">
+          <p style="margin-bottom:12px;">Document Preview not rendered in browser for ${ext}.</p>
+          <a href="${fileUrl}" download="${fileName}" class="btn">Download & Open in App</a>
+        </div>`;
       }
-
-      document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName);
+      document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName, localBlobUrl);
       openModal('previewModal');
     }
 
-    async function openWorkingCopy(fileId, fileName, subId) {
-      const record = await ScanDropStore.getFileBlob(fileId);
-      if (!record || !record.blob) {
-        alert('No file payload found for this seeded item. Upload a file via Customer Portal first.');
-        return;
-      }
-      const state = ScanDropStore.loadState();
-      const copyId = 'der_' + Date.now();
-      const copyName = 'WorkingCopy_' + fileName;
-      await ScanDropStore.saveFileBlob(copyId, record.blob, copyName, record.type);
-      state.derivedFiles.unshift({
-        id: copyId,
-        submissionId: subId,
-        displayName: copyName,
-        outputFormat: fileName.split('.').pop(),
-        sizeBytes: record.blob.size,
-        createdAt: new Date().toISOString()
-      });
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'WORKING_COPY_CREATED',
-        'Created protected working copy ' + copyName + ' (original preserved)');
-      ScanDropStore.saveState(state);
-
-      // Trigger download so staff can open it in Word/Acrobat/Photoshop
-      const url = URL.createObjectURL(record.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = copyName;
-      a.click();
-      URL.revokeObjectURL(url);
-      renderCurrentView();
-    }
-
-    async function exportFile(fileId, fileName) {
-      const record = await ScanDropStore.getFileBlob(fileId);
-      if (!record || !record.blob) {
-        alert('No file payload found to export.');
-        return;
-      }
-      const url = URL.createObjectURL(record.blob);
+    function downloadFile(fileId, fileName, localBlobUrl = null) {
+      const url = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;
+      a.target = '_blank';
       a.click();
-      URL.revokeObjectURL(url);
     }
 
-    function openPrintModal(fileId, fileName) {
-      activePrintFile = { id: fileId, name: fileName };
+    function openPrintModal(fileId, fileName, localBlobUrl = null) {
+      activePrintFile = { id: fileId, name: fileName, url: localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId)) };
       document.getElementById('printFileLabel').textContent = 'Document: ' + fileName;
       openModal('printModal');
     }
 
-    async function executePrint() {
+    function executePrint() {
       if (!activePrintFile) return;
-      const record = await ScanDropStore.getFileBlob(activePrintFile.id);
-      const profile = document.getElementById('printProfileSelect').value;
-      const copies = document.getElementById('printCopiesInput').value;
-
-      const state = ScanDropStore.loadState();
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'MANUAL_PRINT',
-        'Printed ' + activePrintFile.name + ' (' + copies + ' copies, ' + profile + ')');
-      ScanDropStore.saveState(state);
       closeModal('printModal');
-
-      if (record && record.blob) {
-        const url = URL.createObjectURL(record.blob);
-        const win = window.open(url, '_blank');
-        if (win) {
-          win.onload = () => { win.focus(); win.print(); };
-        } else {
-          window.print();
-        }
+      const win = window.open(activePrintFile.url, '_blank');
+      if (win) {
+        win.onload = () => { win.focus(); win.print(); };
       } else {
         window.print();
       }
     }
 
-    // Real client-side PDF Tools using pdf-lib
     async function convertImagesToPdf() {
       const checkboxes = Array.from(document.querySelectorAll('.img-pdf-check:checked'));
-      if (checkboxes.length === 0) {
-        alert('Select at least one image (JPG/PNG) to convert to PDF.');
-        return;
-      }
-      if (!window.PDFLib) {
-        alert('PDF engine still loading. Please try again in a moment.');
-        return;
-      }
-
+      if (checkboxes.length === 0) { alert('Select at least one image.'); return; }
       const paper = document.getElementById('pdfPaperSelect').value;
       const orient = document.getElementById('pdfOrientSelect').value;
-      const sizes = {
-        A4: [595.28, 841.89],
-        A5: [419.53, 595.28],
-        Letter: [612, 792],
-        Legal: [612, 1008],
-        Photo4x6: [288, 432]
-      };
+      const sizes = { A4: [595.28, 841.89], A5: [419.53, 595.28], Letter: [612, 792], Legal: [612, 1008], Photo4x6: [288, 432] };
       let [w, h] = sizes[paper] || sizes.A4;
       if (orient === 'landscape') [w, h] = [h, w];
 
       const pdfDoc = await PDFLib.PDFDocument.create();
       for (const cb of checkboxes) {
-        const rec = await ScanDropStore.getFileBlob(cb.value);
-        if (!rec || !rec.blob) continue;
-        const bytes = await rec.blob.arrayBuffer();
-        let img;
-        if (rec.type === 'image/png' || rec.name.toLowerCase().endsWith('.png')) {
-          img = await pdfDoc.embedPng(bytes);
-        } else {
-          img = await pdfDoc.embedJpg(bytes);
-        }
+        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const bytes = await res.arrayBuffer();
+        const isPng = cb.dataset.ext === '.png';
+        const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const page = pdfDoc.addPage([w, h]);
         const margin = 20;
-        const maxW = w - margin * 2;
-        const maxH = h - margin * 2;
-        const scale = Math.min(maxW / img.width, maxH / img.height);
+        const scale = Math.min((w - margin * 2) / img.width, (h - margin * 2) / img.height);
         const dw = img.width * scale;
         const dh = img.height * scale;
-        page.drawImage(img, {
-          x: margin + (maxW - dw) / 2,
-          y: margin + (maxH - dh) / 2,
-          width: dw,
-          height: dh
-        });
+        page.drawImage(img, { x: margin + (w - margin * 2 - dw) / 2, y: margin + (h - margin * 2 - dh) / 2, width: dw, height: dh });
       }
-
       const pdfBytes = await pdfDoc.save();
-      const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const outId = 'der_pdf_' + Date.now();
-      const outName = 'Converted_' + paper + '_' + Date.now() + '.pdf';
-      await ScanDropStore.saveFileBlob(outId, pdfBlob, outName, 'application/pdf');
-
-      const state = ScanDropStore.loadState();
-      state.derivedFiles.unshift({
-        id: outId,
-        submissionId: null,
-        displayName: outName,
-        outputFormat: 'pdf',
-        sizeBytes: pdfBlob.size,
-        createdAt: new Date().toISOString()
-      });
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'IMAGE_TO_PDF',
-        'Converted ' + checkboxes.length + ' image(s) to ' + outName);
-      ScanDropStore.saveState(state);
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = 'Converted_' + paper + '_' + Date.now() + '.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
       renderCurrentView();
-      alert('PDF generated: ' + outName);
+      alert('PDF generated: ' + name);
     }
 
     async function mergeSelectedPdfs() {
       const checkboxes = Array.from(document.querySelectorAll('.merge-pdf-check:checked'));
-      if (checkboxes.length < 2) {
-        alert('Select at least 2 PDF files to merge.');
-        return;
-      }
+      if (checkboxes.length < 2) { alert('Select at least 2 PDF files to merge.'); return; }
       const mergedPdf = await PDFLib.PDFDocument.create();
       for (const cb of checkboxes) {
-        const rec = await ScanDropStore.getFileBlob(cb.value);
-        if (!rec || !rec.blob) continue;
-        const bytes = await rec.blob.arrayBuffer();
+        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const bytes = await res.arrayBuffer();
         const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
         const pages = await mergedPdf.copyPages(src, src.getPageIndices());
         pages.forEach(p => mergedPdf.addPage(p));
       }
       const outBytes = await mergedPdf.save();
-      const outBlob = new Blob([outBytes], { type: 'application/pdf' });
-      const outId = 'der_merge_' + Date.now();
-      const outName = 'Merged_' + Date.now() + '.pdf';
-      await ScanDropStore.saveFileBlob(outId, outBlob, outName, 'application/pdf');
-
-      const state = ScanDropStore.loadState();
-      state.derivedFiles.unshift({
-        id: outId,
-        submissionId: null,
-        displayName: outName,
-        outputFormat: 'pdf',
-        sizeBytes: outBlob.size,
-        createdAt: new Date().toISOString()
-      });
-      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'MERGE_PDF',
-        'Merged ' + checkboxes.length + ' PDFs into ' + outName);
-      ScanDropStore.saveState(state);
+      const blob = new Blob([outBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = 'Merged_' + Date.now() + '.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
       renderCurrentView();
-      alert('Merged PDF created: ' + outName);
+      alert('Merged PDF created: ' + name);
     }
 
     function renderCurrentView() {
-      const state = ScanDropStore.loadState();
-      const shop = state.shops.find(s => s.id === state.workspaceConfig.pairedShopId) || state.shops[0];
-      const plan = ScanDropStore.PLANS.find(p => p.id === shop.planId) || ScanDropStore.PLANS[0];
+      if (!cloudState) return;
+      const shop = cloudState.shops.find(s => s.id === pairedShopId) || cloudState.shops[0];
+      const plan = cloudPlans.find(p => p.id === shop.planId) || cloudPlans[0];
 
       document.getElementById('sidebarShopName').textContent = shop.name;
       document.getElementById('sidebarPlanBadge').textContent = plan.tier.toUpperCase();
-      document.getElementById('sidebarStatus').textContent = '● ' + shop.subscriptionStatus.toUpperCase() + ' • 72h Grace';
+      document.getElementById('sidebarStatus').textContent = '● ' + shop.subscriptionStatus.toUpperCase() + ' • Cloud Sync';
 
-      const shopSubs = state.submissions.filter(s => s.shopId === shop.id && s.status !== 'expired');
+      const shopSubs = (cloudState.submissions || []).filter(s => s.shopId === shop.id && s.status !== 'expired');
       document.getElementById('badgeInbox').textContent = shopSubs.filter(s => s.status === 'incoming').length;
       document.getElementById('badgeProcessing').textContent = shopSubs.filter(s => s.status === 'processing').length;
 
@@ -468,7 +367,7 @@
           container.innerHTML = `<div style="text-align:center;padding:70px 20px;color:var(--muted);">
             <div style="font-size:36px;margin-bottom:10px;opacity:0.5;">📥</div>
             <h3>No submissions in ${currentTab}</h3>
-            <p style="font-size:13px;margin-top:6px;">Customer uploads sent via the QR portal will appear here automatically.</p>
+            <p style="font-size:13px;margin-top:6px;">Upload files at <a href="/shop/${shop.slug}" target="_blank" style="color:#60a5fa;">/shop/${shop.slug}</a> and they will appear here automatically.</p>
           </div>`;
           return;
         }
@@ -482,8 +381,8 @@
                 <div style="font-size:11px;color:var(--muted);">${(f.sizeBytes / 1024).toFixed(1)} KB • SHA-256 Verified</div>
               </div>
               <div style="display:flex;gap:6px;">
-                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="previewFileById('${f.id}', '${f.originalName}', '${f.fileExtension}')">👁 Preview</button>
-                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="openWorkingCopy('${f.id}', '${f.originalName}', '${sub.id}')">↗ Open Copy</button>
+                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="previewFile('${f.id}', '${f.originalName}', '${f.fileExtension}')">👁 Preview</button>
+                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="downloadFile('${f.id}', '${f.originalName}')">⬇ Download</button>
                 <button class="btn" style="padding:5px 8px;" onclick="openPrintModal('${f.id}', '${f.originalName}')">🖨 Print</button>
               </div>
             </div>
@@ -493,7 +392,6 @@
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <div style="display:flex;align-items:center;gap:10px;">
                 <strong style="font-size:19px;color:#38bdf8;">${sub.id}</strong>
-                ${sub.serviceCategory ? `<span class="badge badge-blue">${sub.serviceCategory}</span>` : ''}
                 <span style="font-size:13px;font-weight:600;">${sub.customerName}</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
@@ -502,18 +400,19 @@
                 ${sub.status === 'processing' ? `<button class="btn" style="background:#10b981;" onclick="updateSubStatus('${sub.id}', 'completed')">Mark Completed</button>` : ''}
               </div>
             </div>
-            ${sub.instructions ? `<div style="background:var(--bg);padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border-left:3px solid #38bdf8;"><strong>Instructions:</strong> ${sub.instructions}</div>` : ''}
-            <div style="display:flex;flex-wrap:wrap;gap:10px;">${filesHtml || '<span style="font-size:12px;color:var(--muted);">No files attached to this sample entry.</span>'}</div>
+            ${sub.instructions ? `<div style="background:var(--bg);padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border-left:3px solid #38bdf8;"><strong>Note:</strong> ${sub.instructions}</div>` : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:10px;">${filesHtml}</div>
           </div>`;
         }).join('');
       }
       else if (currentTab === 'fileManager') {
         container.innerHTML = `<div class="sub-card">
-          <h3 style="margin-bottom:12px;">Submission Directories (<code>${state.workspaceConfig.storageRoot}</code>)</h3>
-          ${shopSubs.map(sub => `<div style="background:var(--bg);padding:10px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-            <div><strong>${sub.status === 'incoming' ? 'Incoming' : sub.status === 'processing' ? 'Processing' : 'Completed'}/${sub.id}/</strong> — ${sub.customerName} (${(sub.files || []).length} files)</div>
-            <span class="badge badge-green">24h Protected</span>
-          </div>`).join('')}
+          <h3 style="margin-bottom:12px;">Cloud-Synced Submission Folders</h3>
+          ${shopSubs.length === 0 ? '<p style="color:var(--muted);font-size:13px;">No active submissions.</p>' :
+            shopSubs.map(sub => `<div style="background:var(--bg);padding:10px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+              <div><strong>${sub.status}/${sub.id}/</strong> — ${sub.customerName} (${(sub.files || []).length} files)</div>
+              <span class="badge badge-green">24h Protected</span>
+            </div>`).join('')}
         </div>`;
       }
       else if (currentTab === 'pdfTools') {
@@ -525,7 +424,7 @@
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-bottom:18px;">
             <div class="sub-card">
               <h3 style="margin-bottom:8px;">🖼️ Image-to-PDF Converter</h3>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine customer images into one print-ready PDF.</p>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine uploaded images into one PDF.</p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
                 <select id="pdfPaperSelect" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;">
                   <option value="A4">A4</option><option value="A5">A5</option><option value="Letter">Letter</option><option value="Legal">Legal</option><option value="Photo4x6">4x6 Photo</option>
@@ -536,14 +435,14 @@
               </div>
               <div style="max-height:120px;overflow-y:auto;margin-bottom:12px;background:var(--bg);padding:8px;border-radius:8px;">
                 ${imgs.length === 0 ? '<span style="font-size:12px;color:var(--muted);">No JPG/PNG images uploaded yet.</span>' :
-                  imgs.map(i => `<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="img-pdf-check" value="${i.id}"> ${i.originalName}</label>`).join('')}
+                  imgs.map(i => `<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="img-pdf-check" value="${i.id}" data-ext="${i.fileExtension}"> ${i.originalName}</label>`).join('')}
               </div>
               <button class="btn" onclick="convertImagesToPdf()">Generate PDF</button>
             </div>
 
             <div class="sub-card">
               <h3 style="margin-bottom:8px;">📑 Merge Multiple PDFs</h3>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine 2 or more PDF files into one document.</p>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine 2 or more PDFs into one document.</p>
               <div style="max-height:158px;overflow-y:auto;margin-bottom:12px;background:var(--bg);padding:8px;border-radius:8px;">
                 ${pdfs.length === 0 ? '<span style="font-size:12px;color:var(--muted);">No PDF files uploaded yet.</span>' :
                   pdfs.map(p => `<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="merge-pdf-check" value="${p.id}"> ${p.originalName}</label>`).join('')}
@@ -553,14 +452,14 @@
           </div>
 
           <div class="sub-card">
-            <h3 style="margin-bottom:12px;">Derived & Converted Outputs</h3>
-            ${state.derivedFiles.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted or working copy files yet.</p>' :
-              state.derivedFiles.map(d => `<div class="file-chip" style="margin-bottom:8px;">
+            <h3 style="margin-bottom:12px;">Generated PDF Outputs</h3>
+            ${localDerived.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No generated PDFs in this session yet.</p>' :
+              localDerived.map(d => `<div class="file-chip" style="margin-bottom:8px;">
                 <div><strong>${d.displayName}</strong> <span style="font-size:11px;color:var(--muted);">(${(d.sizeBytes / 1024).toFixed(1)} KB)</span></div>
                 <div style="display:flex;gap:6px;">
-                  <button class="btn btn-secondary" onclick="previewFileById('${d.id}', '${d.displayName}', '.${d.outputFormat}', true)">👁 Preview</button>
-                  <button class="btn btn-secondary" onclick="exportFile('${d.id}', '${d.displayName}')">⬇ Export</button>
-                  <button class="btn" onclick="openPrintModal('${d.id}', '${d.displayName}')">🖨 Print</button>
+                  <button class="btn btn-secondary" onclick="previewFile('${d.id}', '${d.displayName}', '.pdf', '${d.blobUrl}')">👁 Preview</button>
+                  <button class="btn btn-secondary" onclick="downloadFile('${d.id}', '${d.displayName}', '${d.blobUrl}')">⬇ Download</button>
+                  <button class="btn" onclick="openPrintModal('${d.id}', '${d.displayName}', '${d.blobUrl}')">🖨 Print</button>
                 </div>
               </div>`).join('')}
           </div>
@@ -571,7 +470,7 @@
           <h3 style="margin-bottom:6px;">Saved Printer Profiles & Manual Policy</h3>
           <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Automatic printing is permanently disabled. Staff explicitly initiate all print jobs.</p>
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;">
-            ${state.printerProfiles.map(p => `<div style="background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--border);">
+            ${(cloudState.printerProfiles || []).map(p => `<div style="background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--border);">
               <strong>${p.name}</strong>
               <div style="font-size:12px;color:var(--muted);margin-top:6px;">Paper: ${p.paperSize} • ${p.color ? 'Color' : 'B&W'} • ${p.orientation}</div>
             </div>`).join('')}
@@ -584,7 +483,7 @@
           <table>
             <thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Description</th></tr></thead>
             <tbody>
-              ${state.auditEvents.map(e => `<tr>
+              ${(cloudState.auditEvents || []).map(e => `<tr>
                 <td style="font-size:11px;color:var(--muted);">${new Date(e.createdAt).toLocaleTimeString()}</td>
                 <td><span class="badge badge-blue">${e.actorType}</span></td>
                 <td><code>${e.eventType}</code></td>
@@ -595,15 +494,16 @@
         </div>`;
       }
       else if (currentTab === 'settings') {
+        const uploadLink = window.location.origin + '/shop/' + shop.slug;
         container.innerHTML = `<div class="sub-card" style="max-width:600px;">
-          <h3 style="margin-bottom:14px;">Shop Settings & Storage</h3>
+          <h3 style="margin-bottom:14px;">Shop Settings & Upload Link</h3>
           <div style="margin-bottom:12px;">
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Paired Shop</label>
             <input type="text" value="${shop.name}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
           </div>
           <div style="margin-bottom:16px;">
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Local Managed Root Directory</label>
-            <input type="text" value="${state.workspaceConfig.storageRoot}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Customer Upload URL (For QR Code)</label>
+            <input type="text" value="${uploadLink}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#60a5fa;">
           </div>
           <button class="btn btn-secondary" onclick="openPairModal()">Switch / Re-Pair Device</button>
         </div>`;
@@ -630,15 +530,14 @@
       }
     }
 
-    // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
-      else if (e.key === 'F5') { e.preventDefault(); renderCurrentView(); }
+      else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(); }
       else if (e.key === 'Escape') { closePreview(); closeModal('printModal'); closeModal('pairModal'); }
     });
 
-    renderCurrentView();
-    setInterval(renderCurrentView, 4000);
+    fetchCloudState();
+    setInterval(fetchCloudState, 3500);
   </script>
 </body>
 </html>
