@@ -73,7 +73,7 @@ namespace ScanDrop.Native
                         server = new LocalHttpServer(rootDir, DefaultPort, tunnel);
 
                         var state = server.LoadState();
-                        var shops = state["shops"] as List<object>;
+                        var shops = state["shops"] as System.Collections.IList;
                         if (shops != null && shops.Count > 0)
                         {
                             var s0 = shops[0] as Dictionary<string, object>;

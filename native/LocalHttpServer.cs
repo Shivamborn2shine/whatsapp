@@ -134,7 +134,7 @@ namespace ScanDrop.Native
                 if (path == "/api/state" && req.HttpMethod == "GET")
                 {
                     var state = LoadState();
-                    var shops = state["shops"] as List<object>;
+                    var shops = state["shops"] as System.Collections.IList;
                     if (shops != null && shops.Count > 0)
                     {
                         var s0 = shops[0] as Dictionary<string, object>;
@@ -172,7 +172,7 @@ namespace ScanDrop.Native
                 {
                     string rid = (req.QueryString["id"] ?? "").Trim().ToUpperInvariant();
                     var state = LoadState();
-                    var subs = state["submissions"] as List<object>;
+                    var subs = state["submissions"] as System.Collections.IList;
                     Dictionary<string, object> found = null;
                     if (subs != null)
                     {
@@ -196,7 +196,7 @@ namespace ScanDrop.Native
                     lock (_stateLock)
                     {
                         var state = LoadStateUnsafe();
-                        var subs = state["submissions"] as List<object>;
+                        var subs = state["submissions"] as System.Collections.IList;
                         Dictionary<string, object> target = null;
                         if (subs != null)
                         {
@@ -239,7 +239,7 @@ namespace ScanDrop.Native
                     lock (_stateLock)
                     {
                         var state = LoadStateUnsafe();
-                        var subs = state["submissions"] as List<object>;
+                        var subs = state["submissions"] as System.Collections.IList;
                         string shopId = null;
                         if (subs != null)
                         {
@@ -278,8 +278,8 @@ namespace ScanDrop.Native
                     lock (_stateLock)
                     {
                         var state = LoadStateUnsafe();
-                        var shops = state["shops"] as List<object>;
-                        var devs = state["devices"] as List<object>;
+                        var shops = state["shops"] as System.Collections.IList;
+                        var devs = state["devices"] as System.Collections.IList;
                         var shop = shops != null && shops.Count > 0 ? shops[0] as Dictionary<string, object> : null;
                         var dev = devs != null && devs.Count > 0 ? devs[0] as Dictionary<string, object> : null;
                         if (shop != null && !string.IsNullOrEmpty(code)) shop["pairingCode"] = code;
@@ -355,9 +355,9 @@ namespace ScanDrop.Native
             lock (_stateLock)
             {
                 var state = LoadStateUnsafe();
-                var subs = state["submissions"] as List<object>;
+                var subs = state["submissions"] as System.Collections.IList;
                 if (subs == null) { subs = new List<object>(); state["submissions"] = subs; }
-                var shops = state["shops"] as List<object>;
+                var shops = state["shops"] as System.Collections.IList;
                 var shop = (shops != null && shops.Count > 0) ? shops[0] as Dictionary<string, object> : null;
                 string shopId = shop != null ? GetStr(shop, "id") : "shop_quickprint_01";
 
@@ -447,12 +447,12 @@ namespace ScanDrop.Native
             lock (_stateLock)
             {
                 var state = LoadStateUnsafe();
-                var subs = state["submissions"] as List<object>;
+                var subs = state["submissions"] as System.Collections.IList;
                 if (subs != null)
                 {
                     foreach (Dictionary<string, object> s in subs)
                     {
-                        var files = s["files"] as List<object>;
+                        var files = s["files"] as System.Collections.IList;
                         if (files == null) continue;
                         foreach (Dictionary<string, object> f in files)
                         {
@@ -510,7 +510,7 @@ namespace ScanDrop.Native
 
             string nowIso = DateTime.UtcNow.ToString("o");
             bool changed = false;
-            var subs = state.ContainsKey("submissions") ? state["submissions"] as List<object> : null;
+            var subs = state.ContainsKey("submissions") ? state["submissions"] as System.Collections.IList : null;
             if (subs != null)
             {
                 foreach (Dictionary<string, object> sub in subs)
@@ -533,8 +533,8 @@ namespace ScanDrop.Native
 
         private void SaveStateUnsafe(Dictionary<string, object> state)
         {
-            var events = state.ContainsKey("auditEvents") ? state["auditEvents"] as List<object> : null;
-            if (events != null && events.Count > 200) events.RemoveRange(200, events.Count - 200);
+            var events = state.ContainsKey("auditEvents") ? state["auditEvents"] as System.Collections.IList : null;
+            if (events != null) { while (events.Count > 200) events.RemoveAt(200); }
             var ser = new JavaScriptSerializer { MaxJsonLength = 64 * 1024 * 1024 };
             File.WriteAllText(_stateFile, ser.Serialize(state), Encoding.UTF8);
         }
@@ -593,7 +593,7 @@ namespace ScanDrop.Native
 
         private static void AddAudit(Dictionary<string, object> state, string shopId, string actor, string evtType, string desc)
         {
-            var events = state["auditEvents"] as List<object>;
+            var events = state["auditEvents"] as System.Collections.IList;
             if (events == null) { events = new List<object>(); state["auditEvents"] = events; }
             events.Insert(0, new Dictionary<string, object>
             {
