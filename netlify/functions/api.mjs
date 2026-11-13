@@ -426,6 +426,35 @@ export default async (req, context) => {
       return jsonResponse({ success: true, submission });
     }
 
+    // 6b. POST /api/submission/delete
+    if (route === '/submission/delete' && req.method === 'POST') {
+      const { submissionIds } = await req.json();
+      const ids = Array.isArray(submissionIds) ? submissionIds : [submissionIds];
+      const state = await loadCloudState();
+      const filesStore = getStore('scandrop-files');
+
+      for (const id of ids) {
+        const idx = state.submissions.findIndex(s => s.id === id);
+        if (idx !== -1) {
+          const sub = state.submissions[idx];
+          for (const f of sub.files || []) {
+            try {
+              await filesStore.delete(f.id);
+              if (f.chunkCount) {
+                for (let c = 0; c < f.chunkCount; c++) {
+                  await filesStore.delete(`${f.id}_part_${c}`);
+                }
+              }
+            } catch {}
+          }
+          addAudit(state, sub.shopId, 'shop_staff', 'SUBMISSION_DELETED', `Manually deleted submission ${id}`);
+          state.submissions.splice(idx, 1);
+        }
+      }
+      await saveCloudState(state);
+      return jsonResponse({ success: true });
+    }
+
     // 7. POST /api/pair
     if (route === '/pair' && req.method === 'POST') {
       const { pairingCode } = await req.json();

@@ -1,0 +1,902 @@
+module.exports = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Drop — Shopkeeper Workspace</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --muted: #64748b;
+      --success: #16a34a;
+      --success-soft: #dcfce7;
+      --warning: #d97706;
+      --warning-soft: #fef3c7;
+      --danger: #dc2626;
+      --danger-soft: #fee2e2;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+
+    /* Sidebar */
+    .sidebar { width: 224px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar-brand { padding: 18px 16px; display: flex; align-items: center; gap: 10px; }
+    .brand-icon { width: 34px; height: 34px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; font-size: 18px; box-shadow: 0 4px 10px rgba(37,99,235,0.25); }
+    .nav-list { padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 10px; color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; border: none; background: none; width: 100%; text-align: left; transition: all 0.15s; }
+    .nav-item:hover { background: #f1f5f9; color: var(--text); }
+    .nav-item.active { background: var(--primary-soft); color: var(--primary); }
+    .nav-left { display: flex; align-items: center; gap: 10px; }
+    .badge { padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; }
+    .badge-red { background: #ef4444; color: #fff; }
+    .badge-amber { background: #f59e0b; color: #fff; }
+    .badge-blue { background: #dbeafe; color: #1d4ed8; }
+    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-orange { background: #ffedd5; color: #c2410c; }
+    .nav-divider { height: 1px; background: var(--border); margin: 8px 6px; }
+
+    /* Bottom Plan Card */
+    .plan-box { margin: 12px; padding: 12px; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; }
+    .plan-btn { width: 100%; margin-top: 10px; padding: 7px; border-radius: 8px; border: 1px solid #bfdbfe; background: #eff6ff; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .plan-btn:hover { background: #dbeafe; }
+
+    /* Main Area */
+    .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .topbar { height: 68px; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+    .search-wrap { position: relative; display: flex; align-items: center; }
+    .search-input { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 8px 62px 8px 34px; color: var(--text); font-size: 13px; width: 290px; outline: none; }
+    .search-input:focus { border-color: var(--primary); background: #fff; }
+    .kbd-pill { position: absolute; right: 8px; font-size: 11px; color: var(--muted); background: #fff; border: 1px solid var(--border); padding: 2px 6px; border-radius: 5px; font-weight: 600; }
+
+    .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.15s; }
+    .btn:hover { background: var(--primary-hover); }
+    .btn-outline { background: #fff; color: var(--text-secondary); border: 1px solid var(--border); }
+    .btn-outline:hover { background: #f8fafc; color: var(--text); }
+    .btn-sync { background: #eff6ff; color: var(--primary); border: 1px solid #bfdbfe; }
+    .btn-sync:hover { background: #dbeafe; }
+    .btn-danger-soft { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-danger-soft:hover { background: #fee2e2; }
+
+    .workspace-scroll { flex: 1; overflow-y: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+    /* Stats Row */
+    .stats-row { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)) minmax(230px, 1.3fr); gap: 12px; }
+    .stat-card { border-radius: 14px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; border: 1px solid transparent; }
+    .stat-blue { background: #eef4ff; border-color: #dbeafe; }
+    .stat-peach { background: #fff4ea; border-color: #fed7aa; }
+    .stat-mint { background: #eafaf1; border-color: #bbf7d0; }
+    .stat-lav { background: #f3efff; border-color: #e9d5ff; }
+    .stat-qr { background: #fff; border: 1px solid var(--border); justify-content: space-between; }
+    .stat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: rgba(255,255,255,0.75); }
+    .stat-num { font-size: 22px; font-weight: 800; line-height: 1.1; color: var(--text); }
+    .stat-lbl { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-top: 2px; }
+
+    /* Master-Detail Split */
+    .split-grid { display: flex; gap: 16px; flex: 1; min-height: 460px; align-items: flex-start; }
+    .list-panel { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .inspector-panel { width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
+
+    .filter-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--border); }
+    .filter-tabs { display: flex; gap: 18px; }
+    .filter-tab { padding: 14px 2px; font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; }
+    .filter-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    .sub-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.12s; }
+    .sub-row:hover { background: #f8fafc; }
+    .sub-row.selected { background: #eff6ff; }
+    .sub-row-main { flex: 1; min-width: 0; }
+    .sub-row-top { display: flex; align-items: center; gap: 8px; }
+    .sub-row-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    .bulk-bar { padding: 12px 18px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+
+    /* Inspector */
+    .insp-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--border); }
+    .insp-tab { padding: 8px 2px; font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; }
+    .insp-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .insp-file-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid #f1f5f9; border-radius: 10px; background: #fafbfd; margin-bottom: 8px; }
+    .file-type-box { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; }
+    .ft-pdf { background: #ef4444; }
+    .ft-img { background: #10b981; }
+    .ft-doc { background: #3b82f6; }
+    .ft-other { background: #64748b; }
+
+    .quick-actions-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .qa-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 10px 4px; background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+    .qa-btn:hover { background: #eff6ff; border-color: #bfdbfe; color: var(--primary); }
+
+    /* Modals */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.55); backdrop-filter: blur(3px); align-items: center; justify-content: center; z-index: 100; }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 22px; width: 92%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+    th { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; }
+    td { padding: 10px; border-bottom: 1px solid #f1f5f9; }
+  </style>
+</head>
+<body>
+  <!-- LEFT SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">S</div>
+      <div>
+        <div style="font-weight:800;font-size:16px;color:#0f172a;">Scan Drop</div>
+        <div style="font-size:11px;color:#64748b;">Shopkeeper Workspace</div>
+      </div>
+    </div>
+
+    <nav class="nav-list">
+      <button class="nav-item active" id="nav-inbox" onclick="setTab('inbox', this)">
+        <span class="nav-left"><span>📥</span><span>Inbox</span></span>
+        <span class="badge badge-red" id="badgeInbox">0</span>
+      </button>
+      <button class="nav-item" id="nav-processing" onclick="setTab('processing', this)">
+        <span class="nav-left"><span>▶</span><span>Processing</span></span>
+        <span class="badge badge-amber" id="badgeProcessing">0</span>
+      </button>
+      <button class="nav-item" id="nav-completed" onclick="setTab('completed', this)">
+        <span class="nav-left"><span>✓</span><span>Completed</span></span>
+      </button>
+
+      <div class="nav-divider"></div>
+
+      <button class="nav-item" onclick="setTab('fileManager', this)"><span class="nav-left"><span>📁</span><span>File Manager</span></span></button>
+      <button class="nav-item" onclick="setTab('pdfTools', this)"><span class="nav-left"><span>📄</span><span>PDF Tools</span></span><span>⌄</span></button>
+      <button class="nav-item" onclick="setTab('printers', this)"><span class="nav-left"><span>🖨️</span><span>Printers</span></span></button>
+      <button class="nav-item" onclick="setTab('history', this)"><span class="nav-left"><span>🕒</span><span>History</span></span></button>
+      <button class="nav-item" onclick="setTab('settings', this)"><span class="nav-left"><span>⚙️</span><span>Settings</span></span></button>
+    </nav>
+
+    <div class="plan-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:700;color:#0f172a;">👑 <span id="sidebarPlanName">Pro Plan</span></span>
+        <span class="badge badge-green" id="sidebarPlanStatus">Active</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px;" id="sidebarExpiry">Expires in 30 days</div>
+      <button class="plan-btn" onclick="setTab('subscription')">Upgrade</button>
+    </div>
+  </aside>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="main-area">
+    <header class="topbar">
+      <div>
+        <h1 id="viewTitle" style="font-size:18px;font-weight:800;color:#0f172a;">Incoming Customer Submissions</h1>
+        <p id="viewSubtitle" style="font-size:12px;color:#64748b;margin-top:2px;">Files sent by customers through your Scan Drop QR</p>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="search-wrap">
+          <span style="position:absolute;left:11px;color:#64748b;font-size:13px;">🔍</span>
+          <input type="text" id="searchInput" class="search-input" placeholder="Search by receipt, name, or filename..." oninput="renderCurrentView()">
+          <span class="kbd-pill">Ctrl + F</span>
+        </div>
+        <button class="btn btn-outline" onclick="setTab('history')" title="Notifications" style="padding:8px 10px;">🔔</button>
+        <button class="btn btn-sync" onclick="fetchCloudState()" title="Sync Now (F5)">↻ Sync Now</button>
+        <button class="btn btn-outline" onclick="openPairModal()" title="Pair Shop PC">🔗 Pair</button>
+      </div>
+    </header>
+
+    <div class="workspace-scroll" id="workspaceContent">
+      <div style="text-align:center;padding:60px;color:#64748b;">Syncing with Scan Drop Cloud...</div>
+    </div>
+  </main>
+
+  <!-- QR MODAL -->
+  <div class="modal-overlay" id="qrModal">
+    <div class="modal-box" style="text-align:center;max-width:380px;">
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:4px;">Your Customer QR Link</h3>
+      <p style="font-size:12px;color:#64748b;margin-bottom:14px;">Customers scan this to send files directly to your inbox</p>
+      <img id="qrModalImg" src="" alt="Shop QR" style="width:200px;height:200px;border:1px solid var(--border);border-radius:12px;padding:8px;margin:0 auto 12px;display:block;">
+      <input type="text" id="qrModalUrl" readonly style="width:100%;padding:9px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;font-size:12px;text-align:center;margin-bottom:14px;color:#2563eb;">
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button class="btn" onclick="copyQrUrl()">Copy Link</button>
+        <button class="btn btn-outline" onclick="closeModal('qrModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAIR MODAL -->
+  <div class="modal-overlay" id="pairModal">
+    <div class="modal-box" style="max-width:420px;">
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:6px;">Pair Shop Workspace</h3>
+      <p style="font-size:13px;color:#64748b;margin-bottom:14px;">Enter the pairing code from the Founder Super Admin console (e.g. <code>SD-PAIR-7890</code>).</p>
+      <input type="text" id="pairCodeInput" placeholder="SD-PAIR-7890" style="width:100%;padding:11px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;margin-bottom:16px;">
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal('pairModal')">Cancel</button>
+        <button class="btn" onclick="executePair()">Pair & Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SAFE PREVIEW MODAL -->
+  <div class="modal-overlay" id="previewModal">
+    <div class="modal-box" style="max-width:860px;height:84vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div>
+          <strong id="previewTitle">File Preview</strong>
+          <span style="font-size:11px;color:#64748b;margin-left:8px;">Safe Sandboxed Viewer</span>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" id="previewPrintBtn">🖨️ Print</button>
+          <button class="btn btn-outline" onclick="closePreview()">Close (Esc)</button>
+        </div>
+      </div>
+      <div id="previewBody" style="flex:1;background:#f8fafc;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;"></div>
+    </div>
+  </div>
+
+  <!-- MANUAL PRINT MODAL -->
+  <div class="modal-overlay" id="printModal">
+    <div class="modal-box" style="max-width:440px;">
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:4px;">Manual Staff Print</h3>
+      <p id="printFileLabel" style="font-size:12px;color:#64748b;margin-bottom:14px;"></p>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
+        <div>
+          <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Printer Profile</label>
+          <select id="printProfileSelect" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
+            <option value="A4 B&W">A4 Black & White</option>
+            <option value="A4 Color">A4 Full Color</option>
+            <option value="Photo 4x6">Photo 4x6 Glossy</option>
+            <option value="Legal">Legal Document</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Copies</label>
+            <input type="number" id="printCopiesInput" value="1" min="1" max="99" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Orientation</label>
+            <select id="printOrientSelect" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal('printModal')">Cancel</button>
+        <button class="btn" onclick="executePrint()">🖨️ Open System Print Dialog</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentTab = 'inbox';
+    let subFilter = 'all'; // all, incoming, processing, completed
+    let sortOrder = 'newest';
+    let inspectorTab = 'files'; // files, details
+    let selectedSubId = null;
+    let checkedSubIds = new Set();
+    let cloudState = null;
+    let cloudPlans = [];
+    let localDerived = [];
+    let pairedShopId = localStorage.getItem('scandrop_paired_shop_id') || 'shop_quickprint_01';
+    let activePrintFile = null;
+
+    const TAB_META = {
+      inbox: ['Incoming Customer Submissions', 'Files sent by customers through your Scan Drop QR'],
+      processing: ['Processing Submissions', 'Orders currently being worked on'],
+      completed: ['Completed Submissions', 'Finished orders within 24-hour retention'],
+      fileManager: ['File Manager', 'Organized submission folders and local storage'],
+      pdfTools: ['PDF Tools', 'Convert images to PDF and merge documents'],
+      printers: ['Printers & Profiles', 'Manual staff printing presets'],
+      history: ['Operational History', 'Chronological log of all submissions and actions'],
+      settings: ['Shop Settings', 'Device pairing and customer QR link'],
+      subscription: ['Subscription & Plan', 'Shopkeeper plan status and entitlements']
+    };
+
+    function setTab(tab, btn) {
+      currentTab = tab;
+      if (tab === 'inbox') subFilter = 'all';
+      else if (tab === 'processing') subFilter = 'processing';
+      else if (tab === 'completed') subFilter = 'completed';
+
+      const meta = TAB_META[tab] || ['Workspace', ''];
+      document.getElementById('viewTitle').textContent = meta[0];
+      document.getElementById('viewSubtitle').textContent = meta[1];
+
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      renderCurrentView();
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+    function openPairModal() { openModal('pairModal'); }
+    function closePreview() { closeModal('previewModal'); document.getElementById('previewBody').innerHTML = ''; }
+
+    function timeAgo(iso) {
+      const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+      if (diffSec < 60) return 'just now';
+      const mins = Math.floor(diffSec / 60);
+      if (mins < 60) return mins + ' min ago';
+      const hrs = Math.floor(mins / 60);
+      return hrs + ' hr' + (hrs > 1 ? 's' : '') + ' ago';
+    }
+
+    function formatSize(bytes) {
+      if (!bytes) return '0 KB';
+      if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    }
+
+    function getFileBadgeClass(ext) {
+      if (ext === '.pdf') return ['ft-pdf', 'PDF'];
+      if (['.jpg', '.jpeg', '.png'].includes(ext)) return ['ft-img', ext.replace('.', '').toUpperCase()];
+      if (ext === '.docx' || ext === '.doc') return ['ft-doc', 'W'];
+      return ['ft-other', 'FILE'];
+    }
+
+    function showQrModal(slug) {
+      const url = window.location.origin + '/shop/' + slug;
+      document.getElementById('qrModalUrl').value = url;
+      document.getElementById('qrModalImg').src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(url);
+      openModal('qrModal');
+    }
+    function copyQrUrl() {
+      const val = document.getElementById('qrModalUrl').value;
+      navigator.clipboard.writeText(val);
+      alert('Copied customer link: ' + val);
+    }
+
+    async function fetchCloudState() {
+      try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        if (data.success) {
+          cloudState = data.state;
+          cloudPlans = data.plans;
+          renderCurrentView();
+        }
+      } catch (err) {
+        console.error('Sync error:', err);
+      }
+    }
+
+    async function executePair() {
+      const code = document.getElementById('pairCodeInput').value.trim();
+      if (!code) return;
+      const res = await fetch('/api/pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingCode: code })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert('Pairing failed: ' + (data.error || 'Invalid code'));
+        return;
+      }
+      pairedShopId = data.shop.id;
+      localStorage.setItem('scandrop_paired_shop_id', pairedShopId);
+      closeModal('pairModal');
+      await fetchCloudState();
+      alert('Paired successfully to ' + data.shop.name + '!');
+    }
+
+    async function updateSubStatus(subId, newStatus, e) {
+      if (e) e.stopPropagation();
+      await fetch('/api/submission/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: subId, status: newStatus })
+      });
+      await fetchCloudState();
+    }
+
+    async function deleteSubmissions(ids) {
+      if (!ids || ids.length === 0) return;
+      if (!confirm('Permanently delete ' + ids.length + ' submission(s)?')) return;
+      await fetch('/api/submission/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionIds: ids })
+      });
+      checkedSubIds.clear();
+      if (ids.includes(selectedSubId)) selectedSubId = null;
+      await fetchCloudState();
+    }
+
+    function toggleSubCheck(subId, e) {
+      e.stopPropagation();
+      if (checkedSubIds.has(subId)) checkedSubIds.delete(subId);
+      else checkedSubIds.add(subId);
+      renderCurrentView();
+    }
+
+    function toggleSelectAll(listIds) {
+      if (listIds.every(id => checkedSubIds.has(id)) && listIds.length > 0) {
+        listIds.forEach(id => checkedSubIds.delete(id));
+      } else {
+        listIds.forEach(id => checkedSubIds.add(id));
+      }
+      renderCurrentView();
+    }
+
+    function previewFile(fileId, fileName, ext, localBlobUrl = null) {
+      const body = document.getElementById('previewBody');
+      document.getElementById('previewTitle').textContent = fileName;
+      const fileUrl = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
+      if (ext === '.pdf') {
+        body.innerHTML = \`<iframe src="\${fileUrl}" style="width:100%;height:100%;border:none;"></iframe>\`;
+      } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+        body.innerHTML = \`<img src="\${fileUrl}" style="max-width:100%;max-height:100%;object-fit:contain;">\`;
+      } else {
+        body.innerHTML = \`<div style="color:#475569;text-align:center;padding:30px;">
+          <p style="margin-bottom:12px;">Preview not available in browser for \${ext} files.</p>
+          <a href="\${fileUrl}" download="\${fileName}" class="btn">Download & Open in App</a>
+        </div>\`;
+      }
+      document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName, localBlobUrl);
+      openModal('previewModal');
+    }
+
+    function downloadFile(fileId, fileName, localBlobUrl = null) {
+      const url = localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.target = '_blank';
+      a.click();
+    }
+
+    function openPrintModal(fileId, fileName, localBlobUrl = null) {
+      activePrintFile = { id: fileId, name: fileName, url: localBlobUrl || ('/api/file?id=' + encodeURIComponent(fileId)) };
+      document.getElementById('printFileLabel').textContent = 'Document: ' + fileName;
+      openModal('printModal');
+    }
+
+    function executePrint() {
+      if (!activePrintFile) return;
+      closeModal('printModal');
+      const win = window.open(activePrintFile.url, '_blank');
+      if (win) {
+        win.onload = () => { win.focus(); win.print(); };
+      } else {
+        window.print();
+      }
+    }
+
+    async function convertSubmissionImagesToPdf(sub) {
+      const imgs = (sub.files || []).filter(f => ['.jpg', '.jpeg', '.png'].includes(f.fileExtension));
+      if (imgs.length === 0) { alert('No JPG/PNG images in this submission to convert.'); return; }
+      const pdfDoc = await PDFLib.PDFDocument.create();
+      const [w, h] = [595.28, 841.89];
+      for (const f of imgs) {
+        const res = await fetch('/api/file?id=' + encodeURIComponent(f.id));
+        const bytes = await res.arrayBuffer();
+        const img = f.fileExtension === '.png' ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const page = pdfDoc.addPage([w, h]);
+        const scale = Math.min((w - 40) / img.width, (h - 40) / img.height);
+        page.drawImage(img, {
+          x: 20 + (w - 40 - img.width * scale) / 2,
+          y: 20 + (h - 40 - img.height * scale) / 2,
+          width: img.width * scale,
+          height: img.height * scale
+        });
+      }
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = sub.id + '_Images.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
+      downloadFile(null, name, blobUrl);
+    }
+
+    async function convertImagesToPdf() {
+      const checkboxes = Array.from(document.querySelectorAll('.img-pdf-check:checked'));
+      if (checkboxes.length === 0) { alert('Select at least one image.'); return; }
+      const paper = document.getElementById('pdfPaperSelect').value;
+      const orient = document.getElementById('pdfOrientSelect').value;
+      const sizes = { A4: [595.28, 841.89], A5: [419.53, 595.28], Letter: [612, 792], Legal: [612, 1008], Photo4x6: [288, 432] };
+      let [w, h] = sizes[paper] || sizes.A4;
+      if (orient === 'landscape') [w, h] = [h, w];
+
+      const pdfDoc = await PDFLib.PDFDocument.create();
+      for (const cb of checkboxes) {
+        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const bytes = await res.arrayBuffer();
+        const isPng = cb.dataset.ext === '.png';
+        const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const page = pdfDoc.addPage([w, h]);
+        const margin = 20;
+        const scale = Math.min((w - margin * 2) / img.width, (h - margin * 2) / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        page.drawImage(img, { x: margin + (w - margin * 2 - dw) / 2, y: margin + (h - margin * 2 - dh) / 2, width: dw, height: dh });
+      }
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = 'Converted_' + paper + '_' + Date.now() + '.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
+      renderCurrentView();
+      alert('PDF generated: ' + name);
+    }
+
+    async function mergeSelectedPdfs() {
+      const checkboxes = Array.from(document.querySelectorAll('.merge-pdf-check:checked'));
+      if (checkboxes.length < 2) { alert('Select at least 2 PDF files to merge.'); return; }
+      const mergedPdf = await PDFLib.PDFDocument.create();
+      for (const cb of checkboxes) {
+        const res = await fetch('/api/file?id=' + encodeURIComponent(cb.value));
+        const bytes = await res.arrayBuffer();
+        const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pages = await mergedPdf.copyPages(src, src.getPageIndices());
+        pages.forEach(p => mergedPdf.addPage(p));
+      }
+      const outBytes = await mergedPdf.save();
+      const blob = new Blob([outBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const name = 'Merged_' + Date.now() + '.pdf';
+      localDerived.unshift({ id: 'der_' + Date.now(), displayName: name, ext: '.pdf', sizeBytes: blob.size, blobUrl });
+      renderCurrentView();
+      alert('Merged PDF created: ' + name);
+    }
+
+    function renderCurrentView() {
+      if (!cloudState) return;
+      const shop = cloudState.shops.find(s => s.id === pairedShopId) || cloudState.shops[0];
+      const plan = cloudPlans.find(p => p.id === shop.planId) || cloudPlans[0];
+
+      // Sidebar plan box
+      document.getElementById('sidebarPlanName').textContent = plan.name.replace(' Monthly', ' Plan');
+      document.getElementById('sidebarPlanStatus').textContent = shop.subscriptionStatus === 'active' ? 'Active' : shop.subscriptionStatus;
+      const daysLeft = Math.max(0, Math.ceil((new Date(shop.expiryDate).getTime() - Date.now()) / 86400000));
+      document.getElementById('sidebarExpiry').textContent = 'Expires in ' + daysLeft + ' days';
+
+      const shopSubs = (cloudState.submissions || []).filter(s => s.shopId === shop.id && s.status !== 'expired');
+      const newSubs = shopSubs.filter(s => s.status === 'incoming');
+      const procSubs = shopSubs.filter(s => s.status === 'processing');
+      const compSubs = shopSubs.filter(s => s.status === 'completed');
+
+      document.getElementById('badgeInbox').textContent = newSubs.length;
+      document.getElementById('badgeProcessing').textContent = procSubs.length;
+
+      const q = (document.getElementById('searchInput').value || '').toLowerCase();
+      const container = document.getElementById('workspaceContent');
+
+      if (['inbox', 'processing', 'completed'].includes(currentTab)) {
+        let filtered = shopSubs.filter(s => {
+          if (subFilter !== 'all' && s.status !== subFilter) return false;
+          if (!q) return true;
+          const fileMatch = (s.files || []).some(f => f.originalName.toLowerCase().includes(q));
+          return s.id.toLowerCase().includes(q) || (s.customerName || '').toLowerCase().includes(q) || fileMatch;
+        });
+
+        if (sortOrder === 'oldest') filtered = [...filtered].reverse();
+
+        if (!selectedSubId && filtered.length > 0) {
+          selectedSubId = filtered[0].id;
+        }
+        const selectedSub = shopSubs.find(s => s.id === selectedSubId) || null;
+        const allFilteredIds = filtered.map(s => s.id);
+        const allChecked = allFilteredIds.length > 0 && allFilteredIds.every(id => checkedSubIds.has(id));
+
+        const statsHtml = \`
+          <div class="stats-row">
+            <div class="stat-card stat-blue">
+              <div class="stat-icon">🛍️</div>
+              <div><div class="stat-num">\${newSubs.length}</div><div class="stat-lbl">New Files</div></div>
+            </div>
+            <div class="stat-card stat-peach">
+              <div class="stat-icon">▶</div>
+              <div><div class="stat-num">\${procSubs.length}</div><div class="stat-lbl">Processing</div></div>
+            </div>
+            <div class="stat-card stat-mint">
+              <div class="stat-icon">✓</div>
+              <div><div class="stat-num">\${compSubs.length}</div><div class="stat-lbl">Completed</div></div>
+            </div>
+            <div class="stat-card stat-lav">
+              <div class="stat-icon">📄</div>
+              <div><div class="stat-num">\${shopSubs.length}</div><div class="stat-lbl">Total Today</div></div>
+            </div>
+            <div class="stat-card stat-qr">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:36px;height:36px;background:#eff6ff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#2563eb;">⊞</div>
+                <div>
+                  <div style="font-size:13px;font-weight:700;">Your Customer QR</div>
+                  <div style="font-size:11px;color:#64748b;">Scan to send files</div>
+                </div>
+              </div>
+              <button class="btn btn-outline" style="padding:6px 10px;font-size:11px;" onclick="showQrModal('\${shop.slug}')">Show QR</button>
+            </div>
+          </div>
+        \`;
+
+        const rowsHtml = filtered.length === 0
+          ? \`<div style="padding:60px 20px;text-align:center;color:#64748b;">
+               <div style="font-size:32px;margin-bottom:8px;">📥</div>
+               <strong>No submissions found</strong>
+               <p style="font-size:12px;margin-top:4px;">Share <a href="/shop/\${shop.slug}" target="_blank" style="color:#2563eb;">/shop/\${shop.slug}</a> to receive files.</p>
+             </div>\`
+          : filtered.map(sub => {
+              const isSelected = selectedSub && selectedSub.id === sub.id;
+              const isChecked = checkedSubIds.has(sub.id);
+              const statusBadge = sub.status === 'incoming'
+                ? '<span class="badge badge-blue">New</span>'
+                : sub.status === 'processing'
+                ? '<span class="badge badge-amber">Processing</span>'
+                : '<span class="badge badge-green">Completed</span>';
+
+              const actionBtn = sub.status === 'incoming'
+                ? \`<button class="btn" onclick="updateSubStatus('\${sub.id}', 'processing', event)">Start Processing</button>\`
+                : sub.status === 'processing'
+                ? \`<button class="btn btn-outline" onclick="updateSubStatus('\${sub.id}', 'completed', event)">Complete</button>\`
+                : \`<button class="btn btn-outline" onclick="selectedSubId='\${sub.id}';renderCurrentView()">View Files</button>\`;
+
+              return \`
+                <div class="sub-row \${isSelected ? 'selected' : ''}" onclick="selectedSubId='\${sub.id}';renderCurrentView()">
+                  <input type="checkbox" \${isChecked ? 'checked' : ''} onclick="toggleSubCheck('\${sub.id}', event)" style="width:15px;height:15px;cursor:pointer;">
+                  <span style="color:#3b82f6;font-size:16px;">📄</span>
+                  <div style="min-width:130px;display:flex;align-items:center;gap:8px;">
+                    <strong style="font-size:14px;">\${sub.id}</strong>
+                    \${statusBadge}
+                  </div>
+                  <div class="sub-row-main">
+                    <div style="font-size:13px;font-weight:700;color:#0f172a;">👤 \${sub.customerName || 'Walk-in Customer'}</div>
+                    <div class="sub-row-meta">\${(sub.files || []).length} file(s) • \${formatSize(sub.totalSizeBytes)}\${sub.instructions ? ' • ' + sub.instructions : ''}</div>
+                  </div>
+                  <div style="font-size:12px;color:#64748b;min-width:85px;text-align:right;">🕒 \${timeAgo(sub.createdAt)}</div>
+                  <div style="min-width:120px;text-align:right;">\${actionBtn}</div>
+                </div>
+              \`;
+            }).join('');
+
+        let inspectorHtml = '';
+        if (selectedSub) {
+          const sBadge = selectedSub.status === 'incoming'
+            ? '<span class="badge badge-blue">New</span>'
+            : selectedSub.status === 'processing'
+            ? '<span class="badge badge-amber">Processing</span>'
+            : '<span class="badge badge-green">Completed</span>';
+
+          const firstFile = (selectedSub.files || [])[0];
+          const inspFilesHtml = (selectedSub.files || []).map(f => {
+            const [cls, lbl] = getFileBadgeClass(f.fileExtension);
+            return \`
+              <div class="insp-file-row">
+                <div class="file-type-box \${cls}">\${lbl}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">\${f.originalName}</div>
+                  <div style="font-size:11px;color:#64748b;">\${formatSize(f.sizeBytes)}</div>
+                </div>
+                <button class="btn btn-outline" style="padding:5px 8px;" onclick="previewFile('\${f.id}', '\${f.originalName}', '\${f.fileExtension}')" title="Preview">👁</button>
+                <button class="btn btn-outline" style="padding:5px 8px;" onclick="downloadFile('\${f.id}', '\${f.originalName}')" title="Download">⬇</button>
+              </div>
+            \`;
+          }).join('');
+
+          const remHrs = Math.max(0, (new Date(selectedSub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
+          const inspDetailsHtml = \`
+            <div style="font-size:13px;display:flex;flex-direction:column;gap:10px;padding:6px 0;">
+              <div><span style="color:#64748b;">Sender:</span> <strong>\${selectedSub.customerName}</strong></div>
+              <div><span style="color:#64748b;">Received:</span> <strong>\${new Date(selectedSub.createdAt).toLocaleString()}</strong></div>
+              <div><span style="color:#64748b;">Auto-Purge:</span> <strong style="color:#d97706;">\${remHrs} hours left</strong></div>
+              <div><span style="color:#64748b;">Note:</span> <div style="background:#f8fafc;padding:8px;border-radius:8px;border:1px solid var(--border);margin-top:4px;">\${selectedSub.instructions || 'No instructions'}</div></div>
+            </div>
+          \`;
+
+          const bottomCta = selectedSub.status === 'incoming'
+            ? \`<button class="btn" style="width:100%;padding:11px;font-size:13px;" onclick="updateSubStatus('\${selectedSub.id}', 'processing')">▶ Start Processing</button>\`
+            : selectedSub.status === 'processing'
+            ? \`<button class="btn" style="width:100%;padding:11px;font-size:13px;background:#16a34a;" onclick="updateSubStatus('\${selectedSub.id}', 'completed')">✓ Mark Completed</button>\`
+            : \`<button class="btn btn-outline" style="width:100%;padding:11px;font-size:13px;" onclick="updateSubStatus('\${selectedSub.id}', 'incoming')">↺ Move to Inbox</button>\`;
+
+          inspectorHtml = \`
+            <aside class="inspector-panel">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <strong style="font-size:17px;">\${selectedSub.id}</strong>
+                  \${sBadge}
+                </div>
+                <button onclick="selectedSubId=null;renderCurrentView()" style="border:none;background:none;font-size:16px;color:#64748b;cursor:pointer;">✕</button>
+              </div>
+
+              <div class="insp-tabs">
+                <button class="insp-tab \${inspectorTab === 'files' ? 'active' : ''}" onclick="inspectorTab='files';renderCurrentView()">Files (\${(selectedSub.files || []).length})</button>
+                <button class="insp-tab \${inspectorTab === 'details' ? 'active' : ''}" onclick="inspectorTab='details';renderCurrentView()">Details</button>
+              </div>
+
+              <div style="max-height:240px;overflow-y:auto;">
+                \${inspectorTab === 'files' ? (inspFilesHtml || '<p style="font-size:12px;color:#64748b;">No files</p>') : inspDetailsHtml}
+              </div>
+
+              <div>
+                <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:8px;">Quick Actions</div>
+                <div class="quick-actions-grid">
+                  <button class="qa-btn" onclick="\${firstFile ? \`previewFile('\${firstFile.id}', '\${firstFile.originalName}', '\${firstFile.fileExtension}')\` : ''}"><span>👁</span><span>Preview</span></button>
+                  <button class="qa-btn" onclick="\${firstFile ? \`downloadFile('\${firstFile.id}', '\${firstFile.originalName}')\` : ''}"><span>↗</span><span>Open With</span></button>
+                  <button class="qa-btn" onclick='convertSubmissionImagesToPdf(\${JSON.stringify(selectedSub).replace(/'/g, "&#39;")})'><span>📄</span><span>To PDF</span></button>
+                  <button class="qa-btn" onclick="\${firstFile ? \`openPrintModal('\${firstFile.id}', '\${firstFile.originalName}')\` : ''}"><span>🖨</span><span>Print</span></button>
+                </div>
+              </div>
+
+              \${bottomCta}
+            </aside>
+          \`;
+        }
+
+        const listPanelHtml = \`
+          <div class="list-panel">
+            <div class="filter-bar">
+              <div class="filter-tabs">
+                <button class="filter-tab \${subFilter === 'all' ? 'active' : ''}" onclick="subFilter='all';renderCurrentView()">All (\${shopSubs.length})</button>
+                <button class="filter-tab \${subFilter === 'incoming' ? 'active' : ''}" onclick="subFilter='incoming';renderCurrentView()">New (\${newSubs.length})</button>
+                <button class="filter-tab \${subFilter === 'processing' ? 'active' : ''}" onclick="subFilter='processing';renderCurrentView()">Processing (\${procSubs.length})</button>
+                <button class="filter-tab \${subFilter === 'completed' ? 'active' : ''}" onclick="subFilter='completed';renderCurrentView()">Completed (\${compSubs.length})</button>
+              </div>
+              <select onchange="sortOrder=this.value;renderCurrentView()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;color:#475569;background:#fff;">
+                <option value="newest" \${sortOrder === 'newest' ? 'selected' : ''}>Sort: Newest</option>
+                <option value="oldest" \${sortOrder === 'oldest' ? 'selected' : ''}>Sort: Oldest</option>
+              </select>
+            </div>
+
+            <div style="flex:1;overflow-y:auto;">\${rowsHtml}</div>
+
+            <div class="bulk-bar">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;">
+                <input type="checkbox" \${allChecked ? 'checked' : ''} onchange='toggleSelectAll(\${JSON.stringify(allFilteredIds)})' style="width:15px;height:15px;"> Select All
+              </label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-outline" onclick="if(selectedSubId){const s=cloudState.submissions.find(x=>x.id===selectedSubId);if(s&&s.files[0])downloadFile(s.files[0].id,s.files[0].originalName);}">⬇ Download</button>
+                <button class="btn btn-outline" onclick="if(selectedSubId){const s=cloudState.submissions.find(x=>x.id===selectedSubId);if(s&&s.files[0])openPrintModal(s.files[0].id,s.files[0].originalName);}">🖨 Print</button>
+                <button class="btn btn-outline" onclick="if(selectedSubId){const s=cloudState.submissions.find(x=>x.id===selectedSubId);if(s)convertSubmissionImagesToPdf(s);}">📄 Convert to PDF</button>
+                <button class="btn btn-outline" onclick="Array.from(checkedSubIds).forEach(id=>updateSubStatus(id,'completed'))">✓ Move to Completed</button>
+                <button class="btn btn-danger-soft" onclick="deleteSubmissions(Array.from(checkedSubIds))">🗑 Delete</button>
+              </div>
+            </div>
+          </div>
+        \`;
+
+        container.innerHTML = statsHtml + \`<div class="split-grid">\${listPanelHtml}\${inspectorHtml}</div>\`;
+      }
+      else if (currentTab === 'fileManager') {
+        container.innerHTML = \`<div class="list-panel" style="padding:20px;">
+          <h3 style="margin-bottom:14px;">Submission Folders (24-Hour Managed Storage)</h3>
+          \${shopSubs.length === 0 ? '<p style="color:#64748b;font-size:13px;">No active submissions.</p>' :
+            shopSubs.map(sub => \`<div style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+              <div><strong>/\${sub.status}/\${sub.id}/</strong> — \${sub.customerName} (\${(sub.files || []).length} files, \${formatSize(sub.totalSizeBytes)})</div>
+              <span class="badge badge-green">24h Protected</span>
+            </div>\`).join('')}
+        </div>\`;
+      }
+      else if (currentTab === 'pdfTools') {
+        const allFiles = shopSubs.flatMap(s => s.files || []);
+        const imgs = allFiles.filter(f => ['.jpg', '.jpeg', '.png'].includes(f.fileExtension));
+        const pdfs = allFiles.filter(f => f.fileExtension === '.pdf');
+
+        container.innerHTML = \`
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;">
+            <div class="list-panel" style="padding:20px;">
+              <h3 style="margin-bottom:6px;">🖼️ Image-to-PDF Converter</h3>
+              <p style="font-size:12px;color:#64748b;margin-bottom:12px;">Combine uploaded images into one PDF.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+                <select id="pdfPaperSelect" style="padding:8px;border:1px solid var(--border);border-radius:8px;font-size:12px;">
+                  <option value="A4">A4</option><option value="A5">A5</option><option value="Letter">Letter</option><option value="Legal">Legal</option><option value="Photo4x6">4x6 Photo</option>
+                </select>
+                <select id="pdfOrientSelect" style="padding:8px;border:1px solid var(--border);border-radius:8px;font-size:12px;">
+                  <option value="portrait">Portrait</option><option value="landscape">Landscape</option>
+                </select>
+              </div>
+              <div style="max-height:140px;overflow-y:auto;margin-bottom:12px;background:#f8fafc;padding:10px;border-radius:8px;border:1px solid var(--border);">
+                \${imgs.length === 0 ? '<span style="font-size:12px;color:#64748b;">No JPG/PNG images uploaded yet.</span>' :
+                  imgs.map(i => \`<label style="display:flex;gap:8px;font-size:12px;margin-bottom:6px;cursor:pointer;"><input type="checkbox" class="img-pdf-check" value="\${i.id}" data-ext="\${i.fileExtension}"> \${i.originalName}</label>\`).join('')}
+              </div>
+              <button class="btn" onclick="convertImagesToPdf()">Generate PDF</button>
+            </div>
+
+            <div class="list-panel" style="padding:20px;">
+              <h3 style="margin-bottom:6px;">📑 Merge Multiple PDFs</h3>
+              <p style="font-size:12px;color:#64748b;margin-bottom:12px;">Combine 2 or more PDFs into one document.</p>
+              <div style="max-height:180px;overflow-y:auto;margin-bottom:12px;background:#f8fafc;padding:10px;border-radius:8px;border:1px solid var(--border);">
+                \${pdfs.length === 0 ? '<span style="font-size:12px;color:#64748b;">No PDF files uploaded yet.</span>' :
+                  pdfs.map(p => \`<label style="display:flex;gap:8px;font-size:12px;margin-bottom:6px;cursor:pointer;"><input type="checkbox" class="merge-pdf-check" value="\${p.id}"> \${p.originalName}</label>\`).join('')}
+              </div>
+              <button class="btn" onclick="mergeSelectedPdfs()">Merge Selected PDFs</button>
+            </div>
+          </div>
+
+          <div class="list-panel" style="padding:20px;">
+            <h3 style="margin-bottom:12px;">Generated PDF Outputs</h3>
+            \${localDerived.length === 0 ? '<p style="font-size:13px;color:#64748b;">No generated PDFs in this session yet.</p>' :
+              localDerived.map(d => \`<div style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                <div><strong>\${d.displayName}</strong> <span style="font-size:11px;color:#64748b;">(\${formatSize(d.sizeBytes)})</span></div>
+                <div style="display:flex;gap:6px;">
+                  <button class="btn btn-outline" onclick="previewFile('\${d.id}', '\${d.displayName}', '.pdf', '\${d.blobUrl}')">👁 Preview</button>
+                  <button class="btn btn-outline" onclick="downloadFile('\${d.id}', '\${d.displayName}', '\${d.blobUrl}')">⬇ Download</button>
+                  <button class="btn" onclick="openPrintModal('\${d.id}', '\${d.displayName}', '\${d.blobUrl}')">🖨 Print</button>
+                </div>
+              </div>\`).join('')}
+          </div>
+        \`;
+      }
+      else if (currentTab === 'printers') {
+        container.innerHTML = \`<div class="list-panel" style="padding:20px;">
+          <h3 style="margin-bottom:6px;">Saved Printer Profiles & Manual Policy</h3>
+          <p style="font-size:12px;color:#64748b;margin-bottom:16px;">Automatic printing is permanently disabled. Staff explicitly initiate all print jobs.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;">
+            \${(cloudState.printerProfiles || []).map(p => \`<div style="background:#f8fafc;padding:14px;border-radius:10px;border:1px solid var(--border);">
+              <strong>\${p.name}</strong>
+              <div style="font-size:12px;color:#64748b;margin-top:6px;">Paper: \${p.paperSize} • \${p.color ? 'Color' : 'B&W'} • \${p.orientation}</div>
+            </div>\`).join('')}
+          </div>
+        </div>\`;
+      }
+      else if (currentTab === 'history') {
+        container.innerHTML = \`<div class="list-panel" style="padding:20px;">
+          <h3 style="margin-bottom:12px;">Operational Audit Log</h3>
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Description</th></tr></thead>
+            <tbody>
+              \${(cloudState.auditEvents || []).map(e => \`<tr>
+                <td style="font-size:11px;color:#64748b;">\${new Date(e.createdAt).toLocaleTimeString()}</td>
+                <td><span class="badge badge-blue">\${e.actorType}</span></td>
+                <td><code>\${e.eventType}</code></td>
+                <td>\${e.description}</td>
+              </tr>\`).join('')}
+            </tbody>
+          </table>
+        </div>\`;
+      }
+      else if (currentTab === 'settings') {
+        const uploadLink = window.location.origin + '/shop/' + shop.slug;
+        container.innerHTML = \`<div class="list-panel" style="padding:22px;max-width:600px;">
+          <h3 style="margin-bottom:14px;">Shop Settings & Upload Link</h3>
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Paired Shop</label>
+            <input type="text" value="\${shop.name}" readonly style="width:100%;padding:10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;">
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:4px;">Customer Upload URL (For QR Code)</label>
+            <input type="text" value="\${uploadLink}" readonly style="width:100%;padding:10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;color:#2563eb;">
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="showQrModal('\${shop.slug}')">Show QR Code</button>
+            <button class="btn btn-outline" onclick="openPairModal()">Switch / Re-Pair Device</button>
+          </div>
+        </div>\`;
+      }
+      else if (currentTab === 'subscription') {
+        container.innerHTML = \`<div class="list-panel" style="padding:22px;max-width:640px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3>Shopkeeper Subscription & Entitlements</h3>
+            <span class="badge badge-blue">\${plan.name}</span>
+          </div>
+          <div style="background:#f8fafc;padding:14px;border-radius:10px;border:1px solid var(--border);margin-bottom:16px;font-size:13px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Shop:</span><strong>\${shop.name}</strong></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Status:</span><strong style="color:#16a34a;text-transform:capitalize;">\${shop.subscriptionStatus}</strong></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Shopkeeper Fee:</span><strong>\${plan.priceText}</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Offline Grace:</span><strong style="color:#d97706;">72 Hours</strong></div>
+          </div>
+          <div style="font-size:13px;line-height:1.9;">
+            <div>✓ Max Devices: \${plan.maxDevices}</div>
+            <div>✓ Monthly Submissions Limit: \${plan.maxMonthlySubmissions}</div>
+            <div>\${plan.batchConversion ? '✓' : '✕'} Batch Conversion</div>
+            <div>\${plan.pdfAdvanced ? '✓' : '✕'} Advanced PDF Toolbox</div>
+          </div>
+        </div>\`;
+      }
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+      else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(); }
+      else if (e.key === 'Escape') { closePreview(); closeModal('printModal'); closeModal('pairModal'); closeModal('qrModal'); }
+    });
+
+    fetchCloudState();
+    setInterval(fetchCloudState, 3500);
+  </script>
+</body>
+</html>`;
