@@ -150,6 +150,43 @@ function addAudit(state, shopId, actorType, eventType, description) {
   });
 }
 
+function computeCloudStorageSummary(state) {
+  let activeBytes = 0;
+  let activeCount = 0;
+  let completedBytes = 0;
+  let completedCount = 0;
+  let expiredCount = 0;
+
+  for (const sub of state.submissions || []) {
+    const st = String(sub.status || '').toLowerCase();
+    const sz = Number(sub.totalSizeBytes || 0);
+    if (st === 'expired') {
+      expiredCount++;
+    } else if (st === 'completed') {
+      completedCount++;
+      completedBytes += sz;
+    } else {
+      activeCount++;
+      activeBytes += sz;
+    }
+  }
+
+  return {
+    inboxDir: 'Netlify Blobs (Cloud Storage)',
+    activeBytes,
+    activeCount,
+    completedBytes,
+    completedCount,
+    expiredCount,
+    stagingBytes: 0,
+    stagingCount: 0,
+    orphanBytes: 0,
+    orphanCount: 0,
+    totalUsedBytes: activeBytes + completedBytes,
+    freeDriveBytes: 0
+  };
+}
+
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -512,6 +549,82 @@ export default async (req, context) => {
       }
       await saveCloudState(state);
       return jsonResponse({ success: true });
+    }
+
+    // 6c. GET /api/storage
+    if (route === '/storage' && req.method === 'GET') {
+      const state = await loadCloudState();
+      return jsonResponse({
+        success: true,
+        storageMode: 'cloud',
+        storage: computeCloudStorageSummary(state)
+      });
+    }
+
+    // 6d. POST /api/storage/clear
+    if (route === '/storage/clear' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      const rawScope = String(body.scope || 'temp').toLowerCase();
+      const scope = ['temp', 'completed', 'all'].includes(rawScope) ? rawScope : 'temp';
+      const state = await loadCloudState();
+      const before = computeCloudStorageSummary(state);
+      const filesStore = getStore('scandrop-files');
+
+      let deletedSubmissions = 0;
+      let removedTempItems = 0;
+      const keepSubs = [];
+
+      for (const sub of state.submissions || []) {
+        const st = String(sub.status || '').toLowerCase();
+        const shouldRemove =
+          scope === 'all' ||
+          (scope === 'completed' && st === 'completed') ||
+          st === 'expired';
+
+        if (shouldRemove) {
+          for (const f of sub.files || []) {
+            try {
+              await filesStore.delete(f.id);
+              if (f.chunkCount) {
+                for (let c = 0; c < f.chunkCount; c++) {
+                  await filesStore.delete(`${f.id}_part_${c}`);
+                }
+              }
+            } catch {}
+          }
+          if (st === 'expired') removedTempItems++;
+          else deletedSubmissions++;
+        } else {
+          keepSubs.push(sub);
+        }
+      }
+
+      state.submissions = keepSubs;
+      if (scope === 'all') {
+        state.derivedFiles = [];
+      }
+
+      const after = computeCloudStorageSummary(state);
+      const freedBytes = Math.max(0, before.totalUsedBytes - after.totalUsedBytes);
+      const shopId = (state.shops && state.shops[0] && state.shops[0].id) || 'shop_quickprint_01';
+      addAudit(
+        state,
+        shopId,
+        'shop_staff',
+        'STORAGE_CLEARED',
+        `Cleared ${scope} cloud storage (${deletedSubmissions} job(s), ${(freedBytes / (1024 * 1024)).toFixed(2)} MB freed)`
+      );
+      await saveCloudState(state);
+
+      return jsonResponse({
+        success: true,
+        storageMode: 'cloud',
+        scope,
+        freedBytes,
+        deletedSubmissions,
+        removedTempItems,
+        storage: after
+      });
     }
 
     // 7. POST /api/pair

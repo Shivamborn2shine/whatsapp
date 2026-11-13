@@ -11,6 +11,32 @@ using System.Web.Script.Serialization;
 
 namespace ScanDrop.Native
 {
+    public sealed class StorageSummary
+    {
+        public string InboxDir;
+        public long ActiveBytes;
+        public int ActiveCount;
+        public long CompletedBytes;
+        public int CompletedCount;
+        public int ExpiredCount;
+        public long StagingBytes;
+        public int StagingCount;
+        public long OrphanBytes;
+        public int OrphanCount;
+        public long StateJsonBytes;
+        public long TotalUsedBytes;
+        public long FreeDriveBytes;
+    }
+
+    public sealed class StorageClearResult
+    {
+        public string Scope;
+        public long FreedBytes;
+        public int DeletedSubmissions;
+        public int RemovedTempItems;
+        public StorageSummary Remaining;
+    }
+
     public sealed class LocalHttpServer : IDisposable
     {
         private readonly string _rootDir;
@@ -352,6 +378,37 @@ namespace ScanDrop.Native
                         _tunnel.UpdateIdentity(GetStr(shop, "id"), GetStr(shop, "pairingCode"));
                         WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "shop", shop }, { "device", dev } });
                     }
+                    return;
+                }
+
+                if (path == "/api/storage" && req.HttpMethod == "GET")
+                {
+                    var st = GetStorageSummary();
+                    WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "storageMode", "local-pc" },
+                        { "storage", StorageSummaryToDict(st) }
+                    });
+                    return;
+                }
+
+                if (path == "/api/storage/clear" && req.HttpMethod == "POST")
+                {
+                    var body = ReadJsonBody(req);
+                    string scope = (GetStr(body, "scope") ?? "temp").Trim().ToLowerInvariant();
+                    if (scope != "temp" && scope != "completed" && scope != "all") scope = "temp";
+                    var cleared = ClearStorage(scope);
+                    WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "storageMode", "local-pc" },
+                        { "scope", cleared.Scope },
+                        { "freedBytes", cleared.FreedBytes },
+                        { "deletedSubmissions", cleared.DeletedSubmissions },
+                        { "removedTempItems", cleared.RemovedTempItems },
+                        { "storage", StorageSummaryToDict(cleared.Remaining) }
+                    });
                     return;
                 }
 
@@ -703,6 +760,276 @@ namespace ScanDrop.Native
         }
 
         // ====================================================================
+        // Storage Inspection & Cleanup
+        // ====================================================================
+
+        public StorageSummary GetStorageSummary()
+        {
+            lock (_stateLock)
+            {
+                var state = LoadStateUnsafe();
+                return ComputeStorageSummaryUnsafe(state);
+            }
+        }
+
+        public StorageClearResult ClearStorage(string scope)
+        {
+            if (string.IsNullOrEmpty(scope)) scope = "temp";
+            scope = scope.Trim().ToLowerInvariant();
+            if (scope != "temp" && scope != "completed" && scope != "all") scope = "temp";
+
+            StorageClearResult result;
+            lock (_stateLock)
+            {
+                var state = LoadStateUnsafe();
+                var before = ComputeStorageSummaryUnsafe(state);
+                int deletedSubs = 0;
+                int removedTemp = 0;
+
+                var subs = state.ContainsKey("submissions") ? state["submissions"] as System.Collections.IList : null;
+                var liveIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (subs != null)
+                {
+                    for (int i = subs.Count - 1; i >= 0; i--)
+                    {
+                        var s = subs[i] as Dictionary<string, object>;
+                        if (s == null) { subs.RemoveAt(i); continue; }
+                        string id = GetStr(s, "id");
+                        string status = (GetStr(s, "status") ?? "").ToLowerInvariant();
+                        bool remove = (scope == "all")
+                            || (scope == "completed" && status == "completed")
+                            || (status == "expired");
+
+                        if (remove)
+                        {
+                            if (!string.IsNullOrEmpty(id))
+                            {
+                                string subDir = Path.Combine(_inboxDir, id);
+                                if (Directory.Exists(subDir))
+                                {
+                                    try { Directory.Delete(subDir, true); } catch { }
+                                }
+                            }
+                            subs.RemoveAt(i);
+                            if (status != "expired") deletedSubs++;
+                            else removedTemp++;
+                        }
+                        else if (!string.IsNullOrEmpty(id))
+                        {
+                            liveIds.Add(id);
+                        }
+                    }
+                }
+
+                if (scope == "all")
+                {
+                    var derived = state.ContainsKey("derivedFiles") ? state["derivedFiles"] as System.Collections.IList : null;
+                    if (derived != null) derived.Clear();
+                }
+
+                // Wipe .staging chunk directory
+                string stagingDir = Path.Combine(_inboxDir, ".staging");
+                if (Directory.Exists(stagingDir))
+                {
+                    foreach (var d in Directory.GetDirectories(stagingDir))
+                    {
+                        try { Directory.Delete(d, true); removedTemp++; } catch { }
+                    }
+                    foreach (var f in Directory.GetFiles(stagingDir))
+                    {
+                        try { File.Delete(f); removedTemp++; } catch { }
+                    }
+                }
+
+                // Sweep any orphan directories or files inside _inboxDir not tracked in liveIds
+                if (Directory.Exists(_inboxDir))
+                {
+                    foreach (var d in Directory.GetDirectories(_inboxDir))
+                    {
+                        string name = Path.GetFileName(d);
+                        if (string.Equals(name, ".staging", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (scope == "all" || !liveIds.Contains(name))
+                        {
+                            try { Directory.Delete(d, true); removedTemp++; } catch { }
+                        }
+                    }
+                    foreach (var f in Directory.GetFiles(_inboxDir))
+                    {
+                        string name = Path.GetFileName(f);
+                        if (string.Equals(name, "state.json", StringComparison.OrdinalIgnoreCase)) continue;
+                        try { File.Delete(f); removedTemp++; } catch { }
+                    }
+                }
+
+                // Sweep updater temporary files in _rootDir if left behind
+                foreach (var tmpFile in new[] { "ScanDrop.exe.update", "apply-scandrop-update.bat" })
+                {
+                    string p = Path.Combine(_rootDir, tmpFile);
+                    if (File.Exists(p))
+                    {
+                        try { File.Delete(p); removedTemp++; } catch { }
+                    }
+                }
+
+                var after = ComputeStorageSummaryUnsafe(state);
+                long freed = Math.Max(0, before.TotalUsedBytes - after.TotalUsedBytes);
+
+                var shops = state.ContainsKey("shops") ? state["shops"] as System.Collections.IList : null;
+                var shop0 = (shops != null && shops.Count > 0) ? shops[0] as Dictionary<string, object> : null;
+                string shopId = shop0 != null ? GetStr(shop0, "id") : "shop_quickprint_01";
+
+                AddAudit(state, shopId, "shopkeeper", "STORAGE_CLEARED",
+                    string.Format(CultureInfo.InvariantCulture, "Cleared {0} storage ({1} job(s), {2} temp item(s), {3:F2} MB freed)",
+                        scope, deletedSubs, removedTemp, freed / (1024.0 * 1024.0)));
+                SaveStateUnsafe(state);
+
+                result = new StorageClearResult
+                {
+                    Scope = scope,
+                    FreedBytes = freed,
+                    DeletedSubmissions = deletedSubs,
+                    RemovedTempItems = removedTemp,
+                    Remaining = after
+                };
+            }
+
+            Log(string.Format(CultureInfo.InvariantCulture, "🧹 Cleared {0} storage: freed {1:F2} MB ({2} job(s), {3} temp/orphan item(s))",
+                scope, result.FreedBytes / (1024.0 * 1024.0), result.DeletedSubmissions, result.RemovedTempItems));
+            FireSubmissionsChanged();
+            return result;
+        }
+
+        private StorageSummary ComputeStorageSummaryUnsafe(Dictionary<string, object> state)
+        {
+            var s = new StorageSummary { InboxDir = _inboxDir };
+            var liveIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var subs = state.ContainsKey("submissions") ? state["submissions"] as System.Collections.IList : null;
+            if (subs != null)
+            {
+                foreach (Dictionary<string, object> sub in subs)
+                {
+                    if (sub == null) continue;
+                    string id = GetStr(sub, "id") ?? "";
+                    string status = (GetStr(sub, "status") ?? "").ToLowerInvariant();
+                    if (status == "expired")
+                    {
+                        s.ExpiredCount++;
+                        continue;
+                    }
+                    string subDir = Path.Combine(_inboxDir, id);
+                    long dirBytes = Directory.Exists(subDir) ? GetDirectoryBytesSafe(subDir) : 0;
+                    liveIds[id] = status;
+                    if (status == "completed")
+                    {
+                        s.CompletedCount++;
+                        s.CompletedBytes += dirBytes;
+                    }
+                    else
+                    {
+                        s.ActiveCount++;
+                        s.ActiveBytes += dirBytes;
+                    }
+                }
+            }
+
+            string stagingDir = Path.Combine(_inboxDir, ".staging");
+            if (Directory.Exists(stagingDir))
+            {
+                s.StagingBytes = GetDirectoryBytesSafe(stagingDir);
+                try
+                {
+                    s.StagingCount = Directory.GetDirectories(stagingDir).Length + Directory.GetFiles(stagingDir).Length;
+                }
+                catch { }
+            }
+
+            if (Directory.Exists(_inboxDir))
+            {
+                foreach (var d in Directory.GetDirectories(_inboxDir))
+                {
+                    string name = Path.GetFileName(d);
+                    if (string.Equals(name, ".staging", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!liveIds.ContainsKey(name))
+                    {
+                        s.OrphanCount++;
+                        s.OrphanBytes += GetDirectoryBytesSafe(d);
+                    }
+                }
+                foreach (var f in Directory.GetFiles(_inboxDir))
+                {
+                    string name = Path.GetFileName(f);
+                    if (string.Equals(name, "state.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { s.StateJsonBytes = new FileInfo(f).Length; } catch { }
+                    }
+                    else
+                    {
+                        s.OrphanCount++;
+                        try { s.OrphanBytes += new FileInfo(f).Length; } catch { }
+                    }
+                }
+            }
+
+            foreach (var tmpFile in new[] { "ScanDrop.exe.update", "apply-scandrop-update.bat" })
+            {
+                string p = Path.Combine(_rootDir, tmpFile);
+                if (File.Exists(p))
+                {
+                    s.OrphanCount++;
+                    try { s.OrphanBytes += new FileInfo(p).Length; } catch { }
+                }
+            }
+
+            s.TotalUsedBytes = s.ActiveBytes + s.CompletedBytes + s.StagingBytes + s.OrphanBytes;
+            try
+            {
+                string rootPath = Path.GetPathRoot(_inboxDir);
+                if (!string.IsNullOrEmpty(rootPath))
+                {
+                    s.FreeDriveBytes = new DriveInfo(rootPath).AvailableFreeSpace;
+                }
+            }
+            catch { }
+
+            return s;
+        }
+
+        private static Dictionary<string, object> StorageSummaryToDict(StorageSummary s)
+        {
+            return new Dictionary<string, object>
+            {
+                { "inboxDir", s.InboxDir },
+                { "activeBytes", s.ActiveBytes },
+                { "activeCount", s.ActiveCount },
+                { "completedBytes", s.CompletedBytes },
+                { "completedCount", s.CompletedCount },
+                { "expiredCount", s.ExpiredCount },
+                { "stagingBytes", s.StagingBytes },
+                { "stagingCount", s.StagingCount },
+                { "orphanBytes", s.OrphanBytes },
+                { "orphanCount", s.OrphanCount },
+                { "stateJsonBytes", s.StateJsonBytes },
+                { "totalUsedBytes", s.TotalUsedBytes },
+                { "freeDriveBytes", s.FreeDriveBytes }
+            };
+        }
+
+        private static long GetDirectoryBytesSafe(string dir)
+        {
+            long sum = 0;
+            try
+            {
+                foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+                {
+                    try { sum += new FileInfo(f).Length; } catch { }
+                }
+            }
+            catch { }
+            return sum;
+        }
+
+        // ====================================================================
         // State Persistence & Helpers
         // ====================================================================
 
@@ -751,6 +1078,27 @@ namespace ScanDrop.Native
                 }
             }
             if (changed) SaveStateUnsafe(state);
+
+            // Auto-sweep abandoned .staging upload chunks older than 6 hours
+            try
+            {
+                string stagingDir = Path.Combine(_inboxDir, ".staging");
+                if (Directory.Exists(stagingDir))
+                {
+                    DateTime cutoff = DateTime.UtcNow.AddHours(-6);
+                    foreach (var d in Directory.GetDirectories(stagingDir))
+                    {
+                        try
+                        {
+                            if (Directory.GetLastWriteTimeUtc(d) < cutoff)
+                                Directory.Delete(d, true);
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
             return state;
         }
 

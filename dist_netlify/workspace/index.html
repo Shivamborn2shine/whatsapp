@@ -176,6 +176,7 @@
 
       <div style="display:flex;align-items:center;gap:10px;">
         <span id="storageTunnelBadge" class="badge badge-blue" style="font-size:11px;padding:5px 10px;">☁️ Cloud Sync</span>
+        <button id="topbarStorageBtn" class="btn btn-outline" onclick="setTab('fileManager')" title="Inspect & Free Up Storage" style="padding:5px 10px;font-size:11px;">🧹 Storage</button>
         <div class="search-wrap">
           <span style="position:absolute;left:11px;color:#64748b;font-size:13px;">🔍</span>
           <input type="text" id="searchInput" class="search-input" placeholder="Search by receipt, name, or filename..." oninput="renderCurrentView()">
@@ -285,6 +286,7 @@
     let pairedShopId = localStorage.getItem('scandrop_paired_shop_id') || 'shop_quickprint_01';
     let activePrintFile = null;
     let activeApiBase = '';
+    let latestStorageStats = null;
     const isLocalHost = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     function apiUrl(p) { return (activeApiBase || '') + p; }
 
@@ -401,6 +403,7 @@
             }
           }
           renderCurrentView();
+          fetchStorageStats();
         }
       } catch (err) {
         console.error('Sync error:', err);
@@ -448,6 +451,92 @@
       checkedSubIds.clear();
       if (ids.includes(selectedSubId)) selectedSubId = null;
       await fetchCloudState();
+    }
+
+    async function fetchStorageStats() {
+      try {
+        const res = await fetch(apiUrl('/api/storage'));
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && data.success && data.storage) {
+          latestStorageStats = data.storage;
+          const btn = document.getElementById('topbarStorageBtn');
+          if (btn) {
+            const used = Number(data.storage.totalUsedBytes || 0);
+            btn.textContent = '🧹 ' + formatSize(used);
+            btn.title = 'Used: ' + formatSize(used) + ' — Click to manage or clear storage';
+          }
+          const summaryEl = document.getElementById('storageCardMetrics');
+          if (summaryEl) {
+            summaryEl.innerHTML = buildStorageMetricsHtml(data.storage);
+          }
+        }
+      } catch {}
+    }
+
+    function buildStorageMetricsHtml(st) {
+      if (!st) return '<span style="color:#64748b;font-size:12px;">Calculating storage usage...</span>';
+      const tempBytes = Number(st.stagingBytes || 0) + Number(st.orphanBytes || 0);
+      const driveFree = Number(st.freeDriveBytes || 0);
+      return `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:10px;">
+          <div style="background:#f8fafc;padding:12px;border-radius:10px;border:1px solid var(--border);">
+            <div style="font-size:11px;color:#64748b;font-weight:600;">Total Used</div>
+            <div style="font-size:18px;font-weight:800;color:#0f172a;margin-top:2px;">${formatSize(st.totalUsedBytes || 0)}</div>
+          </div>
+          <div style="background:#f8fafc;padding:12px;border-radius:10px;border:1px solid var(--border);">
+            <div style="font-size:11px;color:#64748b;font-weight:600;">Incoming / Active (${st.activeCount || 0})</div>
+            <div style="font-size:16px;font-weight:700;color:#2563eb;margin-top:2px;">${formatSize(st.activeBytes || 0)}</div>
+          </div>
+          <div style="background:#f8fafc;padding:12px;border-radius:10px;border:1px solid var(--border);">
+            <div style="font-size:11px;color:#64748b;font-weight:600;">Completed Jobs (${st.completedCount || 0})</div>
+            <div style="font-size:16px;font-weight:700;color:#16a34a;margin-top:2px;">${formatSize(st.completedBytes || 0)}</div>
+          </div>
+          <div style="background:#f8fafc;padding:12px;border-radius:10px;border:1px solid var(--border);">
+            <div style="font-size:11px;color:#64748b;font-weight:600;">Temp / Staging / Orphans</div>
+            <div style="font-size:16px;font-weight:700;color:#d97706;margin-top:2px;">${formatSize(tempBytes)}</div>
+          </div>
+          ${driveFree > 0 ? `<div style="background:#f8fafc;padding:12px;border-radius:10px;border:1px solid var(--border);">
+            <div style="font-size:11px;color:#64748b;font-weight:600;">PC Drive Free</div>
+            <div style="font-size:16px;font-weight:700;color:#0f172a;margin-top:2px;">${formatSize(driveFree)}</div>
+          </div>` : ''}
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:8px;">Location: <code>${st.inboxDir || 'Managed Storage'}</code></div>
+      `;
+    }
+
+    async function clearStorage(scope) {
+      const labelMap = {
+        temp: 'Clear temporary upload chunks, expired records, and orphaned files?',
+        completed: 'Permanently delete all COMPLETED jobs plus temporary staging files?',
+        all: 'Permanently delete ALL uploaded customer files, completed jobs, and temporary staging files? (Shop pairing and settings will stay intact.)'
+      };
+      if (!confirm(labelMap[scope] || labelMap.temp)) return;
+      try {
+        const res = await fetch(apiUrl('/api/storage/clear'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          alert('Cleanup failed: ' + (data.error || res.statusText));
+          return;
+        }
+        if (scope === 'completed' || scope === 'all') {
+          localDerived.forEach(d => { try { URL.revokeObjectURL(d.blobUrl); } catch {} });
+          if (scope === 'all') {
+            localDerived = [];
+            selectedSubId = null;
+            checkedSubIds.clear();
+          }
+        }
+        latestStorageStats = data.storage || null;
+        await fetchCloudState();
+        alert('Storage cleaned! Freed ' + formatSize(data.freedBytes || 0) + ' (' + (data.deletedSubmissions || 0) + ' job(s), ' + (data.removedTempItems || 0) + ' temp/orphan item(s)).');
+      } catch (e) {
+        alert('Storage cleanup error: ' + e.message);
+      }
     }
 
     function toggleSubCheck(subId, e) {
@@ -805,14 +894,35 @@
         container.innerHTML = statsHtml + `<div class="split-grid">${listPanelHtml}${inspectorHtml}</div>`;
       }
       else if (currentTab === 'fileManager') {
-        container.innerHTML = `<div class="list-panel" style="padding:20px;">
-          <h3 style="margin-bottom:14px;">Submission Folders (24-Hour Managed Storage)</h3>
-          ${shopSubs.length === 0 ? '<p style="color:#64748b;font-size:13px;">No active submissions.</p>' :
-            shopSubs.map(sub => `<div style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-              <div><strong>/${sub.status}/${sub.id}/</strong> — ${sub.customerName} (${(sub.files || []).length} files, ${formatSize(sub.totalSizeBytes)})</div>
-              <span class="badge badge-green">24h Protected</span>
-            </div>`).join('')}
-        </div>`;
+        container.innerHTML = `
+          <div class="list-panel" style="padding:20px;margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+              <div>
+                <h3 style="margin-bottom:2px;">💾 Storage Usage & Cleanup</h3>
+                <p style="font-size:12px;color:#64748b;">Inspect space used on your Local PC SSD / Cloud and free up space anytime.</p>
+              </div>
+              <button class="btn btn-outline" onclick="fetchStorageStats()">↻ Refresh</button>
+            </div>
+            <div id="storageCardMetrics" style="margin-bottom:14px;">${buildStorageMetricsHtml(latestStorageStats)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline" onclick="clearStorage('temp')">🧹 Clear Temp & Orphans</button>
+              <button class="btn btn-outline" onclick="clearStorage('completed')">✅ Clear Completed Jobs</button>
+              <button class="btn btn-danger-soft" onclick="clearStorage('all')">🗑️ Free Up All Storage</button>
+            </div>
+          </div>
+          <div class="list-panel" style="padding:20px;">
+            <h3 style="margin-bottom:14px;">Submission Folders (24-Hour Managed Storage)</h3>
+            ${shopSubs.length === 0 ? '<p style="color:#64748b;font-size:13px;">No active submissions.</p>' :
+              shopSubs.map(sub => `<div style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div><strong>/${sub.status}/${sub.id}/</strong> — ${sub.customerName} (${(sub.files || []).length} files, ${formatSize(sub.totalSizeBytes)})</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="badge badge-green">24h Protected</span>
+                  <button class="btn btn-danger-soft" style="padding:5px 10px;font-size:11px;" onclick="deleteSubmissions(['${sub.id}'])">🗑 Delete</button>
+                </div>
+              </div>`).join('')}
+          </div>
+        `;
+        if (!latestStorageStats) fetchStorageStats();
       }
       else if (currentTab === 'pdfTools') {
         const allFiles = shopSubs.flatMap(s => s.files || []);
@@ -916,6 +1026,19 @@
 
           <div class="list-panel" style="padding:22px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h3>💾 Storage & Cleanup</h3>
+              <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="fetchStorageStats()">↻ Refresh</button>
+            </div>
+            <div id="storageCardMetrics" style="margin-bottom:14px;">${buildStorageMetricsHtml(latestStorageStats)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline" onclick="clearStorage('temp')">🧹 Clear Temp & Orphans</button>
+              <button class="btn btn-outline" onclick="clearStorage('completed')">✅ Clear Completed</button>
+              <button class="btn btn-danger-soft" onclick="clearStorage('all')">🗑️ Free Up All Storage</button>
+            </div>
+          </div>
+
+          <div class="list-panel" style="padding:22px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <h3>PC Station Software & Auto-Updates</h3>
               <span class="badge badge-blue" id="wsVersionBadge">Checking...</span>
             </div>
@@ -927,6 +1050,7 @@
           </div>
         </div>`;
         checkStationUpdates(false);
+        if (!latestStorageStats) fetchStorageStats();
       }
       else if (currentTab === 'subscription') {
         container.innerHTML = `<div class="list-panel" style="padding:22px;max-width:640px;">

@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "3.2.1",
+    "version":  "3.2.2",
     "releaseDate":  "2026-11-13",
-    "releaseNotes":  "Fixed DPI button wrapping in Scan Drop PC Station so Auto-Start and Check Updates buttons are always visible, alongside 500MB chunked uploads and OTA updates.",
-    "sha256":  "8e5821c4f0c01ec0a43692a3fad7ed7e0fa1bd89725bf7f7c18267d5ee24dde8",
+    "releaseNotes":  "Added live Storage Usage inspector and one-click Free Up Storage / Cleanup tools (temp chunks, completed jobs, or all files) in both ScanDrop.exe and Web Workspace.",
+    "sha256":  "c73474a4bc1481dae7a84b0f13aa920921b90541f4341964e448908111860fa3",
     "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
