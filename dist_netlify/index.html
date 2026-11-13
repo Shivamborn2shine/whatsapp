@@ -2,330 +2,366 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scan Drop — Cloud Platform & Desktop Workspace</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Scan Drop — Send Files to Shop</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <style>
     :root {
       --primary: #2563eb;
       --primary-hover: #1d4ed8;
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --border: #334155;
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
       --success: #10b981;
-      --warning: #f59e0b;
-      --danger: #ef4444;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
-    header { background: #0b1120; border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; }
-    .nav-tabs { display: flex; gap: 6px; background: #0f172a; padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
-    .nav-btn { background: none; border: none; color: var(--text-muted); font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
-    .nav-btn.active { background: var(--primary); color: #fff; }
-    .main-view { flex: 1; padding: 24px; display: none; }
-    .main-view.active { display: block; }
-
-    /* Customer Upload Styles */
-    .customer-container { max-width: 480px; margin: 0 auto; }
-    .card { background: var(--card-bg); border-radius: 16px; padding: 22px; border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-    .dropzone { border: 2px dashed #475569; border-radius: 14px; padding: 28px 16px; text-align: center; cursor: pointer; background: #0f172a; transition: border-color 0.2s; }
-    .dropzone:hover { border-color: var(--primary); }
-    .form-group { margin-top: 14px; }
-    label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
-    input, select, textarea { width: 100%; padding: 11px 13px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 13px; outline: none; }
-    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
-    .btn-submit { width: 100%; background: var(--primary); color: white; border: none; border-radius: 10px; padding: 14px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 18px; }
+    body { background-color: var(--bg); color: var(--text); padding: 16px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+    .container { width: 100%; max-width: 480px; margin: 12px auto 0; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .logo-badge { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; color: var(--primary); padding: 6px 14px; border-radius: 9999px; font-weight: 700; font-size: 13px; margin-bottom: 10px; }
+    .shop-title { font-size: 22px; font-weight: 800; color: #1e293b; margin-bottom: 4px; }
+    .shop-tagline { font-size: 13px; color: var(--text-muted); }
+    .card { background: var(--card-bg); border-radius: 18px; padding: 22px; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.06); border: 1px solid var(--border); margin-bottom: 16px; }
+    .dropzone { border: 2px dashed #cbd5e1; border-radius: 14px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: #fafafa; }
+    .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: #f0f7ff; }
+    .dropzone-icon { width: 44px; height: 44px; margin: 0 auto 8px; color: var(--primary); display: block; }
+    .dropzone-text { font-size: 15px; font-weight: 600; color: #334155; }
+    .dropzone-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .file-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .file-item { display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 10px 14px; border-radius: 10px; font-size: 13px; }
+    .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+    .file-remove { color: #ef4444; cursor: pointer; font-weight: bold; padding: 2px 8px; border: none; background: none; font-size: 15px; }
+    .form-group { margin-top: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+    input, select, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: #fff; color: var(--text); outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    .btn-submit { width: 100%; background: var(--primary); color: white; border: none; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 20px; transition: background 0.2s; box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
     .btn-submit:hover { background: var(--primary-hover); }
-
-    /* Superadmin Styles */
-    .admin-container { max-width: 1200px; margin: 0 auto; }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
-    .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-    .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); }
-    .stat-val { font-size: 24px; font-weight: 800; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
-    th { padding: 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 600; }
-    td { padding: 12px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
-    .badge { display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; }
-    .badge-green { background: #064e3b; color: #34d399; }
-    .badge-blue { background: #1e3a8a; color: #93c5fd; }
-    .badge-amber { background: #78350f; color: #fde68a; }
-
-    /* Desktop View */
-    .desktop-container { max-width: 1100px; margin: 0 auto; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; display: flex; min-height: 580px; }
-    .desktop-sidebar { width: 220px; background: #0b1120; border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 6px; }
-    .sidebar-item { padding: 10px 12px; border-radius: 8px; color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
-    .sidebar-item.active, .sidebar-item:hover { background: #1e293b; color: #fff; }
-    .desktop-content { flex: 1; padding: 20px; background: #0f172a; }
+    .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; box-shadow: none; }
+    .progress-bar { width: 100%; height: 8px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; margin-top: 14px; display: none; }
+    .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
+    .receipt-container { display: none; text-align: center; }
+    .receipt-badge { font-size: 34px; font-weight: 900; color: var(--primary); letter-spacing: 1px; margin: 12px 0; }
+    .retention-alert { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.4; margin-top: 16px; text-align: left; }
+    .error-banner { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; display: none; }
+    .status-tracker { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); text-align: left; }
+    .footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: auto; padding: 16px 0; }
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <span>⚡ Scan Drop</span>
-      <span style="font-size: 11px; font-weight: normal; color: var(--text-muted); background: #1e293b; padding: 2px 8px; border-radius: 9999px;">Cloud + Desktop Platform</span>
+  <div class="container">
+    <div class="header">
+      <div class="logo-badge">⚡ Scan Drop Direct</div>
+      <h1 class="shop-title" id="shopTitle">QuickPrint Xerox & Stationery</h1>
+      <p class="shop-tagline" id="shopTagline">Scan. Drop. Done.</p>
     </div>
 
-    <div class="nav-tabs">
-      <button class="nav-btn active" onclick="switchMainTab('customerTab', this)">📱 Customer Upload</button>
-      <button class="nav-btn" onclick="switchMainTab('superadminTab', this)">👑 Founder Super Admin</button>
-      <button class="nav-btn" onclick="switchMainTab('desktopTab', this)">🖥️ Shop Workspace</button>
-    </div>
+    <div class="error-banner" id="shopUnavailableBanner"></div>
 
-    <div style="font-size: 12px; color: #34d399; font-weight: 600;">● Live Cloud Active</div>
-  </header>
-
-  <!-- 1. CUSTOMER UPLOAD VIEW -->
-  <div id="customerTab" class="main-view active">
-    <div class="customer-container">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <span style="background: #1e3a8a; color: #93c5fd; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 9999px;">QR Scan Receipt Portal</span>
-        <h1 style="font-size: 24px; font-weight: 800; margin-top: 10px;">QuickPrint Xerox & Stationery</h1>
-        <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Scan. Drop. Done. No WhatsApp required.</p>
-      </div>
-
-      <div class="card" id="uploadFormCard">
-        <div class="dropzone" id="customerDropzone" onclick="document.getElementById('cFiles').click()">
-          <input type="file" id="cFiles" multiple style="display:none;" onchange="handleCustomerFiles(this.files)">
-          <div style="font-size: 32px; margin-bottom: 8px;">📤</div>
-          <div style="font-weight: 700; font-size: 15px;">Tap or Drop Files Here</div>
-          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Supports PDF, JPG, PNG, DOCX (Max 100MB)</div>
+    <div class="card" id="uploadCard">
+      <form id="uploadForm">
+        <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.docx" style="display:none;">
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+          <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+          </svg>
+          <div class="dropzone-text">Tap to select or drop files here</div>
+          <div class="dropzone-sub">Supports PDF, JPG, PNG, DOCX (Max 100MB per file)</div>
         </div>
 
-        <div id="fileSummary" style="margin-top: 12px; display: none; font-size: 13px; background: #0f172a; padding: 10px; border-radius: 8px; border: 1px solid var(--border);"></div>
+        <div class="file-list" id="fileList"></div>
 
         <div class="form-group">
-          <label>Your Name (Optional)</label>
-          <input type="text" id="cName" placeholder="e.g. Ramesh Patel">
+          <label for="customerName">Your Name (Optional)</label>
+          <input type="text" id="customerName" placeholder="e.g. Rahul Sharma">
         </div>
 
         <div class="form-group">
-          <label>Service Type</label>
-          <select id="cService">
-            <option value="B&W Print">Black & White Print ($0.10/pg)</option>
-            <option value="Color Print">Color Print ($0.40/pg)</option>
-            <option value="Document Scanning">High-Res Scanning</option>
-            <option value="Lamination">Lamination</option>
+          <label for="serviceCategory">Service Needed</label>
+          <select id="serviceCategory">
+            <option value="Black & White Print">Black & White Print</option>
+            <option value="Color Print">Color Print</option>
+            <option value="Document Lamination">Document Lamination</option>
+            <option value="Document Scanning">Document Scanning</option>
+            <option value="Other / Custom">Other / Custom</option>
           </select>
         </div>
 
         <div class="form-group">
-          <label>Special Instructions</label>
-          <textarea id="cNotes" rows="2" placeholder="e.g. 2 copies, double-sided, pages 1 to 4 only"></textarea>
+          <label for="instructions">Special Instructions (Optional)</label>
+          <textarea id="instructions" rows="2" placeholder="e.g. 2 copies, double-sided, pages 1 to 5 only"></textarea>
         </div>
 
-        <button class="btn-submit" onclick="submitCustomerUpload()">Upload & Get Receipt</button>
+        <div class="progress-bar" id="progressBar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn" disabled>Send Files to Shop</button>
+      </form>
+    </div>
+
+    <!-- Receipt Display -->
+    <div class="card receipt-container" id="receiptCard">
+      <div style="font-size: 46px; color: var(--success); margin-bottom: 6px;">✓</div>
+      <h2 style="font-size: 20px; font-weight: 800;">Files Sent Successfully!</h2>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Show this receipt code to the shopkeeper</p>
+      
+      <div class="receipt-badge" id="receiptIdText">SD-XXXX</div>
+
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: left; font-size: 13px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span style="color: var(--text-muted);">Shop:</span>
+          <strong id="receiptShopName">-</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span style="color: var(--text-muted);">Files Sent:</span>
+          <strong id="receiptFileCount">0</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span style="color: var(--text-muted);">Total Size:</span>
+          <strong id="receiptTotalSize">0 MB</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-muted);">Status:</span>
+          <strong id="receiptStatusBadge" style="color: var(--primary);">Received by Shop</strong>
+        </div>
       </div>
 
-      <!-- Receipt Card -->
-      <div class="card" id="customerReceiptCard" style="display: none; text-align: center;">
-        <div style="font-size: 42px; color: var(--success); margin-bottom: 6px;">✓</div>
-        <h2 style="font-size: 20px; font-weight: 800;">Upload Received!</h2>
-        <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Show this receipt code to the shopkeeper</p>
-
-        <div id="receiptCode" style="font-size: 36px; font-weight: 900; color: #38bdf8; letter-spacing: 2px; margin: 16px 0;">SD-7842</div>
-
-        <div style="background: #0f172a; border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: left; font-size: 13px;">
-          <div style="display:flex; justify-content:space-between; margin-bottom: 6px;"><span style="color:var(--text-muted);">Shop:</span><strong>QuickPrint Xerox</strong></div>
-          <div style="display:flex; justify-content:space-between; margin-bottom: 6px;"><span style="color:var(--text-muted);">Files Count:</span><strong id="receiptCount">1</strong></div>
-          <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Status:</span><span class="badge badge-green">Ready for Staff</span></div>
-        </div>
-
-        <div style="background: #78350f22; border: 1px solid #78350f; color: #fbbf24; border-radius: 10px; padding: 12px; font-size: 12px; margin-top: 16px; text-align: left;">
-          🔒 <strong>24-Hour Privacy Guarantee:</strong> Files are delivered to the shop PC and automatically permanently erased from cloud servers in 24 hours.
-        </div>
-
-        <button class="btn-submit" style="background:#334155; margin-top: 16px;" onclick="resetCustomerUpload()">Upload Another Document</button>
+      <div class="retention-alert">
+        <strong>🔒 24-Hour Privacy Retention:</strong> Your files are delivered directly to the shop computer and automatically permanently deleted after 24 hours. No registration or payment needed here.
       </div>
+
+      <button onclick="resetUploadForm()" class="btn-submit" style="background: #f1f5f9; color: #334155; box-shadow: none; margin-top: 16px;">
+        Send More Files
+      </button>
+    </div>
+
+    <!-- Receipt Status Lookup -->
+    <div class="card" id="lookupCard" style="padding: 16px 20px;">
+      <div style="font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 8px;">Track Existing Receipt</div>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="lookupInput" placeholder="Enter Receipt ID (e.g. SD-1042)" style="padding: 9px 12px; font-size: 13px;">
+        <button type="button" onclick="trackReceipt()" style="background: #334155; color: #fff; border: none; border-radius: 10px; padding: 0 16px; font-size: 13px; font-weight: 600; cursor: pointer;">Track</button>
+      </div>
+      <div id="lookupResult" style="margin-top: 10px; font-size: 12px; display: none;"></div>
+    </div>
+
+    <div class="footer">
+      Powered by <strong>Scan Drop</strong> • Fast & Private File Delivery
     </div>
   </div>
 
-  <!-- 2. FOUNDER SUPER ADMIN VIEW -->
-  <div id="superadminTab" class="main-view">
-    <div class="admin-container">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <div>
-          <h1 style="font-size: 22px; font-weight: 800;">Founder Super Admin Dashboard</h1>
-          <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Central licensing, shop pairings, device inventory, and entitlement authority.</p>
-        </div>
-        <button class="nav-btn" style="background: var(--primary); color:#fff;" onclick="alert('Creating new shop...')">+ Register Shop</button>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Registered Shops</div>
-          <div class="stat-val">3</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Active Paid Licenses</div>
-          <div class="stat-val" style="color: #34d399;">3</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Active Windows PCs</div>
-          <div class="stat-val" style="color: #60a5fa;">4</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Submissions Processed</div>
-          <div class="stat-val">1,284</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">24h Purge Integrity</div>
-          <div class="stat-val" style="color: #34d399;">100%</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 14px;">Shop Licenses & Device Pairing Codes</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Shop Business Name</th>
-              <th>Owner & Contact</th>
-              <th>Plan Tier</th>
-              <th>Status</th>
-              <th>Pairing Code</th>
-              <th>Active PCs</th>
-              <th>Expiry</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>QuickPrint Xerox</strong><br><span style="color:var(--text-muted);font-size:11px;">/shop/quickprint</span></td>
-              <td>Ramesh Kumar<br><span style="color:var(--text-muted);font-size:11px;">ramesh@quickprint.local</span></td>
-              <td><span class="badge badge-blue">PRO MONTHLY</span></td>
-              <td><span class="badge badge-green">active</span></td>
-              <td><code style="background:#0b1120;padding:4px 8px;border-radius:6px;color:#38bdf8;">SD-PAIR-7890</code></td>
-              <td>1 / 1 PC</td>
-              <td>30 Days Remaining</td>
-            </tr>
-            <tr>
-              <td><strong>Metro Cyber Cafe & Prints</strong><br><span style="color:var(--text-muted);font-size:11px;">/shop/metro-cyber</span></td>
-              <td>Sunil Sharma<br><span style="color:var(--text-muted);font-size:11px;">sunil@metrocyber.com</span></td>
-              <td><span class="badge badge-blue">BUSINESS MULTI-PC</span></td>
-              <td><span class="badge badge-green">active</span></td>
-              <td><code style="background:#0b1120;padding:4px 8px;border-radius:6px;color:#38bdf8;">SD-PAIR-4412</code></td>
-              <td>3 / 5 PCs</td>
-              <td>28 Days Remaining</td>
-            </tr>
-            <tr>
-              <td><strong>City Stationery & Xerox</strong><br><span style="color:var(--text-muted);font-size:11px;">/shop/city-stationery</span></td>
-              <td>Pooja Verma<br><span style="color:var(--text-muted);font-size:11px;">pooja@citystat.in</span></td>
-              <td><span class="badge badge-amber">30-DAY TRIAL</span></td>
-              <td><span class="badge badge-green">trial</span></td>
-              <td><code style="background:#0b1120;padding:4px 8px;border-radius:6px;color:#38bdf8;">SD-PAIR-9018</code></td>
-              <td>1 / 1 PC</td>
-              <td>14 Days Remaining</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- 3. SHOP WORKSPACE SIMULATOR VIEW -->
-  <div id="desktopTab" class="main-view">
-    <div class="desktop-container">
-      <div class="desktop-sidebar">
-        <div style="font-weight: 800; font-size: 14px; padding: 4px 8px; margin-bottom: 8px;">Scan Drop Desktop</div>
-        <div class="sidebar-item active">📥 Inbox <span class="badge badge-amber" id="inboxBadge">1</span></div>
-        <div class="sidebar-item">▶ Processing</div>
-        <div class="sidebar-item">✓ Completed</div>
-        <div class="sidebar-item">📂 File Manager</div>
-        <div class="sidebar-item">📄 PDF Tools</div>
-        <div class="sidebar-item">🖨️ Printers</div>
-        <div class="sidebar-item">📜 History</div>
-        <div class="sidebar-item">⚙️ Settings</div>
-      </div>
-
-      <div class="desktop-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px;">
-          <h3 style="font-size: 16px; font-weight: 700;">Active Submissions (QuickPrint Shop PC)</h3>
-          <span style="font-size: 11px; color: #34d399;">● Auto-Sync Running (No browser required)</span>
-        </div>
-
-        <div id="desktopSubmissionsList" style="display: flex; flex-direction: column; gap: 10px;">
-          <div style="background: #1e293b; border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-              <div>
-                <strong style="color: #38bdf8; font-size: 16px;">SD-1042</strong>
-                <span style="margin-left: 8px; font-size: 13px; font-weight: 600;">Vikram Malhotra</span>
-                <span class="badge badge-blue" style="margin-left: 8px;">Color Print</span>
-              </div>
-              <span style="font-size: 11px; color: var(--text-muted);">23.8h retention remaining</span>
-            </div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
-              Instructions: 2 copies on A4 glossy paper • 1 file (2.4 MB)
-            </div>
-            <div style="display:flex; gap: 8px;">
-              <button class="nav-btn" style="background:#334155; color:#fff; font-size:11px; padding:4px 10px;" onclick="alert('Opening Safe Preview...')">Preview</button>
-              <button class="nav-btn" style="background:#334155; color:#fff; font-size:11px; padding:4px 10px;" onclick="alert('Creating Working Copy in Derived/ and opening in Word...')">Open Working Copy</button>
-              <button class="nav-btn" style="background:var(--primary); color:#fff; font-size:11px; padding:4px 10px;" onclick="alert('Opening Windows Print Dialog...')">Manual Print</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
+  <script src="/shared-store.js"></script>
   <script>
-    function switchMainTab(tabId, btn) {
-      document.querySelectorAll('.main-view').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById(tabId).classList.add('active');
-      btn.classList.add('active');
+    const ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.docx'];
+    const MAX_FILE_SIZE = 100 * 1024 * 1024;
+    let selectedFiles = [];
+    let activeShop = null;
+    let activeReceiptId = null;
+
+    function resolveCurrentShop() {
+      const state = ScanDropStore.loadState();
+      const params = new URLSearchParams(window.location.search);
+      let slug = params.get('shop');
+      if (!slug && window.location.pathname.startsWith('/shop/')) {
+        slug = window.location.pathname.replace('/shop/', '').split('/')[0];
+      }
+      activeShop = state.shops.find(s => s.slug === slug) || state.shops[0];
+
+      if (!activeShop) {
+        document.getElementById('shopUnavailableBanner').style.display = 'block';
+        document.getElementById('shopUnavailableBanner').textContent = 'Shop not found. Please scan a valid shop QR code.';
+        document.getElementById('uploadCard').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('shopTitle').textContent = activeShop.name;
+      document.getElementById('shopTagline').textContent = activeShop.tagline || 'Scan. Drop. Done.';
+
+      if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked') {
+        document.getElementById('shopUnavailableBanner').style.display = 'block';
+        document.getElementById('shopUnavailableBanner').textContent = 'This shop is currently not accepting file uploads.';
+        document.getElementById('submitBtn').disabled = true;
+        document.getElementById('dropzone').style.pointerEvents = 'none';
+        document.getElementById('dropzone').style.opacity = '0.5';
+      }
     }
 
-    let customerFileCount = 0;
-    function handleCustomerFiles(files) {
-      customerFileCount = files.length;
-      const box = document.getElementById('fileSummary');
-      box.style.display = 'block';
-      box.innerHTML = '<strong>' + files.length + ' file(s) selected:</strong> ' + Array.from(files).map(f => f.name).join(', ');
+    const fileInput = document.getElementById('fileInput');
+    const dropzone = document.getElementById('dropzone');
+    const fileListEl = document.getElementById('fileList');
+    const submitBtn = document.getElementById('submitBtn');
+
+    fileInput.addEventListener('change', (e) => handleFiles(Array.from(e.target.files)));
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
+    });
+
+    function handleFiles(files) {
+      for (const f of files) {
+        const ext = '.' + f.name.split('.').pop().toLowerCase();
+        if (!ALLOWED_EXTS.includes(ext)) {
+          alert('Unsupported file type: ' + f.name + '. Allowed: PDF, JPG, PNG, DOCX.');
+          continue;
+        }
+        if (f.size > MAX_FILE_SIZE) {
+          alert('File too large: ' + f.name + ' (Max 100MB).');
+          continue;
+        }
+        if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
+          selectedFiles.push(f);
+        }
+      }
+      renderFileList();
     }
 
-    function submitCustomerUpload() {
-      const code = 'SD-' + Math.floor(1000 + Math.random() * 9000);
-      document.getElementById('receiptCode').textContent = code;
-      document.getElementById('receiptCount').textContent = customerFileCount || 1;
-      document.getElementById('uploadFormCard').style.display = 'none';
-      document.getElementById('customerReceiptCard').style.display = 'block';
-
-      // Also add to desktop simulator
-      const list = document.getElementById('desktopSubmissionsList');
-      const item = document.createElement('div');
-      item.style = 'background: #1e293b; border: 1px solid var(--border); border-radius: 12px; padding: 14px;';
-      item.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-          <div>
-            <strong style="color: #38bdf8; font-size: 16px;">${code}</strong>
-            <span style="margin-left: 8px; font-size: 13px; font-weight: 600;">${document.getElementById('cName').value || 'Customer'}</span>
-            <span class="badge badge-blue" style="margin-left: 8px;">${document.getElementById('cService').value}</span>
-          </div>
-          <span style="font-size: 11px; color: var(--text-muted);">24.0h retention remaining</span>
-        </div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
-          Instructions: ${document.getElementById('cNotes').value || 'None'} • ${customerFileCount || 1} file(s)
-        </div>
-        <div style="display:flex; gap: 8px;">
-          <button class="nav-btn" style="background:#334155; color:#fff; font-size:11px; padding:4px 10px;" onclick="alert('Opening Safe Preview...')">Preview</button>
-          <button class="nav-btn" style="background:#334155; color:#fff; font-size:11px; padding:4px 10px;" onclick="alert('Creating Working Copy in Derived/ and opening in Word...')">Open Working Copy</button>
-          <button class="nav-btn" style="background:var(--primary); color:#fff; font-size:11px; padding:4px 10px;" onclick="alert('Opening Windows Print Dialog...')">Manual Print</button>
-        </div>
-      `;
-      list.prepend(item);
-      const count = parseInt(document.getElementById('inboxBadge').textContent) + 1;
-      document.getElementById('inboxBadge').textContent = count;
+    function removeFile(idx) {
+      selectedFiles.splice(idx, 1);
+      renderFileList();
     }
 
-    function resetCustomerUpload() {
-      document.getElementById('uploadFormCard').style.display = 'block';
-      document.getElementById('customerReceiptCard').style.display = 'none';
-      document.getElementById('fileSummary').style.display = 'none';
-      document.getElementById('cFiles').value = '';
+    function renderFileList() {
+      fileListEl.innerHTML = '';
+      if (selectedFiles.length === 0) {
+        submitBtn.disabled = true;
+        return;
+      }
+      submitBtn.disabled = false;
+      selectedFiles.forEach((file, idx) => {
+        const item = document.createElement('div');
+        item.className = 'file-item';
+        const sizeLabel = file.size >= 1024 * 1024
+          ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
+          : (file.size / 1024).toFixed(1) + ' KB';
+        item.innerHTML = `
+          <span class="file-name">${file.name} (${sizeLabel})</span>
+          <button type="button" class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
+        `;
+        fileListEl.appendChild(item);
+      });
     }
+
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (selectedFiles.length === 0 || !activeShop) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending Files...';
+      const progressBar = document.getElementById('progressBar');
+      const progressFill = document.getElementById('progressFill');
+      progressBar.style.display = 'block';
+      progressFill.style.width = '20%';
+
+      try {
+        const state = ScanDropStore.loadState();
+        let receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
+        while (state.submissions.some(s => s.id === receiptId)) {
+          receiptId = 'SD-' + Math.floor(1000 + Math.random() * 9000);
+        }
+
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+        const fileRecords = [];
+        let totalSizeBytes = 0;
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const f = selectedFiles[i];
+          const fileId = 'file_' + receiptId + '_' + (i + 1);
+          const ext = '.' + f.name.split('.').pop().toLowerCase();
+          const sha256 = await ScanDropStore.computeSha256(f);
+          await ScanDropStore.saveFileBlob(fileId, f, f.name, f.type);
+
+          fileRecords.push({
+            id: fileId,
+            submissionId: receiptId,
+            originalName: f.name,
+            mimeType: f.type,
+            fileExtension: ext,
+            sizeBytes: f.size,
+            sha256Hash: sha256,
+            status: 'synced',
+            createdAt: now.toISOString(),
+            expiresAt
+          });
+          totalSizeBytes += f.size;
+          progressFill.style.width = Math.round(((i + 1) / selectedFiles.length) * 100) + '%';
+        }
+
+        const submission = {
+          id: receiptId,
+          shopId: activeShop.id,
+          customerName: document.getElementById('customerName').value.trim() || 'Anonymous Customer',
+          serviceCategory: document.getElementById('serviceCategory').value,
+          instructions: document.getElementById('instructions').value.trim(),
+          status: 'incoming',
+          files: fileRecords,
+          totalSizeBytes,
+          createdAt: now.toISOString(),
+          expiresAt
+        };
+
+        state.submissions.unshift(submission);
+        ScanDropStore.addAudit(state, activeShop.id, 'customer', 'SUBMISSION_RECEIVED',
+          'Customer uploaded ' + receiptId + ' (' + fileRecords.length + ' files)');
+        ScanDropStore.saveState(state);
+
+        activeReceiptId = receiptId;
+        document.getElementById('uploadCard').style.display = 'none';
+        document.getElementById('receiptCard').style.display = 'block';
+        document.getElementById('receiptIdText').textContent = receiptId;
+        document.getElementById('receiptShopName').textContent = activeShop.name;
+        document.getElementById('receiptFileCount').textContent = fileRecords.length;
+        document.getElementById('receiptTotalSize').textContent = totalSizeBytes >= 1024 * 1024
+          ? (totalSizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
+          : (totalSizeBytes / 1024).toFixed(1) + ' KB';
+      } catch (err) {
+        alert('Upload failed: ' + err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Send Files to Shop';
+        progressBar.style.display = 'none';
+      }
+    });
+
+    function resetUploadForm() {
+      selectedFiles = [];
+      fileInput.value = '';
+      renderFileList();
+      document.getElementById('progressBar').style.display = 'none';
+      document.getElementById('progressFill').style.width = '0%';
+      submitBtn.textContent = 'Send Files to Shop';
+      document.getElementById('uploadCard').style.display = 'block';
+      document.getElementById('receiptCard').style.display = 'none';
+    }
+
+    function trackReceipt() {
+      const code = document.getElementById('lookupInput').value.trim().toUpperCase();
+      const resEl = document.getElementById('lookupResult');
+      if (!code) return;
+      const state = ScanDropStore.loadState();
+      const sub = state.submissions.find(s => s.id === code);
+      resEl.style.display = 'block';
+      if (!sub) {
+        resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
+        return;
+      }
+      const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
+      resEl.innerHTML = `<div style="background:#f1f5f9;padding:10px;border-radius:8px;">
+        <strong>${sub.id}</strong> • Status: <strong style="text-transform:capitalize;color:#2563eb;">${sub.status}</strong><br>
+        Files: ${(sub.files || []).length} • Auto-deletes in ${remHrs} hrs
+      </div>`;
+    }
+
+    resolveCurrentShop();
   </script>
 </body>
 </html>

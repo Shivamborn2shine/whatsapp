@@ -7,7 +7,21 @@
   ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
 
 [[redirects]]
-  from = "/*"
+  from = "/superadmin/*"
+  to = "/superadmin/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/workspace/*"
+  to = "/workspace/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/shop/*"
   to = "/index.html"
   status = 200
 
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

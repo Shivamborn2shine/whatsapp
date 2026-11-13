@@ -1,1 +1,6 @@
-/*    /index.html   200
+/superadmin   /superadmin/index.html   200
+/superadmin/* /superadmin/index.html   200
+/workspace    /workspace/index.html    200
+/workspace/*  /workspace/index.html    200
+/shop/*       /index.html              200
+/*            /index.html              200

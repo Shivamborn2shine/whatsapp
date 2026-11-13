@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Drop — Founder Super Admin</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: #0b1120; border-bottom: 1px solid var(--border); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .badge-superadmin { background: #4f46e522; color: #818cf8; border: 1px solid #6366f144; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .title { font-size: 18px; font-weight: 800; }
+    .container { max-width: 1300px; margin: 0 auto; padding: 24px 20px; width: 100%; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+    .stat-label { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+    .stat-val { font-size: 26px; font-weight: 800; color: #fff; }
+    .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+    .tab-btn { background: none; border: none; color: var(--text-muted); font-size: 14px; font-weight: 600; padding: 10px 18px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab-btn.active { color: #818cf8; border-color: #818cf8; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 24px; overflow-x: auto; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+    .card-title { font-size: 16px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+    th { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 600; }
+    td { padding: 14px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+    tr:hover td { background: #243048; }
+    .status-pill { display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+    .status-active { background: #064e3b; color: #34d399; }
+    .status-trial { background: #78350f; color: #fbbf24; }
+    .status-suspended { background: #451a03; color: #f97316; }
+    .status-revoked { background: #7f1d1d; color: #f87171; }
+    .btn { background: var(--primary); color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn:hover { background: var(--primary-hover); }
+    .btn-secondary { background: #334155; color: #f8fafc; }
+    .btn-secondary:hover { background: #475569; }
+    .btn-danger { background: #dc2626; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; border-radius: 6px; }
+    .code-box { font-family: monospace; background: #0b1120; padding: 4px 8px; border-radius: 6px; border: 1px solid #1e293b; color: #38bdf8; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 100; }
+    .modal.open { display: flex; }
+    .modal-content { background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 500px; padding: 24px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+    .form-group input, .form-group select { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 13px; outline: none; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="title">⚡ Scan Drop</span>
+      <span class="badge-superadmin">Founder SaaS Console</span>
+    </div>
+    <div style="font-size: 12px; color: var(--text-muted);">Shopkeeper Subscription & Licensing Authority</div>
+  </header>
+
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Registered Shops</div>
+        <div class="stat-val" id="statShops">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Subscriptions</div>
+        <div class="stat-val" id="statSubs" style="color: #34d399;">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Windows PCs</div>
+        <div class="stat-val" id="statDevices" style="color: #60a5fa;">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Submissions</div>
+        <div class="stat-val" id="statSubmissions">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Processed Volume</div>
+        <div class="stat-val" id="statStorage">0 MB</div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('shopsTab', this)">Shops & Subscriptions</button>
+      <button class="tab-btn" onclick="switchTab('devicesTab', this)">Windows Device Fleet</button>
+      <button class="tab-btn" onclick="switchTab('plansTab', this)">Shopkeeper Pricing Plans</button>
+      <button class="tab-btn" onclick="switchTab('auditTab', this)">Audit Events</button>
+    </div>
+
+    <!-- Shops Tab -->
+    <div id="shopsTab" class="tab-content">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Registered Print Shops (B2B Subscribers)</div>
+          <button class="btn" onclick="openCreateShopModal()">+ Register New Shop</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Shop Name / Customer QR URL</th>
+              <th>Shopkeeper & Contact</th>
+              <th>Plan Tier</th>
+              <th>Status</th>
+              <th>Pairing Code</th>
+              <th>Active PCs</th>
+              <th>Expiry Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="shopsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Devices Tab -->
+    <div id="devicesTab" class="tab-content" style="display:none;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Paired Windows Devices Fleet</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Device Name</th>
+              <th>Shop Assigned</th>
+              <th>OS / App Version</th>
+              <th>Status</th>
+              <th>Last Heartbeat</th>
+              <th>Last IP</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Plans Tab -->
+    <div id="plansTab" class="tab-content" style="display:none;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Shopkeeper SaaS Pricing Plans & Entitlements</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Plan Name</th>
+              <th>Tier</th>
+              <th>Shopkeeper Fee</th>
+              <th>Max Devices</th>
+              <th>Monthly Submissions</th>
+              <th>Batch Conversion</th>
+              <th>Advanced PDF</th>
+              <th>Printer Profiles</th>
+            </tr>
+          </thead>
+          <tbody id="plansTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Audit Tab -->
+    <div id="auditTab" class="tab-content" style="display:none;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">System Audit & Security Trail</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Actor</th>
+              <th>Event Type</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody id="auditTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Shop Modal -->
+  <div class="modal" id="createShopModal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 16px;">Register New Shop</h3>
+      <form id="createShopForm">
+        <div class="form-group">
+          <label>Shop Business Name</label>
+          <input type="text" id="newShopName" placeholder="e.g. Metro Print & Graphics" required>
+        </div>
+        <div class="form-group">
+          <label>Shop URL Slug (for customer QR)</label>
+          <input type="text" id="newShopSlug" placeholder="e.g. metro-print" required>
+        </div>
+        <div class="form-group">
+          <label>Shopkeeper Name</label>
+          <input type="text" id="newShopOwner" placeholder="e.g. Anand Patel" required>
+        </div>
+        <div class="form-group">
+          <label>Shopkeeper Email</label>
+          <input type="email" id="newShopEmail" placeholder="e.g. anand@metroprint.com" required>
+        </div>
+        <div class="form-group">
+          <label>Shopkeeper Phone</label>
+          <input type="text" id="newShopPhone" placeholder="e.g. +91 98765 00000">
+        </div>
+        <div class="form-group">
+          <label>Subscription Plan</label>
+          <select id="newShopPlan">
+            <option value="plan_free_trial">Free / 30-Day Trial (1 PC)</option>
+            <option value="plan_pro_monthly">Pro Monthly ($29/mo - 1 PC)</option>
+            <option value="plan_business_monthly">Business Multi-PC ($69/mo - 5 PCs)</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('createShopModal')">Cancel</button>
+          <button type="submit" class="btn">Register & Issue License</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manage License Modal -->
+  <div class="modal" id="manageSubModal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 16px;">Manage Shopkeeper License</h3>
+      <input type="hidden" id="manageShopId">
+      <div class="form-group">
+        <label>Action</label>
+        <select id="manageAction">
+          <option value="renew">Renew / Extend License (+30 Days)</option>
+          <option value="suspend">Suspend Shop (Pause receiving)</option>
+          <option value="reactivate">Reactivate Shop</option>
+          <option value="revoke">Revoke License (Terminal)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Plan Tier</label>
+        <select id="managePlanId">
+          <option value="plan_free_trial">Free / Trial</option>
+          <option value="plan_pro_monthly">Pro Monthly ($29/mo)</option>
+          <option value="plan_business_monthly">Business Multi-PC ($69/mo)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Shopkeeper Billing / Payment Reference (Optional)</label>
+        <input type="text" id="managePaymentRef" placeholder="e.g. UPI-TXN-984321 / INV-102">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('manageSubModal')">Cancel</button>
+        <button type="button" class="btn" onclick="saveSubscriptionChange()">Update License</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/shared-store.js"></script>
+  <script>
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).style.display = 'block';
+      btn.classList.add('active');
+      renderAll();
+    }
+
+    function renderAll() {
+      const state = ScanDropStore.loadState();
+
+      // Overview stats
+      document.getElementById('statShops').textContent = state.shops.length;
+      document.getElementById('statSubs').textContent = state.shops.filter(s => s.subscriptionStatus === 'active').length;
+      document.getElementById('statDevices').textContent = state.devices.filter(d => d.status === 'active').length;
+      document.getElementById('statSubmissions').textContent = state.submissions.length;
+      const totalBytes = state.submissions.reduce((acc, s) => acc + (s.totalSizeBytes || 0), 0);
+      document.getElementById('statStorage').textContent = (totalBytes / (1024 * 1024)).toFixed(2) + ' MB';
+
+      // Shops Table
+      const shopsBody = document.getElementById('shopsTableBody');
+      shopsBody.innerHTML = '';
+      state.shops.forEach(s => {
+        const plan = ScanDropStore.PLANS.find(p => p.id === s.planId) || ScanDropStore.PLANS[0];
+        const devCount = state.devices.filter(d => d.shopId === s.id && d.status === 'active').length;
+        const uploadUrl = window.location.origin + '/?shop=' + s.slug;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <strong>${s.name}</strong><br>
+            <a href="${uploadUrl}" target="_blank" style="color: #60a5fa; font-size: 11px;">Customer Upload Link ↗</a>
+          </td>
+          <td>${s.ownerName}<br><span style="font-size:11px;color:var(--text-muted);">${s.ownerEmail}</span></td>
+          <td><strong>${plan.name}</strong><br><span style="font-size:11px;color:#818cf8;">${plan.priceText}</span></td>
+          <td><span class="status-pill status-${s.subscriptionStatus}">${s.subscriptionStatus}</span></td>
+          <td>
+            <div class="code-box">
+              ${s.pairingCode}
+              <button class="btn btn-sm btn-secondary" onclick="copyCode('${s.pairingCode}')">Copy</button>
+            </div>
+          </td>
+          <td>${devCount} / ${plan.maxDevices}</td>
+          <td>${new Date(s.expiryDate).toLocaleDateString()}</td>
+          <td>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-sm btn-secondary" onclick="openManageSub('${s.id}', '${s.planId}')">License</button>
+              <button class="btn btn-sm btn-secondary" onclick="regenPairingCode('${s.id}')">New Code</button>
+            </div>
+          </td>
+        `;
+        shopsBody.appendChild(tr);
+      });
+
+      // Devices Table
+      const devBody = document.getElementById('devicesTableBody');
+      devBody.innerHTML = '';
+      state.devices.forEach(d => {
+        const shop = state.shops.find(s => s.id === d.shopId);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${d.deviceName}</strong><br><span style="font-size:11px;color:var(--text-muted);">${d.id}</span></td>
+          <td>${shop ? shop.name : 'Unknown'}</td>
+          <td>${d.windowsVersion} / v${d.appVersion}</td>
+          <td><span class="status-pill ${d.status === 'active' ? 'status-active' : 'status-revoked'}">${d.status}</span></td>
+          <td>${new Date(d.lastHeartbeatAt).toLocaleTimeString()}</td>
+          <td><code>${d.lastIp}</code></td>
+          <td>
+            ${d.status === 'active'
+              ? `<button class="btn btn-sm btn-danger" onclick="revokeDevice('${d.id}')">Revoke PC</button>`
+              : `<button class="btn btn-sm btn-secondary" onclick="restoreDevice('${d.id}')">Restore</button>`}
+          </td>
+        `;
+        devBody.appendChild(tr);
+      });
+
+      // Plans Table
+      const plansBody = document.getElementById('plansTableBody');
+      plansBody.innerHTML = '';
+      ScanDropStore.PLANS.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${p.name}</strong></td>
+          <td><span class="status-pill status-active">${p.tier}</span></td>
+          <td>${p.priceText}</td>
+          <td>${p.maxDevices} PC(s)</td>
+          <td>${p.maxMonthlySubmissions} / mo</td>
+          <td>${p.batchConversion ? '✓ Enabled' : '✕ Disabled'}</td>
+          <td>${p.pdfAdvanced ? '✓ Enabled' : '✕ Disabled'}</td>
+          <td>${p.printerProfiles ? '✓ Enabled' : '✕ Disabled'}</td>
+        `;
+        plansBody.appendChild(tr);
+      });
+
+      // Audit Table
+      const auditBody = document.getElementById('auditTableBody');
+      auditBody.innerHTML = '';
+      state.auditEvents.forEach(l => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${new Date(l.createdAt).toLocaleString()}</td>
+          <td><span class="status-pill status-trial">${l.actorType}</span></td>
+          <td><code>${l.eventType}</code></td>
+          <td>${l.description}</td>
+        `;
+        auditBody.appendChild(tr);
+      });
+    }
+
+    function copyCode(code) {
+      navigator.clipboard.writeText(code);
+      alert('Copied pairing code: ' + code);
+    }
+
+    function openCreateShopModal() {
+      document.getElementById('createShopModal').classList.add('open');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+
+    document.getElementById('createShopForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const state = ScanDropStore.loadState();
+      const slug = document.getElementById('newShopSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      if (state.shops.some(s => s.slug === slug)) {
+        alert('Slug already exists. Choose another.');
+        return;
+      }
+      const shopId = 'shop_' + Date.now();
+      const pairingCode = 'SD-PAIR-' + Math.floor(1000 + Math.random() * 9000);
+      const now = new Date();
+      const expiryDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const newShop = {
+        id: shopId,
+        slug,
+        name: document.getElementById('newShopName').value.trim(),
+        tagline: 'Scan. Drop. Done.',
+        ownerName: document.getElementById('newShopOwner').value.trim(),
+        ownerEmail: document.getElementById('newShopEmail').value.trim(),
+        ownerPhone: document.getElementById('newShopPhone').value.trim(),
+        planId: document.getElementById('newShopPlan').value,
+        subscriptionStatus: 'active',
+        pairingCode,
+        expiryDate,
+        createdAt: now.toISOString()
+      };
+
+      state.shops.unshift(newShop);
+      ScanDropStore.addAudit(state, shopId, 'founder', 'SHOP_CREATED', 'Registered shop ' + newShop.name + ' (Pairing: ' + pairingCode + ')');
+      ScanDropStore.saveState(state);
+
+      closeModal('createShopModal');
+      document.getElementById('createShopForm').reset();
+      renderAll();
+      alert('Shop registered! Pairing code: ' + pairingCode);
+    });
+
+    function regenPairingCode(shopId) {
+      const state = ScanDropStore.loadState();
+      const shop = state.shops.find(s => s.id === shopId);
+      if (!shop) return;
+      shop.pairingCode = 'SD-PAIR-' + Math.floor(1000 + Math.random() * 9000);
+      ScanDropStore.addAudit(state, shopId, 'founder', 'PAIRING_CODE_REGENERATED', 'Generated new pairing code ' + shop.pairingCode);
+      ScanDropStore.saveState(state);
+      renderAll();
+      alert('New pairing code: ' + shop.pairingCode);
+    }
+
+    function openManageSub(shopId, planId) {
+      document.getElementById('manageShopId').value = shopId;
+      document.getElementById('managePlanId').value = planId;
+      document.getElementById('manageSubModal').classList.add('open');
+    }
+
+    function saveSubscriptionChange() {
+      const shopId = document.getElementById('manageShopId').value;
+      const action = document.getElementById('manageAction').value;
+      const planId = document.getElementById('managePlanId').value;
+      const payRef = document.getElementById('managePaymentRef').value.trim();
+
+      const state = ScanDropStore.loadState();
+      const shop = state.shops.find(s => s.id === shopId);
+      if (!shop) return;
+
+      shop.planId = planId;
+      if (action === 'renew') {
+        const base = new Date(shop.expiryDate) > new Date() ? new Date(shop.expiryDate) : new Date();
+        shop.expiryDate = new Date(base.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        shop.subscriptionStatus = 'active';
+      } else if (action === 'suspend') {
+        shop.subscriptionStatus = 'suspended';
+      } else if (action === 'reactivate') {
+        shop.subscriptionStatus = 'active';
+      } else if (action === 'revoke') {
+        shop.subscriptionStatus = 'revoked';
+      }
+
+      ScanDropStore.addAudit(state, shopId, 'founder', 'SUBSCRIPTION_UPDATED',
+        'Action: ' + action + ', Plan: ' + planId + (payRef ? ', Ref: ' + payRef : ''));
+      ScanDropStore.saveState(state);
+      closeModal('manageSubModal');
+      renderAll();
+    }
+
+    function revokeDevice(deviceId) {
+      if (!confirm('Revoke this Windows PC?')) return;
+      const state = ScanDropStore.loadState();
+      const dev = state.devices.find(d => d.id === deviceId);
+      if (dev) {
+        dev.status = 'revoked';
+        ScanDropStore.addAudit(state, dev.shopId, 'founder', 'DEVICE_REVOKED', 'Revoked device ' + dev.deviceName);
+        ScanDropStore.saveState(state);
+        renderAll();
+      }
+    }
+
+    function restoreDevice(deviceId) {
+      const state = ScanDropStore.loadState();
+      const dev = state.devices.find(d => d.id === deviceId);
+      if (dev) {
+        dev.status = 'active';
+        ScanDropStore.addAudit(state, dev.shopId, 'founder', 'DEVICE_RESTORED', 'Restored device ' + dev.deviceName);
+        ScanDropStore.saveState(state);
+        renderAll();
+      }
+    }
+
+    renderAll();
+    setInterval(renderAll, 3000);
+  </script>
+</body>
+</html>

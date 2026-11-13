@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Drop — Shopkeeper Workspace</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🖥️</text></svg>">
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #0f172a;
+      --sidebar: #1e293b;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+    .sidebar { width: 240px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+    .sidebar-brand { padding: 18px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+    .nav-list { padding: 14px 8px; flex: 1; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; color: #cbd5e1; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background: none; width: 100%; text-align: left; }
+    .nav-item:hover { background: #27354f; }
+    .nav-item.active { background: var(--primary); color: #fff; }
+    .badge { padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; }
+    .badge-red { background: #ef4444; color: #fff; }
+    .badge-amber { background: #f59e0b; color: #fff; }
+    .badge-blue { background: #1e3a8a; color: #93c5fd; }
+    .badge-green { background: #064e3b; color: #6ee7b7; }
+    .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { height: 62px; background: var(--sidebar); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; }
+    .search-input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px; width: 260px; outline: none; }
+    .search-input:focus { border-color: var(--primary); }
+    .content-scroll { flex: 1; overflow-y: auto; padding: 24px; }
+    .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:hover { background: var(--primary-hover); }
+    .btn-secondary { background: #334155; color: #f8fafc; border: 1px solid #475569; }
+    .btn-secondary:hover { background: #475569; }
+    .sub-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+    .file-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 300px; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 100; }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px; width: 92%; max-width: 520px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+    th { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); }
+    td { padding: 10px; border-bottom: 1px solid #243048; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div style="width:34px;height:34px;background:#2563eb;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;">⚡</div>
+      <div>
+        <div style="font-weight:800;font-size:15px;">Scan Drop</div>
+        <div style="font-size:11px;color:var(--muted);">Shopkeeper Workspace</div>
+      </div>
+    </div>
+
+    <nav class="nav-list">
+      <button class="nav-item active" onclick="setTab('inbox', this)"><span>📥 Inbox</span><span class="badge badge-red" id="badgeInbox">0</span></button>
+      <button class="nav-item" onclick="setTab('processing', this)"><span>▶ Processing</span><span class="badge badge-amber" id="badgeProcessing">0</span></button>
+      <button class="nav-item" onclick="setTab('completed', this)"><span>✓ Completed</span></button>
+      <div style="height:1px;background:var(--border);margin:6px 0;"></div>
+      <button class="nav-item" onclick="setTab('fileManager', this)"><span>📂 File Manager</span></button>
+      <button class="nav-item" onclick="setTab('pdfTools', this)"><span>📄 PDF Tools</span></button>
+      <button class="nav-item" onclick="setTab('printers', this)"><span>🖨️ Printers</span></button>
+      <button class="nav-item" onclick="setTab('history', this)"><span>📜 History</span></button>
+      <button class="nav-item" onclick="setTab('settings', this)"><span>⚙️ Settings</span></button>
+      <button class="nav-item" onclick="setTab('subscription', this)"><span>💳 Subscription</span></button>
+    </nav>
+
+    <div style="padding:12px;border-top:1px solid var(--border);">
+      <div onclick="setTab('subscription')" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-size:10px;color:var(--muted);font-weight:700;">PLAN</span>
+          <span class="badge badge-blue" id="sidebarPlanBadge">PRO</span>
+        </div>
+        <div style="font-size:12px;font-weight:700;" id="sidebarShopName">Loading...</div>
+        <div style="font-size:11px;color:var(--success);margin-top:3px;" id="sidebarStatus">● Active • 72h Grace</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-area">
+    <header class="topbar">
+      <h2 id="viewTitle" style="font-size:17px;font-weight:800;">Incoming Customer Submissions</h2>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search receipt or customer (Ctrl+F)" oninput="renderCurrentView()">
+        <button class="btn btn-secondary" onclick="renderCurrentView()" title="Refresh (F5)">↻ Refresh</button>
+        <button class="btn btn-secondary" onclick="openPairModal()">🔗 Pair PC</button>
+      </div>
+    </header>
+
+    <div class="content-scroll" id="workspaceContent"></div>
+  </main>
+
+  <!-- PAIR MODAL -->
+  <div class="modal-overlay" id="pairModal">
+    <div class="modal-box">
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Pair Shop Windows PC</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Enter the pairing code issued in the Founder Super Admin console (e.g. <code>SD-PAIR-7890</code>).</p>
+      <input type="text" id="pairCodeInput" placeholder="SD-PAIR-7890" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:15px;font-weight:700;margin-bottom:16px;">
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button class="btn btn-secondary" onclick="closeModal('pairModal')">Cancel</button>
+        <button class="btn" onclick="executePair()">Pair & Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SAFE PREVIEW MODAL -->
+  <div class="modal-overlay" id="previewModal">
+    <div class="modal-box" style="max-width:860px;height:84vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div>
+          <strong id="previewTitle">File Preview</strong>
+          <span style="font-size:11px;color:var(--muted);margin-left:8px;">Safe Sandboxed Viewer</span>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" id="previewPrintBtn">🖨️ Print</button>
+          <button class="btn btn-secondary" onclick="closePreview()">Close (Esc)</button>
+        </div>
+      </div>
+      <div id="previewBody" style="flex:1;background:var(--bg);border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;"></div>
+    </div>
+  </div>
+
+  <!-- MANUAL PRINT MODAL -->
+  <div class="modal-overlay" id="printModal">
+    <div class="modal-box">
+      <h3 style="font-size:17px;font-weight:800;margin-bottom:4px;">Manual Staff Print</h3>
+      <p id="printFileLabel" style="font-size:12px;color:var(--muted);margin-bottom:16px;"></p>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
+        <div>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Printer Profile / Preset</label>
+          <select id="printProfileSelect" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+            <option value="A4 B&W">A4 Black & White (Standard)</option>
+            <option value="A4 Color">A4 Full Color</option>
+            <option value="Photo 4x6">Photo 4x6 Glossy</option>
+            <option value="Legal">Legal Document</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Copies</label>
+            <input type="number" id="printCopiesInput" value="1" min="1" max="99" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Orientation</label>
+            <select id="printOrientSelect" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button class="btn btn-secondary" onclick="closeModal('printModal')">Cancel</button>
+        <button class="btn" onclick="executePrint()">🖨️ Open System Print Dialog</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/shared-store.js"></script>
+  <script>
+    let currentTab = 'inbox';
+    let currentPreviewUrl = null;
+    let activePrintFile = null;
+
+    const TAB_TITLES = {
+      inbox: 'Incoming Customer Submissions',
+      processing: 'Active Work in Progress',
+      completed: 'Completed Document Orders',
+      fileManager: 'Local Document Organizer (SD-XXXX)',
+      pdfTools: 'PDF & Image Conversion Toolbox',
+      printers: 'Printers & Saved Presets',
+      history: 'Shop Operational Audit History',
+      settings: 'Shop Preferences & Local Paths',
+      subscription: 'Subscription & Entitlements'
+    };
+
+    function setTab(tab, btn) {
+      currentTab = tab;
+      document.getElementById('viewTitle').textContent = TAB_TITLES[tab] || 'Workspace';
+      if (btn) {
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+      }
+      renderCurrentView();
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+    function openPairModal() { openModal('pairModal'); }
+
+    function closePreview() {
+      if (currentPreviewUrl) { URL.revokeObjectURL(currentPreviewUrl); currentPreviewUrl = null; }
+      closeModal('previewModal');
+    }
+
+    function executePair() {
+      const code = document.getElementById('pairCodeInput').value.trim();
+      if (!code) return;
+      const state = ScanDropStore.loadState();
+      const shop = state.shops.find(s => s.pairingCode === code);
+      if (!shop) {
+        alert('Invalid pairing code. Check Founder Super Admin console.');
+        return;
+      }
+      if (shop.subscriptionStatus === 'revoked' || shop.subscriptionStatus === 'suspended') {
+        alert('Cannot pair: Shop subscription is ' + shop.subscriptionStatus);
+        return;
+      }
+      state.workspaceConfig.pairedShopId = shop.id;
+      ScanDropStore.addAudit(state, shop.id, 'shop_staff', 'DEVICE_PAIRED', 'Shop workspace paired to ' + shop.name);
+      ScanDropStore.saveState(state);
+      closeModal('pairModal');
+      renderCurrentView();
+      alert('Paired successfully to ' + shop.name + '!');
+    }
+
+    function updateSubStatus(subId, newStatus) {
+      const state = ScanDropStore.loadState();
+      const sub = state.submissions.find(s => s.id === subId);
+      if (!sub) return;
+      sub.status = newStatus;
+      ScanDropStore.addAudit(state, sub.shopId, 'shop_staff', 'STATUS_UPDATED', 'Submission ' + subId + ' moved to ' + newStatus);
+      ScanDropStore.saveState(state);
+      renderCurrentView();
+    }
+
+    async function previewFileById(fileId, fileName, ext, isDerived = false) {
+      const record = await ScanDropStore.getFileBlob(fileId);
+      const body = document.getElementById('previewBody');
+      document.getElementById('previewTitle').textContent = fileName;
+      body.innerHTML = '';
+
+      if (!record || !record.blob) {
+        body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:30px;">Sample seeded item (no local binary uploaded). Upload a real file on the Customer Portal to preview live!</div>';
+      } else {
+        currentPreviewUrl = URL.createObjectURL(record.blob);
+        if (ext === '.pdf' || record.type === 'application/pdf') {
+          body.innerHTML = `<iframe src="${currentPreviewUrl}" style="width:100%;height:100%;border:none;"></iframe>`;
+        } else if (['.jpg', '.jpeg', '.png'].includes(ext) || record.type.startsWith('image/')) {
+          body.innerHTML = `<img src="${currentPreviewUrl}" style="max-width:100%;max-height:100%;object-fit:contain;">`;
+        } else {
+          body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:30px;">DOCX Preview: Click "Open Working Copy" to download & open in Microsoft Word / LibreOffice.</div>';
+        }
+      }
+
+      document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName);
+      openModal('previewModal');
+    }
+
+    async function openWorkingCopy(fileId, fileName, subId) {
+      const record = await ScanDropStore.getFileBlob(fileId);
+      if (!record || !record.blob) {
+        alert('No file payload found for this seeded item. Upload a file via Customer Portal first.');
+        return;
+      }
+      const state = ScanDropStore.loadState();
+      const copyId = 'der_' + Date.now();
+      const copyName = 'WorkingCopy_' + fileName;
+      await ScanDropStore.saveFileBlob(copyId, record.blob, copyName, record.type);
+      state.derivedFiles.unshift({
+        id: copyId,
+        submissionId: subId,
+        displayName: copyName,
+        outputFormat: fileName.split('.').pop(),
+        sizeBytes: record.blob.size,
+        createdAt: new Date().toISOString()
+      });
+      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'WORKING_COPY_CREATED',
+        'Created protected working copy ' + copyName + ' (original preserved)');
+      ScanDropStore.saveState(state);
+
+      // Trigger download so staff can open it in Word/Acrobat/Photoshop
+      const url = URL.createObjectURL(record.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = copyName;
+      a.click();
+      URL.revokeObjectURL(url);
+      renderCurrentView();
+    }
+
+    async function exportFile(fileId, fileName) {
+      const record = await ScanDropStore.getFileBlob(fileId);
+      if (!record || !record.blob) {
+        alert('No file payload found to export.');
+        return;
+      }
+      const url = URL.createObjectURL(record.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function openPrintModal(fileId, fileName) {
+      activePrintFile = { id: fileId, name: fileName };
+      document.getElementById('printFileLabel').textContent = 'Document: ' + fileName;
+      openModal('printModal');
+    }
+
+    async function executePrint() {
+      if (!activePrintFile) return;
+      const record = await ScanDropStore.getFileBlob(activePrintFile.id);
+      const profile = document.getElementById('printProfileSelect').value;
+      const copies = document.getElementById('printCopiesInput').value;
+
+      const state = ScanDropStore.loadState();
+      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'MANUAL_PRINT',
+        'Printed ' + activePrintFile.name + ' (' + copies + ' copies, ' + profile + ')');
+      ScanDropStore.saveState(state);
+      closeModal('printModal');
+
+      if (record && record.blob) {
+        const url = URL.createObjectURL(record.blob);
+        const win = window.open(url, '_blank');
+        if (win) {
+          win.onload = () => { win.focus(); win.print(); };
+        } else {
+          window.print();
+        }
+      } else {
+        window.print();
+      }
+    }
+
+    // Real client-side PDF Tools using pdf-lib
+    async function convertImagesToPdf() {
+      const checkboxes = Array.from(document.querySelectorAll('.img-pdf-check:checked'));
+      if (checkboxes.length === 0) {
+        alert('Select at least one image (JPG/PNG) to convert to PDF.');
+        return;
+      }
+      if (!window.PDFLib) {
+        alert('PDF engine still loading. Please try again in a moment.');
+        return;
+      }
+
+      const paper = document.getElementById('pdfPaperSelect').value;
+      const orient = document.getElementById('pdfOrientSelect').value;
+      const sizes = {
+        A4: [595.28, 841.89],
+        A5: [419.53, 595.28],
+        Letter: [612, 792],
+        Legal: [612, 1008],
+        Photo4x6: [288, 432]
+      };
+      let [w, h] = sizes[paper] || sizes.A4;
+      if (orient === 'landscape') [w, h] = [h, w];
+
+      const pdfDoc = await PDFLib.PDFDocument.create();
+      for (const cb of checkboxes) {
+        const rec = await ScanDropStore.getFileBlob(cb.value);
+        if (!rec || !rec.blob) continue;
+        const bytes = await rec.blob.arrayBuffer();
+        let img;
+        if (rec.type === 'image/png' || rec.name.toLowerCase().endsWith('.png')) {
+          img = await pdfDoc.embedPng(bytes);
+        } else {
+          img = await pdfDoc.embedJpg(bytes);
+        }
+        const page = pdfDoc.addPage([w, h]);
+        const margin = 20;
+        const maxW = w - margin * 2;
+        const maxH = h - margin * 2;
+        const scale = Math.min(maxW / img.width, maxH / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        page.drawImage(img, {
+          x: margin + (maxW - dw) / 2,
+          y: margin + (maxH - dh) / 2,
+          width: dw,
+          height: dh
+        });
+      }
+
+      const pdfBytes = await pdfDoc.save();
+      const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const outId = 'der_pdf_' + Date.now();
+      const outName = 'Converted_' + paper + '_' + Date.now() + '.pdf';
+      await ScanDropStore.saveFileBlob(outId, pdfBlob, outName, 'application/pdf');
+
+      const state = ScanDropStore.loadState();
+      state.derivedFiles.unshift({
+        id: outId,
+        submissionId: null,
+        displayName: outName,
+        outputFormat: 'pdf',
+        sizeBytes: pdfBlob.size,
+        createdAt: new Date().toISOString()
+      });
+      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'IMAGE_TO_PDF',
+        'Converted ' + checkboxes.length + ' image(s) to ' + outName);
+      ScanDropStore.saveState(state);
+      renderCurrentView();
+      alert('PDF generated: ' + outName);
+    }
+
+    async function mergeSelectedPdfs() {
+      const checkboxes = Array.from(document.querySelectorAll('.merge-pdf-check:checked'));
+      if (checkboxes.length < 2) {
+        alert('Select at least 2 PDF files to merge.');
+        return;
+      }
+      const mergedPdf = await PDFLib.PDFDocument.create();
+      for (const cb of checkboxes) {
+        const rec = await ScanDropStore.getFileBlob(cb.value);
+        if (!rec || !rec.blob) continue;
+        const bytes = await rec.blob.arrayBuffer();
+        const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pages = await mergedPdf.copyPages(src, src.getPageIndices());
+        pages.forEach(p => mergedPdf.addPage(p));
+      }
+      const outBytes = await mergedPdf.save();
+      const outBlob = new Blob([outBytes], { type: 'application/pdf' });
+      const outId = 'der_merge_' + Date.now();
+      const outName = 'Merged_' + Date.now() + '.pdf';
+      await ScanDropStore.saveFileBlob(outId, outBlob, outName, 'application/pdf');
+
+      const state = ScanDropStore.loadState();
+      state.derivedFiles.unshift({
+        id: outId,
+        submissionId: null,
+        displayName: outName,
+        outputFormat: 'pdf',
+        sizeBytes: outBlob.size,
+        createdAt: new Date().toISOString()
+      });
+      ScanDropStore.addAudit(state, state.workspaceConfig.pairedShopId, 'shop_staff', 'MERGE_PDF',
+        'Merged ' + checkboxes.length + ' PDFs into ' + outName);
+      ScanDropStore.saveState(state);
+      renderCurrentView();
+      alert('Merged PDF created: ' + outName);
+    }
+
+    function renderCurrentView() {
+      const state = ScanDropStore.loadState();
+      const shop = state.shops.find(s => s.id === state.workspaceConfig.pairedShopId) || state.shops[0];
+      const plan = ScanDropStore.PLANS.find(p => p.id === shop.planId) || ScanDropStore.PLANS[0];
+
+      document.getElementById('sidebarShopName').textContent = shop.name;
+      document.getElementById('sidebarPlanBadge').textContent = plan.tier.toUpperCase();
+      document.getElementById('sidebarStatus').textContent = '● ' + shop.subscriptionStatus.toUpperCase() + ' • 72h Grace';
+
+      const shopSubs = state.submissions.filter(s => s.shopId === shop.id && s.status !== 'expired');
+      document.getElementById('badgeInbox').textContent = shopSubs.filter(s => s.status === 'incoming').length;
+      document.getElementById('badgeProcessing').textContent = shopSubs.filter(s => s.status === 'processing').length;
+
+      const q = (document.getElementById('searchInput').value || '').toLowerCase();
+      const container = document.getElementById('workspaceContent');
+
+      if (['inbox', 'processing', 'completed'].includes(currentTab)) {
+        const filtered = shopSubs.filter(s => s.status === currentTab && (
+          !q || s.id.toLowerCase().includes(q) || (s.customerName || '').toLowerCase().includes(q)
+        ));
+
+        if (filtered.length === 0) {
+          container.innerHTML = `<div style="text-align:center;padding:70px 20px;color:var(--muted);">
+            <div style="font-size:36px;margin-bottom:10px;opacity:0.5;">📥</div>
+            <h3>No submissions in ${currentTab}</h3>
+            <p style="font-size:13px;margin-top:6px;">Customer uploads sent via the QR portal will appear here automatically.</p>
+          </div>`;
+          return;
+        }
+
+        container.innerHTML = filtered.map(sub => {
+          const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
+          const filesHtml = (sub.files || []).map(f => `
+            <div class="file-chip">
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.originalName}</div>
+                <div style="font-size:11px;color:var(--muted);">${(f.sizeBytes / 1024).toFixed(1)} KB • SHA-256 Verified</div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="previewFileById('${f.id}', '${f.originalName}', '${f.fileExtension}')">👁 Preview</button>
+                <button class="btn btn-secondary" style="padding:5px 8px;" onclick="openWorkingCopy('${f.id}', '${f.originalName}', '${sub.id}')">↗ Open Copy</button>
+                <button class="btn" style="padding:5px 8px;" onclick="openPrintModal('${f.id}', '${f.originalName}')">🖨 Print</button>
+              </div>
+            </div>
+          `).join('');
+
+          return `<div class="sub-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <strong style="font-size:19px;color:#38bdf8;">${sub.id}</strong>
+                <span class="badge badge-blue">${sub.serviceCategory}</span>
+                <span style="font-size:13px;font-weight:600;">${sub.customerName}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;color:var(--muted);">⏱ ${remHrs}h left</span>
+                ${sub.status === 'incoming' ? `<button class="btn" style="background:#f59e0b;" onclick="updateSubStatus('${sub.id}', 'processing')">Start Processing</button>` : ''}
+                ${sub.status === 'processing' ? `<button class="btn" style="background:#10b981;" onclick="updateSubStatus('${sub.id}', 'completed')">Mark Completed</button>` : ''}
+              </div>
+            </div>
+            ${sub.instructions ? `<div style="background:var(--bg);padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border-left:3px solid #38bdf8;"><strong>Instructions:</strong> ${sub.instructions}</div>` : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:10px;">${filesHtml || '<span style="font-size:12px;color:var(--muted);">No files attached to this sample entry.</span>'}</div>
+          </div>`;
+        }).join('');
+      }
+      else if (currentTab === 'fileManager') {
+        container.innerHTML = `<div class="sub-card">
+          <h3 style="margin-bottom:12px;">Submission Directories (<code>${state.workspaceConfig.storageRoot}</code>)</h3>
+          ${shopSubs.map(sub => `<div style="background:var(--bg);padding:10px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+            <div><strong>${sub.status === 'incoming' ? 'Incoming' : sub.status === 'processing' ? 'Processing' : 'Completed'}/${sub.id}/</strong> — ${sub.customerName} (${(sub.files || []).length} files)</div>
+            <span class="badge badge-green">24h Protected</span>
+          </div>`).join('')}
+        </div>`;
+      }
+      else if (currentTab === 'pdfTools') {
+        const allFiles = shopSubs.flatMap(s => s.files || []);
+        const imgs = allFiles.filter(f => ['.jpg', '.jpeg', '.png'].includes(f.fileExtension));
+        const pdfs = allFiles.filter(f => f.fileExtension === '.pdf');
+
+        container.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-bottom:18px;">
+            <div class="sub-card">
+              <h3 style="margin-bottom:8px;">🖼️ Image-to-PDF Converter</h3>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine customer images into one print-ready PDF.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+                <select id="pdfPaperSelect" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;">
+                  <option value="A4">A4</option><option value="A5">A5</option><option value="Letter">Letter</option><option value="Legal">Legal</option><option value="Photo4x6">4x6 Photo</option>
+                </select>
+                <select id="pdfOrientSelect" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;">
+                  <option value="portrait">Portrait</option><option value="landscape">Landscape</option>
+                </select>
+              </div>
+              <div style="max-height:120px;overflow-y:auto;margin-bottom:12px;background:var(--bg);padding:8px;border-radius:8px;">
+                ${imgs.length === 0 ? '<span style="font-size:12px;color:var(--muted);">No JPG/PNG images uploaded yet.</span>' :
+                  imgs.map(i => `<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="img-pdf-check" value="${i.id}"> ${i.originalName}</label>`).join('')}
+              </div>
+              <button class="btn" onclick="convertImagesToPdf()">Generate PDF</button>
+            </div>
+
+            <div class="sub-card">
+              <h3 style="margin-bottom:8px;">📑 Merge Multiple PDFs</h3>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Combine 2 or more PDF files into one document.</p>
+              <div style="max-height:158px;overflow-y:auto;margin-bottom:12px;background:var(--bg);padding:8px;border-radius:8px;">
+                ${pdfs.length === 0 ? '<span style="font-size:12px;color:var(--muted);">No PDF files uploaded yet.</span>' :
+                  pdfs.map(p => `<label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" class="merge-pdf-check" value="${p.id}"> ${p.originalName}</label>`).join('')}
+              </div>
+              <button class="btn" onclick="mergeSelectedPdfs()">Merge Selected PDFs</button>
+            </div>
+          </div>
+
+          <div class="sub-card">
+            <h3 style="margin-bottom:12px;">Derived & Converted Outputs</h3>
+            ${state.derivedFiles.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted or working copy files yet.</p>' :
+              state.derivedFiles.map(d => `<div class="file-chip" style="margin-bottom:8px;">
+                <div><strong>${d.displayName}</strong> <span style="font-size:11px;color:var(--muted);">(${(d.sizeBytes / 1024).toFixed(1)} KB)</span></div>
+                <div style="display:flex;gap:6px;">
+                  <button class="btn btn-secondary" onclick="previewFileById('${d.id}', '${d.displayName}', '.${d.outputFormat}', true)">👁 Preview</button>
+                  <button class="btn btn-secondary" onclick="exportFile('${d.id}', '${d.displayName}')">⬇ Export</button>
+                  <button class="btn" onclick="openPrintModal('${d.id}', '${d.displayName}')">🖨 Print</button>
+                </div>
+              </div>`).join('')}
+          </div>
+        `;
+      }
+      else if (currentTab === 'printers') {
+        container.innerHTML = `<div class="sub-card">
+          <h3 style="margin-bottom:6px;">Saved Printer Profiles & Manual Policy</h3>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Automatic printing is permanently disabled. Staff explicitly initiate all print jobs.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;">
+            ${state.printerProfiles.map(p => `<div style="background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--border);">
+              <strong>${p.name}</strong>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">Paper: ${p.paperSize} • ${p.color ? 'Color' : 'B&W'} • ${p.orientation}</div>
+            </div>`).join('')}
+          </div>
+        </div>`;
+      }
+      else if (currentTab === 'history') {
+        container.innerHTML = `<div class="sub-card">
+          <h3 style="margin-bottom:12px;">Operational Audit Log</h3>
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Description</th></tr></thead>
+            <tbody>
+              ${state.auditEvents.map(e => `<tr>
+                <td style="font-size:11px;color:var(--muted);">${new Date(e.createdAt).toLocaleTimeString()}</td>
+                <td><span class="badge badge-blue">${e.actorType}</span></td>
+                <td><code>${e.eventType}</code></td>
+                <td>${e.description}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      }
+      else if (currentTab === 'settings') {
+        container.innerHTML = `<div class="sub-card" style="max-width:600px;">
+          <h3 style="margin-bottom:14px;">Shop Settings & Storage</h3>
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Paired Shop</label>
+            <input type="text" value="${shop.name}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Local Managed Root Directory</label>
+            <input type="text" value="${state.workspaceConfig.storageRoot}" readonly style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:#fff;">
+          </div>
+          <button class="btn btn-secondary" onclick="openPairModal()">Switch / Re-Pair Device</button>
+        </div>`;
+      }
+      else if (currentTab === 'subscription') {
+        container.innerHTML = `<div class="sub-card" style="max-width:640px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3>Shopkeeper Subscription & Entitlements</h3>
+            <span class="badge badge-blue">${plan.name}</span>
+          </div>
+          <div style="background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--border);margin-bottom:16px;font-size:13px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Shop:</span><strong>${shop.name}</strong></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Status:</span><strong style="color:var(--success);text-transform:capitalize;">${shop.subscriptionStatus}</strong></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Shopkeeper Fee:</span><strong>${plan.priceText}</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Offline Grace:</span><strong style="color:var(--warning);">72 Hours</strong></div>
+          </div>
+          <div style="font-size:13px;line-height:1.8;">
+            <div>✓ Max Devices: ${plan.maxDevices}</div>
+            <div>✓ Monthly Submissions Limit: ${plan.maxMonthlySubmissions}</div>
+            <div>${plan.batchConversion ? '✓' : '✕'} Batch Conversion</div>
+            <div>${plan.pdfAdvanced ? '✓' : '✕'} Advanced PDF Toolbox</div>
+          </div>
+        </div>`;
+      }
+    }
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+      else if (e.key === 'F5') { e.preventDefault(); renderCurrentView(); }
+      else if (e.key === 'Escape') { closePreview(); closeModal('printModal'); closeModal('pairModal'); }
+    });
+
+    renderCurrentView();
+    setInterval(renderCurrentView, 4000);
+  </script>
+</body>
+</html>
