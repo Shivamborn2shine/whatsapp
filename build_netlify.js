@@ -276,7 +276,7 @@ const customerHtml = `<!DOCTYPE html>
         selectedFiles.forEach(f => fd.append('files', f, f.name));
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', tunnelUrl.replace(/\/$/, '') + '/api/direct-upload', true);
+        xhr.open('POST', tunnelUrl.replace(/[/]+$/, '') + '/api/direct-upload', true);
         xhr.timeout = 120000;
         xhr.upload.onprogress = (ev) => {
           if (ev.lengthComputable) {
@@ -431,7 +431,7 @@ const customerHtml = `<!DOCTYPE html>
         let res, data;
         if (activeShop && activeShop.tunnelOnline && activeShop.tunnelUrl) {
           try {
-            res = await fetch(activeShop.tunnelUrl.replace(/\/$/, '') + '/api/receipt?id=' + encodeURIComponent(code));
+            res = await fetch(activeShop.tunnelUrl.replace(/[/]+$/, '') + '/api/receipt?id=' + encodeURIComponent(code));
             data = await res.json();
           } catch {}
         }

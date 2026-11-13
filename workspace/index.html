@@ -366,7 +366,7 @@
           const cloudShop = (data.state.shops || []).find(s => s.id === pairedShopId) || (data.state.shops || [])[0];
           if (!isLocalHost && data.storageMode !== 'local-pc' && cloudShop && cloudShop.tunnelOnline && cloudShop.tunnelUrl) {
             try {
-              const tBase = cloudShop.tunnelUrl.replace(//$/, '');
+              const tBase = cloudShop.tunnelUrl.replace(/[/]+$/, '');
               const tRes = await fetch(tBase + '/api/state', { signal: AbortSignal.timeout(4000) });
               const tData = await tRes.json();
               if (tData && tData.success) {
