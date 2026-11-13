@@ -187,7 +187,58 @@ export default async (req, context) => {
       const slug = url.searchParams.get('slug');
       const state = await loadCloudState();
       const shop = state.shops.find(s => s.slug === slug) || state.shops[0];
-      return jsonResponse({ success: true, shop });
+      const tunnelOnline = Boolean(
+        shop &&
+        shop.tunnelUrl &&
+        shop.tunnelUpdatedAt &&
+        (Date.now() - new Date(shop.tunnelUpdatedAt).getTime()) < 120000
+      );
+      return jsonResponse({
+        success: true,
+        shop: shop ? { ...shop, tunnelOnline } : null
+      });
+    }
+
+    // 2b. POST /api/tunnel/register (Shopkeeper PC registers live cloudflared tunnel URL)
+    if (route === '/tunnel/register' && req.method === 'POST') {
+      const body = await req.json();
+      const { shopId, pairingCode, tunnelUrl } = body;
+      if (!tunnelUrl || typeof tunnelUrl !== 'string' || !tunnelUrl.startsWith('https://')) {
+        return jsonResponse({ success: false, error: 'Valid https:// tunnelUrl is required.' }, 400);
+      }
+      const state = await loadCloudState();
+      const shop = state.shops.find(s =>
+        (shopId && s.id === shopId) ||
+        (pairingCode && s.pairingCode === pairingCode)
+      ) || state.shops[0];
+
+      if (!shop) return jsonResponse({ success: false, error: 'Shop not found.' }, 404);
+      const changed = shop.tunnelUrl !== tunnelUrl;
+      shop.tunnelUrl = tunnelUrl;
+      shop.tunnelUpdatedAt = new Date().toISOString();
+
+      if (changed) {
+        addAudit(state, shop.id, 'system', 'TUNNEL_CONNECTED', `Shopkeeper PC tunnel registered: ${tunnelUrl}`);
+      }
+      await saveCloudState(state);
+      return jsonResponse({ success: true, shop: { ...shop, tunnelOnline: true } });
+    }
+
+    // 2c. POST /api/tunnel/disconnect
+    if (route === '/tunnel/disconnect' && req.method === 'POST') {
+      const body = await req.json();
+      const state = await loadCloudState();
+      const shop = state.shops.find(s =>
+        (body.shopId && s.id === body.shopId) ||
+        (body.pairingCode && s.pairingCode === body.pairingCode)
+      );
+      if (shop) {
+        shop.tunnelUrl = null;
+        shop.tunnelUpdatedAt = null;
+        addAudit(state, shop.id, 'system', 'TUNNEL_DISCONNECTED', 'Shopkeeper PC tunnel disconnected');
+        await saveCloudState(state);
+      }
+      return jsonResponse({ success: true });
     }
 
     // 3a. POST /api/upload-chunk (PrintAway-style chunked transfer for large files)

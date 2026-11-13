@@ -189,7 +189,9 @@ const customerHtml = `<!DOCTYPE html>
         }
 
         document.getElementById('shopTitle').textContent = activeShop.name;
-        document.getElementById('shopTagline').textContent = activeShop.tagline || 'Scan. Drop. Done.';
+        document.getElementById('shopTagline').textContent = (activeShop.tunnelOnline && activeShop.tunnelUrl)
+          ? (activeShop.tagline || 'Scan. Drop. Done.') + ' • ⚡ Direct-to-Shop PC Tunnel'
+          : (activeShop.tagline || 'Scan. Drop. Done.');
 
         if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked') {
           document.getElementById('shopUnavailableBanner').style.display = 'block';
@@ -264,18 +266,66 @@ const customerHtml = `<!DOCTYPE html>
       });
     }
 
+    async function tryDirectTunnelUpload(tunnelUrl, progressFill) {
+      return new Promise((resolve, reject) => {
+        const fd = new FormData();
+        fd.append('shopId', activeShop.id);
+        fd.append('shopSlug', activeShop.slug || 'quickprint');
+        fd.append('customerName', document.getElementById('customerName').value.trim());
+        fd.append('instructions', document.getElementById('instructions').value.trim());
+        selectedFiles.forEach(f => fd.append('files', f, f.name));
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', tunnelUrl.replace(/\/$/, '') + '/api/direct-upload', true);
+        xhr.timeout = 120000;
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            progressFill.style.width = Math.max(8, Math.round((ev.loaded / ev.total) * 95)) + '%';
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const res = JSON.parse(xhr.responseText);
+              if (res && res.success) return resolve(res);
+            } catch {}
+          }
+          reject(new Error('Direct tunnel upload failed (' + xhr.status + ')'));
+        };
+        xhr.onerror = () => reject(new Error('Tunnel unreachable'));
+        xhr.ontimeout = () => reject(new Error('Tunnel timeout'));
+        xhr.send(fd);
+      });
+    }
+
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (selectedFiles.length === 0 || !activeShop) return;
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Transferring via PrintAway...';
       const progressBar = document.getElementById('progressBar');
       const progressFill = document.getElementById('progressFill');
       progressBar.style.display = 'block';
       progressFill.style.width = '5%';
 
       try {
+        // 1. Try Direct-to-Shop-PC Tunnel first (zero cloud hop, instant local SSD storage)
+        if (activeShop.tunnelOnline && activeShop.tunnelUrl) {
+          try {
+            submitBtn.textContent = '⚡ Sending directly to Shop PC...';
+            const directData = await tryDirectTunnelUpload(activeShop.tunnelUrl, progressFill);
+            progressFill.style.width = '100%';
+            document.getElementById('uploadCard').style.display = 'none';
+            document.getElementById('receiptBox').style.display = 'block';
+            document.getElementById('receiptCode').textContent = directData.receiptId;
+            return;
+          } catch (tunnelErr) {
+            console.warn('Direct tunnel failed, falling back to cloud PrintAway:', tunnelErr);
+          }
+        }
+
+        // 2. Fallback: Cloud PrintAway chunked transfer via Netlify Blobs
+        submitBtn.textContent = 'Transferring via PrintAway...';
         let totalChunks = 0;
         const fileChunkCounts = selectedFiles.map(f => {
           const c = Math.max(1, Math.ceil(f.size / CHUNK_SIZE));

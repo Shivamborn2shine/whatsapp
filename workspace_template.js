@@ -175,6 +175,7 @@ module.exports = `<!DOCTYPE html>
       </div>
 
       <div style="display:flex;align-items:center;gap:10px;">
+        <span id="storageTunnelBadge" class="badge badge-blue" style="font-size:11px;padding:5px 10px;">☁️ Cloud Sync</span>
         <div class="search-wrap">
           <span style="position:absolute;left:11px;color:#64748b;font-size:13px;">🔍</span>
           <input type="text" id="searchInput" class="search-input" placeholder="Search by receipt, name, or filename..." oninput="renderCurrentView()">
@@ -339,7 +340,10 @@ module.exports = `<!DOCTYPE html>
     }
 
     function showQrModal(slug) {
-      const url = window.location.origin + '/shop/' + slug;
+      const base = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'https://scandropdone.netlify.app'
+        : window.location.origin;
+      const url = base + '/shop/' + slug;
       document.getElementById('qrModalUrl').value = url;
       document.getElementById('qrModalImg').src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(url);
       openModal('qrModal');
@@ -357,6 +361,19 @@ module.exports = `<!DOCTYPE html>
         if (data.success) {
           cloudState = data.state;
           cloudPlans = data.plans;
+          const badge = document.getElementById('storageTunnelBadge');
+          if (badge) {
+            if (data.storageMode === 'local-pc') {
+              badge.className = data.tunnelOnline ? 'badge badge-green' : 'badge badge-amber';
+              badge.textContent = data.tunnelOnline ? '⚡ Local SSD • Tunnel Live' : '💾 Local SSD • Tunnel Starting';
+              badge.title = data.tunnelUrl || 'Local PC Storage';
+            } else {
+              const s = (cloudState.shops || [])[0];
+              const online = s && s.tunnelOnline;
+              badge.className = online ? 'badge badge-green' : 'badge badge-blue';
+              badge.textContent = online ? '⚡ Shop PC Tunnel Active' : '☁️ Cloud Blobs';
+            }
+          }
           renderCurrentView();
         }
       } catch (err) {

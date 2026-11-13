@@ -44,6 +44,8 @@ Completed/
 Derived/
 Temporary/
 Quarantine/
+ScanDrop_Local_Inbox/
+bin/
 
 # Build Outputs & Bundles
 dist/
