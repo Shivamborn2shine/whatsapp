@@ -214,6 +214,18 @@ namespace ScanDrop.Native
                     return;
                 }
 
+                if (path == "/api/direct-upload-chunk" && req.HttpMethod == "POST")
+                {
+                    HandleDirectUploadChunk(req, res);
+                    return;
+                }
+
+                if (path == "/api/direct-upload-complete" && req.HttpMethod == "POST")
+                {
+                    HandleDirectUploadComplete(req, res);
+                    return;
+                }
+
                 if (path == "/api/file" && req.HttpMethod == "GET")
                 {
                     HandleFileDownload(req, res);
@@ -485,6 +497,162 @@ namespace ScanDrop.Native
             });
         }
 
+        private void HandleDirectUploadChunk(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            byte[] raw;
+            using (var ms = new MemoryStream())
+            {
+                req.InputStream.CopyTo(ms);
+                raw = ms.ToArray();
+            }
+
+            Dictionary<string, string> fields;
+            List<UploadedFilePart> files;
+            ParseMultipart(raw, req.ContentType, out fields, out files);
+
+            string fileId = fields.ContainsKey("fileId") ? SanitizeFileName(fields["fileId"]) : null;
+            string chunkIdxStr = fields.ContainsKey("chunkIndex") ? fields["chunkIndex"] : null;
+            int chunkIdx;
+            if (string.IsNullOrEmpty(fileId) || !int.TryParse(chunkIdxStr, out chunkIdx) || chunkIdx < 0 || files.Count == 0)
+            {
+                WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Missing chunk parameters." } });
+                return;
+            }
+
+            string stageDir = Path.Combine(_inboxDir, ".staging", fileId);
+            Directory.CreateDirectory(stageDir);
+            string partPath = Path.Combine(stageDir, string.Format(CultureInfo.InvariantCulture, "part_{0}", chunkIdx));
+            File.WriteAllBytes(partPath, files[0].Bytes);
+
+            WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "chunkIndex", chunkIdx } });
+        }
+
+        private void HandleDirectUploadComplete(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = ReadJsonBody(req);
+            string custName = GetStr(body, "customerName");
+            if (string.IsNullOrWhiteSpace(custName)) custName = "Anonymous"; else custName = custName.Trim();
+            string instr = (GetStr(body, "instructions") ?? "").Trim();
+            var rawFiles = body != null && body.ContainsKey("files") ? body["files"] as System.Collections.IList : null;
+
+            if (rawFiles == null || rawFiles.Count == 0)
+            {
+                WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "No files listed." } });
+                return;
+            }
+
+            var rng = new Random();
+            string receiptId = "SD-" + rng.Next(1000, 9999);
+            DateTime now = DateTime.UtcNow;
+            DateTime expires = now.AddHours(24);
+            string nowIso = now.ToString("o");
+            string expIso = expires.ToString("o");
+            string subDir = Path.Combine(_inboxDir, receiptId);
+            Directory.CreateDirectory(subDir);
+
+            long totalBytes = 0;
+            var fileRecords = new List<object>();
+
+            foreach (Dictionary<string, object> fm in rawFiles)
+            {
+                string srcFileId = SanitizeFileName(GetStr(fm, "id"));
+                string origName = GetStr(fm, "originalName") ?? "file.bin";
+                string mimeType = GetStr(fm, "mimeType") ?? "application/octet-stream";
+                int chunkCount = 1;
+                if (fm.ContainsKey("chunkCount") && fm["chunkCount"] != null)
+                    int.TryParse(Convert.ToString(fm["chunkCount"], CultureInfo.InvariantCulture), out chunkCount);
+
+                string stageDir = Path.Combine(_inboxDir, ".staging", srcFileId);
+                string fileId = string.Format(CultureInfo.InvariantCulture, "f_{0}_{1}", DateTime.UtcNow.Ticks, fileRecords.Count);
+                string safeName = SanitizeFileName(origName);
+                string diskPath = Path.Combine(subDir, fileId + "_" + safeName);
+
+                long fileLen = 0;
+                string shaHex;
+                using (var outFs = File.Create(diskPath))
+                using (var sha = SHA256.Create())
+                {
+                    byte[] copyBuf = new byte[1024 * 1024];
+                    for (int ci = 0; ci < chunkCount; ci++)
+                    {
+                        string partPath = Path.Combine(stageDir, string.Format(CultureInfo.InvariantCulture, "part_{0}", ci));
+                        if (!File.Exists(partPath))
+                            throw new FileNotFoundException("Missing chunk " + ci + " for " + origName);
+                        using (var inFs = File.OpenRead(partPath))
+                        {
+                            int read;
+                            while ((read = inFs.Read(copyBuf, 0, copyBuf.Length)) > 0)
+                            {
+                                outFs.Write(copyBuf, 0, read);
+                                sha.TransformBlock(copyBuf, 0, read, null, 0);
+                                fileLen += read;
+                            }
+                        }
+                    }
+                    sha.TransformFinalBlock(new byte[0], 0, 0);
+                    shaHex = BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+                }
+
+                try { if (Directory.Exists(stageDir)) Directory.Delete(stageDir, true); } catch { }
+
+                totalBytes += fileLen;
+                fileRecords.Add(new Dictionary<string, object>
+                {
+                    { "id", fileId },
+                    { "submissionId", receiptId },
+                    { "originalName", origName },
+                    { "mimeType", mimeType },
+                    { "fileExtension", Path.GetExtension(origName).ToLowerInvariant() },
+                    { "sizeBytes", fileLen },
+                    { "localPath", diskPath },
+                    { "sha256Hash", shaHex },
+                    { "status", "local-ssd" },
+                    { "createdAt", nowIso },
+                    { "expiresAt", expIso }
+                });
+            }
+
+            lock (_stateLock)
+            {
+                var state = LoadStateUnsafe();
+                var subs = state["submissions"] as System.Collections.IList;
+                if (subs == null) { subs = new List<object>(); state["submissions"] = subs; }
+                var shops = state["shops"] as System.Collections.IList;
+                var shop = (shops != null && shops.Count > 0) ? shops[0] as Dictionary<string, object> : null;
+                string shopId = shop != null ? GetStr(shop, "id") : "shop_quickprint_01";
+
+                subs.Insert(0, new Dictionary<string, object>
+                {
+                    { "id", receiptId },
+                    { "shopId", shopId },
+                    { "customerName", custName },
+                    { "instructions", instr },
+                    { "status", "incoming" },
+                    { "files", fileRecords },
+                    { "totalSizeBytes", totalBytes },
+                    { "createdAt", nowIso },
+                    { "expiresAt", expIso }
+                });
+
+                AddAudit(state, shopId, "customer", "DIRECT_TUNNEL_UPLOAD",
+                    string.Format(CultureInfo.InvariantCulture, "Received {0} ({1} file(s), {2:F2} MB) -> Local SSD",
+                        receiptId, fileRecords.Count, totalBytes / (1024.0 * 1024.0)));
+                SaveStateUnsafe(state);
+            }
+
+            Log(string.Format(CultureInfo.InvariantCulture, "⚡ Received {0} ({1} file(s), {2:F2} MB)", receiptId, fileRecords.Count, totalBytes / (1024.0 * 1024.0)));
+            FireSubmissionsChanged();
+
+            WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "receiptId", receiptId },
+                { "expiresAt", expIso },
+                { "storageMode", "local-pc" },
+                { "fileCount", fileRecords.Count }
+            });
+        }
+
         private void HandleFileDownload(HttpListenerRequest req, HttpListenerResponse res)
         {
             string fileId = req.QueryString["id"];
@@ -522,12 +690,15 @@ namespace ScanDrop.Native
                 return;
             }
 
-            byte[] bytes = File.ReadAllBytes(localPath);
+            var fi = new FileInfo(localPath);
             res.StatusCode = 200;
             res.ContentType = GetStr(found, "mimeType") ?? "application/octet-stream";
             res.AddHeader("Content-Disposition", (download ? "attachment" : "inline") + "; filename=\"" + Uri.EscapeDataString(GetStr(found, "originalName") ?? "file") + "\"");
-            res.ContentLength64 = bytes.Length;
-            res.OutputStream.Write(bytes, 0, bytes.Length);
+            res.ContentLength64 = fi.Length;
+            using (var fs = File.OpenRead(localPath))
+            {
+                fs.CopyTo(res.OutputStream);
+            }
             res.Close();
         }
 

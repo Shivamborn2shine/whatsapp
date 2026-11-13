@@ -87,7 +87,7 @@ const customerHtml = `<!DOCTYPE html>
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
           </svg>
           <div class="dropzone-text">Tap to select or drop files here</div>
-          <div class="dropzone-sub">All Documents, Images & Archives supported (Max 100MB • Direct PC Tunnel)</div>
+          <div class="dropzone-sub">All Documents, Images, Videos & Archives supported (Max 500MB • Direct PC Tunnel)</div>
         </div>
 
         <div class="file-list" id="fileList"></div>
@@ -163,7 +163,9 @@ const customerHtml = `<!DOCTYPE html>
 
   <script>
     const BLOCKED_EXTS = ['.exe', '.bat', '.cmd', '.msi', '.vbs', '.ps1', '.scr'];
-    const MAX_TOTAL_BYTES = 100 * 1024 * 1024; // 100MB via Direct PC Tunnel / 50MB Cloud Fallback
+    const MAX_TOTAL_BYTES = 500 * 1024 * 1024; // 500MB via Direct PC Tunnel (10MB chunks)
+    const TUNNEL_SINGLE_MAX = 25 * 1024 * 1024; // Direct single-shot up to 25MB
+    const TUNNEL_CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks (well below Cloudflare 100MB edge limit)
     const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk for cloud fallback
     let selectedFiles = [];
     let activeShop = null;
@@ -230,7 +232,7 @@ const customerHtml = `<!DOCTYPE html>
         }
         const currentTotal = selectedFiles.reduce((a, b) => a + b.size, 0);
         if (currentTotal + f.size > MAX_TOTAL_BYTES) {
-          alert('Total upload size exceeds 100MB limit per transfer.');
+          alert('Total upload size exceeds 500MB limit per transfer.');
           continue;
         }
         if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
@@ -267,35 +269,108 @@ const customerHtml = `<!DOCTYPE html>
     }
 
     async function tryDirectTunnelUpload(tunnelUrl, progressFill) {
-      return new Promise((resolve, reject) => {
-        const fd = new FormData();
-        fd.append('shopId', activeShop.id);
-        fd.append('shopSlug', activeShop.slug || 'quickprint');
-        fd.append('customerName', document.getElementById('customerName').value.trim());
-        fd.append('instructions', document.getElementById('instructions').value.trim());
-        selectedFiles.forEach(f => fd.append('files', f, f.name));
+      const base = tunnelUrl.replace(/[/]+$/, '');
+      const totalBytes = selectedFiles.reduce((a, b) => a + b.size, 0);
 
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', tunnelUrl.replace(/[/]+$/, '') + '/api/direct-upload', true);
-        xhr.timeout = 120000;
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) {
-            progressFill.style.width = Math.max(8, Math.round((ev.loaded / ev.total) * 95)) + '%';
-          }
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const res = JSON.parse(xhr.responseText);
-              if (res && res.success) return resolve(res);
-            } catch {}
-          }
-          reject(new Error('Direct tunnel upload failed (' + xhr.status + ')'));
-        };
-        xhr.onerror = () => reject(new Error('Tunnel unreachable'));
-        xhr.ontimeout = () => reject(new Error('Tunnel timeout'));
-        xhr.send(fd);
+      // Fast path for <= 25MB: single multipart POST directly to PC
+      if (totalBytes <= TUNNEL_SINGLE_MAX) {
+        return new Promise((resolve, reject) => {
+          const fd = new FormData();
+          fd.append('shopId', activeShop.id);
+          fd.append('shopSlug', activeShop.slug || 'quickprint');
+          fd.append('customerName', document.getElementById('customerName').value.trim());
+          fd.append('instructions', document.getElementById('instructions').value.trim());
+          selectedFiles.forEach(f => fd.append('files', f, f.name));
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', base + '/api/direct-upload', true);
+          xhr.timeout = 180000;
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) {
+              progressFill.style.width = Math.max(8, Math.round((ev.loaded / ev.total) * 95)) + '%';
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const res = JSON.parse(xhr.responseText);
+                if (res && res.success) return resolve(res);
+              } catch {}
+            }
+            reject(new Error('Direct tunnel upload failed (' + xhr.status + ')'));
+          };
+          xhr.onerror = () => reject(new Error('Tunnel unreachable'));
+          xhr.ontimeout = () => reject(new Error('Tunnel timeout'));
+          xhr.send(fd);
+        });
+      }
+
+      // Large-file path (> 25MB up to 500MB): 10MB chunks directly to PC SSD (avoids Cloudflare 100MB per-request limit)
+      let uploadedBytes = 0;
+      const fileMeta = [];
+      for (let fi = 0; fi < selectedFiles.length; fi++) {
+        const f = selectedFiles[fi];
+        const fileId = 'tf_' + Date.now() + '_' + fi + '_' + Math.floor(Math.random() * 10000);
+        const chunkCount = Math.max(1, Math.ceil(f.size / TUNNEL_CHUNK_SIZE));
+
+        for (let ci = 0; ci < chunkCount; ci++) {
+          const start = ci * TUNNEL_CHUNK_SIZE;
+          const end = Math.min(f.size, start + TUNNEL_CHUNK_SIZE);
+          const blob = f.slice(start, end);
+
+          await new Promise((resolve, reject) => {
+            const fd = new FormData();
+            fd.append('fileId', fileId);
+            fd.append('chunkIndex', String(ci));
+            fd.append('chunk', blob, f.name);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', base + '/api/direct-upload-chunk', true);
+            xhr.timeout = 180000;
+            xhr.upload.onprogress = (ev) => {
+              if (ev.lengthComputable) {
+                const pct = Math.min(95, Math.round(((uploadedBytes + ev.loaded) / totalBytes) * 95));
+                progressFill.style.width = Math.max(5, pct) + '%';
+                submitBtn.textContent = '⚡ Sending directly to Shop PC (' + pct + '%)...';
+              }
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) return resolve();
+              reject(new Error('Tunnel chunk failed (' + xhr.status + ')'));
+            };
+            xhr.onerror = () => reject(new Error('Tunnel unreachable'));
+            xhr.ontimeout = () => reject(new Error('Tunnel chunk timeout'));
+            xhr.send(fd);
+          });
+
+          uploadedBytes += (end - start);
+        }
+
+        fileMeta.push({
+          id: fileId,
+          originalName: f.name,
+          mimeType: f.type || 'application/octet-stream',
+          sizeBytes: f.size,
+          chunkCount
+        });
+      }
+
+      submitBtn.textContent = '⚡ Finalizing on Shop PC...';
+      const cmpRes = await fetch(base + '/api/direct-upload-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: activeShop.id,
+          customerName: document.getElementById('customerName').value.trim(),
+          instructions: document.getElementById('instructions').value.trim(),
+          files: fileMeta
+        })
       });
+      const cmpData = await cmpRes.json();
+      if (!cmpRes.ok || !cmpData.success) {
+        throw new Error(cmpData.error || 'Failed to finalize large tunnel upload');
+      }
+      return cmpData;
     }
 
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
@@ -330,7 +405,11 @@ const customerHtml = `<!DOCTYPE html>
           }
         }
 
-        // 2. Fallback: Cloud PrintAway chunked transfer via Netlify Blobs
+        // 2. Fallback: Cloud PrintAway chunked transfer via Netlify Blobs (max 50MB when shop PC offline)
+        const cloudTotalBytes = selectedFiles.reduce((a, b) => a + b.size, 0);
+        if (cloudTotalBytes > 50 * 1024 * 1024) {
+          throw new Error('Files over 50MB require the Shopkeeper PC Station (ScanDrop.exe) to be online.');
+        }
         submitBtn.textContent = 'Transferring via PrintAway...';
         let totalChunks = 0;
         const fileChunkCounts = selectedFiles.map(f => {
