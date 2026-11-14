@@ -153,7 +153,9 @@ namespace ScanDrop.Native
                         { "inboxDir", _inboxDir },
                         { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
                         { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) },
-                        { "tunnelProvider", _tunnel != null ? _tunnel.ActiveProviderName : null }
+                        { "tunnelProvider", _tunnel != null ? _tunnel.ActiveProviderName : null },
+                        { "tunnelHealth", _tunnel != null ? _tunnel.CurrentHealthStatus : null },
+                        { "tunnelLastOkUtc", _tunnel != null && _tunnel.LastHealthOkUtc.HasValue ? _tunnel.LastHealthOkUtc.Value.ToString("o") : null }
                     });
                     return;
                 }
@@ -217,8 +219,8 @@ namespace ScanDrop.Native
                         var s0 = shops[0] as Dictionary<string, object>;
                         if (s0 != null)
                         {
-                            s0["tunnelUrl"] = _tunnel.LiveTunnelUrl;
-                            s0["tunnelOnline"] = !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl);
+                            s0["tunnelUrl"] = _tunnel != null ? _tunnel.LiveTunnelUrl : null;
+                            s0["tunnelOnline"] = _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl);
                         }
                     }
                     WriteJson(res, 200, new Dictionary<string, object>
@@ -229,7 +231,9 @@ namespace ScanDrop.Native
                         { "state", state },
                         { "storageMode", "local-pc" },
                         { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
-                        { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) }
+                        { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) },
+                        { "tunnelProvider", _tunnel != null ? _tunnel.ActiveProviderName : null },
+                        { "tunnelHealth", _tunnel != null ? _tunnel.CurrentHealthStatus : null }
                     });
                     return;
                 }
@@ -409,6 +413,38 @@ namespace ScanDrop.Native
                         { "removedTempItems", cleared.RemovedTempItems },
                         { "storage", StorageSummaryToDict(cleared.Remaining) }
                     });
+                    return;
+                }
+
+                if (path == "/api/tunnel/restart" && req.HttpMethod == "POST")
+                {
+                    if (_tunnel != null) _tunnel.Restart();
+                    WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "message", "Restarting tunnel..." } });
+                    return;
+                }
+
+                if (path == "/api/tunnel/config" && req.HttpMethod == "GET")
+                {
+                    string tok = null, cust = null, mode = "auto";
+                    if (_tunnel != null) _tunnel.ReadConfig(out tok, out cust, out mode);
+                    WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "hasToken", !string.IsNullOrWhiteSpace(tok) },
+                        { "customTunnelUrl", cust ?? "" },
+                        { "tunnelProvider", mode ?? "auto" }
+                    });
+                    return;
+                }
+
+                if (path == "/api/tunnel/config" && req.HttpMethod == "POST")
+                {
+                    var body = ReadJsonBody(req);
+                    string tok = GetStr(body, "cloudflareTunnelToken") ?? "";
+                    string cust = GetStr(body, "customTunnelUrl") ?? "";
+                    string mode = GetStr(body, "tunnelProvider") ?? "auto";
+                    if (_tunnel != null) _tunnel.SaveConfig(tok, cust, mode);
+                    WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "message", "Tunnel config saved & reconnecting..." } });
                     return;
                 }
 
@@ -1282,7 +1318,7 @@ namespace ScanDrop.Native
         {
             res.AddHeader("Access-Control-Allow-Origin", "*");
             res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            res.AddHeader("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+            res.AddHeader("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, X-Pinggy-No-Screen, Bypass-Tunnel-Reminder");
         }
 
         private static void WriteJson(HttpListenerResponse res, int status, object obj)

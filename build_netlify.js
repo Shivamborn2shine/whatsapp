@@ -272,6 +272,20 @@ const customerHtml = `<!DOCTYPE html>
       const base = tunnelUrl.replace(/[/]+$/, '');
       const totalBytes = selectedFiles.reduce((a, b) => a + b.size, 0);
 
+      // Fast 4.5s pre-flight probe so stale tunnels fail over rapidly and Pinggy/localhost.run bypass warning screens
+      const ctrl = new AbortController();
+      const probeTimer = setTimeout(() => ctrl.abort(), 4500);
+      try {
+        const probeRes = await fetch(base + '/api/health', {
+          method: 'GET',
+          signal: ctrl.signal,
+          headers: { 'X-Pinggy-No-Screen': 'true', 'Bypass-Tunnel-Reminder': 'true' }
+        });
+        if (!probeRes.ok) throw new Error('Tunnel health HTTP ' + probeRes.status);
+      } finally {
+        clearTimeout(probeTimer);
+      }
+
       // Fast path for <= 25MB: single multipart POST directly to PC
       if (totalBytes <= TUNNEL_SINGLE_MAX) {
         return new Promise((resolve, reject) => {
@@ -284,6 +298,8 @@ const customerHtml = `<!DOCTYPE html>
 
           const xhr = new XMLHttpRequest();
           xhr.open('POST', base + '/api/direct-upload', true);
+          xhr.setRequestHeader('X-Pinggy-No-Screen', 'true');
+          xhr.setRequestHeader('Bypass-Tunnel-Reminder', 'true');
           xhr.timeout = 180000;
           xhr.upload.onprogress = (ev) => {
             if (ev.lengthComputable) {
@@ -326,6 +342,8 @@ const customerHtml = `<!DOCTYPE html>
 
             const xhr = new XMLHttpRequest();
             xhr.open('POST', base + '/api/direct-upload-chunk', true);
+            xhr.setRequestHeader('X-Pinggy-No-Screen', 'true');
+            xhr.setRequestHeader('Bypass-Tunnel-Reminder', 'true');
             xhr.timeout = 180000;
             xhr.upload.onprogress = (ev) => {
               if (ev.lengthComputable) {
@@ -358,7 +376,11 @@ const customerHtml = `<!DOCTYPE html>
       submitBtn.textContent = '⚡ Finalizing on Shop PC...';
       const cmpRes = await fetch(base + '/api/direct-upload-complete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Pinggy-No-Screen': 'true',
+          'Bypass-Tunnel-Reminder': 'true'
+        },
         body: JSON.stringify({
           shopId: activeShop.id,
           customerName: document.getElementById('customerName').value.trim(),

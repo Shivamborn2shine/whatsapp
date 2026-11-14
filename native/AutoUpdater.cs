@@ -22,7 +22,7 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "3.2.2";
+        public const string CurrentVersion = "3.3.0";
         private const string PrimaryManifestUrl = "https://scandropdone.netlify.app/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";
         private const string PrimaryExeFallback = "https://scandropdone.netlify.app/downloads/ScanDrop.exe";

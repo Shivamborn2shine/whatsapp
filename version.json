@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "3.2.2",
-    "releaseDate":  "2026-11-13",
-    "releaseNotes":  "Added live Storage Usage inspector and one-click Free Up Storage / Cleanup tools (temp chunks, completed jobs, or all files) in both ScanDrop.exe and Web Workspace.",
-    "sha256":  "c73474a4bc1481dae7a84b0f13aa920921b90541f4341964e448908111860fa3",
+    "version":  "3.3.0",
+    "releaseDate":  "2026-11-14",
+    "releaseNotes":  "Self-healing 4-tier Tunnel Manager: fixed localhost.run URL regex, added generation guards against zombie process races, 18s startup guard + 429 rate-limit cooldown, IPv4 HTTP/2 forcing, 25s end-to-end health watchdog, sleep/wake \u0026 network reconnect auto-recovery, Pinggy port-443 backup, and permanent Cloudflare Token Settings UI.",
+    "sha256":  "d120c5f11e674aadcd058d24392e07bb433abec186efab416389d86e73bc3f80",
     "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

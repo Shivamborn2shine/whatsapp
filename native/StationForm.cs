@@ -33,8 +33,8 @@ namespace ScanDrop.Native
             _port = port;
 
             Text = "Scan Drop v" + AutoUpdater.CurrentVersion + " — Local PC Storage & Tunnel Station";
-            Size = new Size(780, 585);
-            MinimumSize = new Size(700, 520);
+            Size = new Size(860, 600);
+            MinimumSize = new Size(780, 540);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(244, 247, 251);
             Font = new Font("Segoe UI", 9.5f);
@@ -64,9 +64,18 @@ namespace ScanDrop.Native
                 if (IsDisposed) return;
                 BeginInvoke((Action)(() =>
                 {
-                    _tunnelUrlBox.Text = url;
-                    _statusBadge.Text = "● Tunnel Live (" + _tunnel.ActiveProviderName + ")";
-                    _statusBadge.ForeColor = Color.FromArgb(22, 163, 74);
+                    if (string.IsNullOrEmpty(url))
+                    {
+                        _tunnelUrlBox.Text = "Reconnecting (" + _tunnel.ActiveProviderName + ")...";
+                        _statusBadge.Text = "● Reconnecting (" + _tunnel.ActiveProviderName + ")";
+                        _statusBadge.ForeColor = Color.FromArgb(217, 119, 6);
+                    }
+                    else
+                    {
+                        _tunnelUrlBox.Text = url;
+                        _statusBadge.Text = "● Tunnel Live (" + _tunnel.ActiveProviderName + ")";
+                        _statusBadge.ForeColor = Color.FromArgb(22, 163, 74);
+                    }
                 }));
             };
         }
@@ -110,29 +119,29 @@ namespace ScanDrop.Native
             header.Controls.Add(headerUpdateBtn);
             header.Resize += (s, e) => { headerUpdateBtn.Location = new Point(Math.Max(260, header.ClientSize.Width - headerUpdateBtn.Width - 20), 18); };
 
-            var infoCard = new Panel { Location = new Point(20, 88), Size = new Size(724, 184), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.White, Padding = new Padding(16) };
+            var infoCard = new Panel { Location = new Point(20, 88), Size = new Size(804, 184), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.White, Padding = new Padding(16) };
 
             infoCard.Controls.Add(new Label { Text = "Local Workspace URL:", Location = new Point(16, 16), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            var localBox = new TextBox { Text = "http://127.0.0.1:" + _port + "/workspace/", ReadOnly = true, Location = new Point(170, 14), Size = new Size(530, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            var localBox = new TextBox { Text = "http://127.0.0.1:" + _port + "/workspace/", ReadOnly = true, Location = new Point(170, 14), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(localBox);
 
             infoCard.Controls.Add(new Label { Text = "Live Tunnel Endpoint:", Location = new Point(16, 50), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            _tunnelUrlBox = new TextBox { Text = "Connecting Cloudflare / OpenSSH...", ReadOnly = true, Location = new Point(170, 48), Size = new Size(530, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            _tunnelUrlBox = new TextBox { Text = "Connecting Cloudflare / OpenSSH...", ReadOnly = true, Location = new Point(170, 48), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(_tunnelUrlBox);
 
             infoCard.Controls.Add(new Label { Text = "Customer QR Link:", Location = new Point(16, 84), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            var qrBox = new TextBox { Text = _cloudQrUrl, ReadOnly = true, Location = new Point(170, 82), Size = new Size(530, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            var qrBox = new TextBox { Text = _cloudQrUrl, ReadOnly = true, Location = new Point(170, 82), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(qrBox);
 
             infoCard.Controls.Add(new Label { Text = "Local SSD Folder:", Location = new Point(16, 118), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            var dirBox = new TextBox { Text = _server.InboxDir, ReadOnly = true, Location = new Point(170, 116), Size = new Size(530, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            var dirBox = new TextBox { Text = _server.InboxDir, ReadOnly = true, Location = new Point(170, 116), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(dirBox);
 
             infoCard.Controls.Add(new Label { Text = "Local SSD Used:", Location = new Point(16, 152), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            _storageBox = new TextBox { Text = "Calculating disk usage...", ReadOnly = true, Location = new Point(170, 150), Size = new Size(530, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252), ForeColor = Color.FromArgb(15, 23, 42) };
+            _storageBox = new TextBox { Text = "Calculating disk usage...", ReadOnly = true, Location = new Point(170, 150), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252), ForeColor = Color.FromArgb(15, 23, 42) };
             infoCard.Controls.Add(_storageBox);
 
-            var btnRow = new FlowLayoutPanel { Location = new Point(20, 280), Size = new Size(724, 86), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, WrapContents = true };
+            var btnRow = new FlowLayoutPanel { Location = new Point(20, 280), Size = new Size(804, 86), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, WrapContents = true };
 
             var openWsBtn = new Button { Text = "🖥️ Open Workspace", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.FromArgb(37, 99, 235), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Padding = new Padding(10, 4, 10, 4), Cursor = Cursors.Hand };
             openWsBtn.FlatAppearance.BorderSize = 0;
@@ -147,6 +156,9 @@ namespace ScanDrop.Native
             var restartBtn = new Button { Text = "↻ Restart Tunnel", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             restartBtn.Click += (s, e) => { _tunnelUrlBox.Text = "Reconnecting..."; _tunnel.Restart(); };
 
+            var tunnelCfgBtn = new Button { Text = "⚙️ Tunnel Settings", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
+            tunnelCfgBtn.Click += (s, e) => ShowTunnelSettingsDialog();
+
             _autoStartBtn = new Button { Text = IsAutoStartEnabled() ? "✅ Auto-Start ON" : "Auto-Start OFF", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             _autoStartBtn.Click += (s, e) => ToggleAutoStart();
 
@@ -157,12 +169,12 @@ namespace ScanDrop.Native
             var updateBtn = new Button { Text = "🔄 Check Updates", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(29, 78, 216), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             updateBtn.Click += (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(true));
 
-            btnRow.Controls.AddRange(new Control[] { openWsBtn, openDirBtn, copyQrBtn, restartBtn, _autoStartBtn, clearStorageBtn, updateBtn });
+            btnRow.Controls.AddRange(new Control[] { openWsBtn, openDirBtn, copyQrBtn, restartBtn, tunnelCfgBtn, _autoStartBtn, clearStorageBtn, updateBtn });
 
             _logBox = new TextBox
             {
                 Location = new Point(20, 372),
-                Size = new Size(724, 152),
+                Size = new Size(804, 168),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 Multiline = true,
                 ReadOnly = true,
@@ -451,6 +463,96 @@ namespace ScanDrop.Native
                 dlg.Controls.Add(btnTemp);
                 dlg.Controls.Add(btnCompleted);
                 dlg.Controls.Add(btnAll);
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private void ShowTunnelSettingsDialog()
+        {
+            string curToken, curUrl, curMode;
+            _tunnel.ReadConfig(out curToken, out curUrl, out curMode);
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Scan Drop — Tunnel & Connection Settings";
+                dlg.Size = new Size(520, 340);
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = Color.FromArgb(248, 250, 252);
+                dlg.Font = new Font("Segoe UI", 9.5f);
+
+                var note = new Label
+                {
+                    Location = new Point(20, 14),
+                    Size = new Size(464, 42),
+                    ForeColor = Color.FromArgb(71, 85, 105),
+                    Text = "Auto Cascade automatically switches Cloudflare → OpenSSH → Pinggy and self-heals drops. Optionally paste a permanent Cloudflare Zero Trust token for 0 rate-limits."
+                };
+
+                dlg.Controls.Add(new Label { Text = "Provider Mode:", Location = new Point(20, 66), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+                var modeBox = new ComboBox { Location = new Point(170, 64), Size = new Size(314, 26), DropDownStyle = ComboBoxStyle.DropDownList };
+                modeBox.Items.AddRange(new object[] { "auto", "cloudflare", "openssh", "pinggy" });
+                int idx = modeBox.Items.IndexOf((curMode ?? "auto").ToLowerInvariant());
+                modeBox.SelectedIndex = idx >= 0 ? idx : 0;
+
+                dlg.Controls.Add(new Label { Text = "Permanent CF Token:", Location = new Point(20, 106), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+                var tokBox = new TextBox { Location = new Point(170, 104), Size = new Size(314, 24), Text = curToken ?? "" };
+
+                dlg.Controls.Add(new Label { Text = "Static Custom URL:", Location = new Point(20, 144), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+                var urlBox = new TextBox { Location = new Point(170, 142), Size = new Size(314, 24), Text = curUrl ?? "" };
+
+                var hint = new Label
+                {
+                    Location = new Point(20, 180),
+                    Size = new Size(464, 38),
+                    ForeColor = Color.FromArgb(100, 116, 139),
+                    Font = new Font("Segoe UI", 8.5f),
+                    Text = "Leave Token & Custom URL blank for automatic free Quick Tunnels + OpenSSH + Pinggy failover."
+                };
+
+                var saveBtn = new Button
+                {
+                    Text = "Save & Reconnect Tunnel",
+                    Location = new Point(20, 234),
+                    Size = new Size(230, 38),
+                    BackColor = Color.FromArgb(37, 99, 235),
+                    ForeColor = Color.White,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                    Cursor = Cursors.Hand
+                };
+                saveBtn.FlatAppearance.BorderSize = 0;
+                saveBtn.Click += (s, e) =>
+                {
+                    _tunnel.SaveConfig(tokBox.Text, urlBox.Text, Convert.ToString(modeBox.SelectedItem));
+                    dlg.Close();
+                };
+
+                var resetBtn = new Button
+                {
+                    Text = "Reset to Auto Cascade",
+                    Location = new Point(264, 234),
+                    Size = new Size(220, 38),
+                    BackColor = Color.White,
+                    ForeColor = Color.FromArgb(15, 23, 42),
+                    FlatStyle = FlatStyle.Flat,
+                    Cursor = Cursors.Hand
+                };
+                resetBtn.Click += (s, e) =>
+                {
+                    _tunnel.SaveConfig("", "", "auto");
+                    dlg.Close();
+                };
+
+                dlg.Controls.Add(note);
+                dlg.Controls.Add(modeBox);
+                dlg.Controls.Add(tokBox);
+                dlg.Controls.Add(urlBox);
+                dlg.Controls.Add(hint);
+                dlg.Controls.Add(saveBtn);
+                dlg.Controls.Add(resetBtn);
                 dlg.ShowDialog(this);
             }
         }
