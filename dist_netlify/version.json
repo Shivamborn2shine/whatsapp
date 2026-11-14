@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "3.3.0",
+    "version":  "3.3.1",
     "releaseDate":  "2026-11-14",
-    "releaseNotes":  "Self-healing 4-tier Tunnel Manager: fixed localhost.run URL regex, added generation guards against zombie process races, 18s startup guard + 429 rate-limit cooldown, IPv4 HTTP/2 forcing, 25s end-to-end health watchdog, sleep/wake \u0026 network reconnect auto-recovery, Pinggy port-443 backup, and permanent Cloudflare Token Settings UI.",
-    "sha256":  "d120c5f11e674aadcd058d24392e07bb433abec186efab416389d86e73bc3f80",
+    "releaseNotes":  "1-click direct printing bypassing printer settings modal, and smart scroll retention fixing file list scroll jumping during background refresh.",
+    "sha256":  "5936a3c2532e88fe4a10d3b3112a934e958ae7e91f4e751cd8ba6fdb6d87d539",
     "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

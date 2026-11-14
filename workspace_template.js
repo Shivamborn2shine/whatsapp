@@ -183,7 +183,7 @@ module.exports = `<!DOCTYPE html>
           <span class="kbd-pill">Ctrl + F</span>
         </div>
         <button class="btn btn-outline" onclick="setTab('history')" title="Notifications" style="padding:8px 10px;">🔔</button>
-        <button class="btn btn-sync" onclick="fetchCloudState()" title="Sync Now (F5)">↻ Sync Now</button>
+        <button class="btn btn-sync" onclick="fetchCloudState(true)" title="Sync Now (F5)">↻ Sync Now</button>
         <button class="btn btn-outline" onclick="openPairModal()" title="Pair Shop PC">🔗 Pair</button>
       </div>
     </header>
@@ -273,6 +273,8 @@ module.exports = `<!DOCTYPE html>
     </div>
   </div>
 
+  <iframe id="directPrintFrame" style="position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;"></iframe>
+
   <script>
     let currentTab = 'inbox';
     let subFilter = 'all'; // all, incoming, processing, completed
@@ -287,6 +289,7 @@ module.exports = `<!DOCTYPE html>
     let activePrintFile = null;
     let activeApiBase = '';
     let latestStorageStats = null;
+    let lastStateRenderKey = '';
     const isLocalHost = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     function apiUrl(p) { return (activeApiBase || '') + p; }
 
@@ -359,7 +362,7 @@ module.exports = `<!DOCTYPE html>
       alert('Copied customer link: ' + val);
     }
 
-    async function fetchCloudState() {
+    async function fetchCloudState(forceRender = false) {
       try {
         const res = await fetch('/api/state');
         let data = await res.json();
@@ -402,8 +405,17 @@ module.exports = `<!DOCTYPE html>
               badge.textContent = online ? '⚡ Shop PC Tunnel Active' : '☁️ Cloud Blobs';
             }
           }
-          renderCurrentView();
-          fetchStorageStats();
+          const newKey = JSON.stringify({
+            subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, s.totalSizeBytes]),
+            shops: (cloudState.shops || []).map(s => [s.id, s.subscriptionStatus, s.planId, s.tunnelOnline, s.tunnelUrl]),
+            auditLen: (cloudState.auditEvents || []).length,
+            storageMode: data.storageMode || ''
+          });
+          if (forceRender || newKey !== lastStateRenderKey) {
+            lastStateRenderKey = newKey;
+            renderCurrentView();
+            fetchStorageStats();
+          }
         }
       } catch (err) {
         console.error('Sync error:', err);
@@ -582,21 +594,60 @@ module.exports = `<!DOCTYPE html>
       a.click();
     }
 
-    function openPrintModal(fileId, fileName, localBlobUrl = null) {
-      activePrintFile = { id: fileId, name: fileName, url: localBlobUrl || apiUrl('/api/file?id=' + encodeURIComponent(fileId)) };
-      document.getElementById('printFileLabel').textContent = 'Document: ' + fileName;
-      openModal('printModal');
+    async function openPrintModal(fileId, fileName, localBlobUrl = null) {
+      const fileUrl = localBlobUrl || apiUrl('/api/file?id=' + encodeURIComponent(fileId));
+      const frame = document.getElementById('directPrintFrame');
+      const lower = (fileName || '').toLowerCase();
+      const isImage = /\.(jpe?g|png|webp|gif|bmp)$/i.test(lower);
+
+      if (!frame) {
+        const win = window.open(fileUrl, '_blank');
+        if (win) win.onload = () => { try { win.focus(); win.print(); } catch {} };
+        return;
+      }
+
+      try {
+        const res = await fetch(fileUrl, { headers: { 'X-Pinggy-No-Screen': 'true', 'Bypass-Tunnel-Reminder': 'true' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const printBlobUrl = URL.createObjectURL(blob);
+
+        if (isImage) {
+          frame.onload = () => {
+            try {
+              frame.contentWindow.focus();
+              frame.contentWindow.print();
+            } catch {
+              window.open(fileUrl, '_blank');
+            }
+            setTimeout(() => { try { URL.revokeObjectURL(printBlobUrl); } catch {} }, 60000);
+          };
+          frame.srcdoc = '<!doctype html><html><head><style>@page{margin:0;}body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="' + printBlobUrl + '"></body></html>';
+        } else {
+          frame.removeAttribute('srcdoc');
+          frame.onload = () => {
+            setTimeout(() => {
+              try {
+                frame.contentWindow.focus();
+                frame.contentWindow.print();
+              } catch {
+                window.open(fileUrl, '_blank');
+              }
+              setTimeout(() => { try { URL.revokeObjectURL(printBlobUrl); } catch {} }, 60000);
+            }, 150);
+          };
+          frame.src = printBlobUrl;
+        }
+      } catch {
+        const win = window.open(fileUrl, '_blank');
+        if (win) win.onload = () => { try { win.focus(); win.print(); } catch {} };
+      }
     }
 
     function executePrint() {
       if (!activePrintFile) return;
       closeModal('printModal');
-      const win = window.open(activePrintFile.url, '_blank');
-      if (win) {
-        win.onload = () => { win.focus(); win.print(); };
-      } else {
-        window.print();
-      }
+      openPrintModal(activePrintFile.id, activePrintFile.name, activePrintFile.url);
     }
 
     async function convertSubmissionImagesToPdf(sub) {
@@ -697,6 +748,11 @@ module.exports = `<!DOCTYPE html>
 
       const q = (document.getElementById('searchInput').value || '').toLowerCase();
       const container = document.getElementById('workspaceContent');
+      const prevWsScroll = container ? container.scrollTop : 0;
+      const prevListEl = document.getElementById('subRowsScroll');
+      const prevListScroll = prevListEl ? prevListEl.scrollTop : 0;
+      const prevInspEl = document.getElementById('inspectorFilesScroll');
+      const prevInspScroll = prevInspEl ? prevInspEl.scrollTop : 0;
 
       if (['inbox', 'processing', 'completed'].includes(currentTab)) {
         let filtered = shopSubs.filter(s => {
@@ -840,7 +896,7 @@ module.exports = `<!DOCTYPE html>
                 <button class="insp-tab \${inspectorTab === 'details' ? 'active' : ''}" onclick="inspectorTab='details';renderCurrentView()">Details</button>
               </div>
 
-              <div style="max-height:240px;overflow-y:auto;">
+              <div id="inspectorFilesScroll" style="max-height:240px;overflow-y:auto;">
                 \${inspectorTab === 'files' ? (inspFilesHtml || '<p style="font-size:12px;color:#64748b;">No files</p>') : inspDetailsHtml}
               </div>
 
@@ -874,7 +930,7 @@ module.exports = `<!DOCTYPE html>
               </select>
             </div>
 
-            <div style="flex:1;overflow-y:auto;">\${rowsHtml}</div>
+            <div id="subRowsScroll" style="flex:1;overflow-y:auto;">\${rowsHtml}</div>
 
             <div class="bulk-bar">
               <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;">
@@ -1072,6 +1128,16 @@ module.exports = `<!DOCTYPE html>
           </div>
         </div>\`;
       }
+
+      const restoreScroll = () => {
+        if (container) container.scrollTop = prevWsScroll;
+        const listEl = document.getElementById('subRowsScroll');
+        if (listEl) listEl.scrollTop = prevListScroll;
+        const inspEl = document.getElementById('inspectorFilesScroll');
+        if (inspEl) inspEl.scrollTop = prevInspScroll;
+      };
+      restoreScroll();
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restoreScroll);
     }
 
     async function checkStationUpdates(interactive) {
@@ -1115,12 +1181,12 @@ module.exports = `<!DOCTYPE html>
 
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
-      else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(); }
+      else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(true); }
       else if (e.key === 'Escape') { closePreview(); closeModal('printModal'); closeModal('pairModal'); closeModal('qrModal'); }
     });
 
-    fetchCloudState();
-    setInterval(fetchCloudState, 3500);
+    fetchCloudState(true);
+    setInterval(() => fetchCloudState(false), 3500);
   </script>
 </body>
 </html>`;
