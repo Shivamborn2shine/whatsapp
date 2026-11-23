@@ -29,7 +29,7 @@ namespace ScanDrop.Native.Transfers
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string raw = string.IsNullOrWhiteSpace(csv)
-                ? ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.jpg,.jpeg,.png,.webp,.bmp"
+                ? ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.heic,.heif,.mp4,.mov,.m4v,.zip"
                 : csv;
             foreach (var part in raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -126,6 +126,35 @@ namespace ScanDrop.Native.Transfers
                     header[8] != 0x57 || header[9] != 0x45 || header[10] != 0x42 || header[11] != 0x50)
                     return Fail("Invalid WEBP image: header signature mismatch.");
                 return Ok("image/webp");
+            }
+
+            if (ext == ".gif")
+            {
+                if (read < 6 || FindAsciiPrefix(header, 6, "GIF8") != 0)
+                    return Fail("Invalid GIF image: header signature mismatch.");
+                return Ok("image/gif");
+            }
+
+            if (ext == ".mp4" || ext == ".mov" || ext == ".m4v" || ext == ".heic" || ext == ".heif")
+            {
+                // ISO Base Media / QuickTime box atom at offset 4: ftyp, moov, mdat, wide, free, skip
+                bool validBox = read >= 8 && (
+                    (header[4] == 'f' && header[5] == 't' && header[6] == 'y' && header[7] == 'p') ||
+                    (header[4] == 'm' && header[5] == 'o' && header[6] == 'o' && header[7] == 'v') ||
+                    (header[4] == 'm' && header[5] == 'd' && header[6] == 'a' && header[7] == 't') ||
+                    (header[4] == 'w' && header[5] == 'i' && header[6] == 'd' && header[7] == 'e') ||
+                    (header[4] == 'f' && header[5] == 'r' && header[6] == 'e' && header[7] == 'e')
+                );
+                if (!validBox)
+                    return Fail("Invalid media container (" + ext + "): missing ISO/QuickTime header.");
+                return Ok((ext == ".heic" || ext == ".heif") ? "image/heic" : (ext == ".mov" ? "video/quicktime" : "video/mp4"));
+            }
+
+            if (ext == ".zip")
+            {
+                if (read < 4 || header[0] != 0x50 || header[1] != 0x4B)
+                    return Fail("Invalid ZIP archive: header signature mismatch.");
+                return Ok("application/zip");
             }
 
             if (ext == ".docx" || ext == ".xlsx" || ext == ".pptx")

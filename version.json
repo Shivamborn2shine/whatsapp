@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.0.0",
+    "version":  "4.0.1",
     "releaseDate":  "2026-11-23",
-    "releaseNotes":  "PRD v2.0 Local-First Upgrade: strict dual-port public/admin isolation (:8787 vs :3838), built-in Windows SQLite (WAL, 7 tables), DPAPI secret encryption, 4MiB resumable session uploads with magic-byte validation \u0026 6-char receipts, native Image-to-PDF + LibreOffice worker, First-Run Wizard, Pause Receiving, Light/Dark mode, and all 9 Windows file actions.",
-    "sha256":  "480ac5d9ed33f973f82c03a39b2dbdf07a70306d4db788d5d351faeaaa1ca9ce",
+    "releaseNotes":  "Added /api/direct-upload-chunk and /api/direct-upload-complete support on isolated Public Receiver (:8787) plus iPhone .mov/.mp4/.heic/.heif/.gif/.zip validation so large uploads from scandropdone.netlify.app always deliver directly to your Local PC Dashboard.",
+    "sha256":  "e4608b0f54b255803ecbbc11b0eb3f5b3dce69c40b1487a82e3c3dbf83f0a7a7",
     "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

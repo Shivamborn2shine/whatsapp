@@ -577,6 +577,224 @@ namespace ScanDrop.Native.Transfers
             return CompleteUploadSession(clientIp, init.SessionId, init.UploadToken, out httpStatus, out error);
         }
 
+        /// <summary>
+        /// Backwards-compatible chunked endpoint for older cached customer portals (/api/direct-upload-chunk).
+        /// Streams chunk safely to uploads/temp/legacy_{fileId}/part_{chunkIndex}.
+        /// </summary>
+        public bool SaveLegacyDirectChunk(string clientIp, string fileId, int chunkIndex, byte[] bytes, out int httpStatus, out string error)
+        {
+            httpStatus = 200;
+            error = null;
+
+            var settings = _db.LoadSettings(_storage.Paths.DataRootDir);
+            if (settings.PauseReceiving)
+            {
+                httpStatus = 503;
+                error = "This shop is temporarily paused and not accepting new uploads.";
+                return false;
+            }
+            if (!_guard.CheckRateLimit(clientIp, false, out error))
+            {
+                httpStatus = 429;
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(fileId) || chunkIndex < 0 || bytes == null || bytes.Length == 0)
+            {
+                httpStatus = 400;
+                error = "Missing legacy chunk parameters.";
+                return false;
+            }
+            if (bytes.Length > 12 * 1024 * 1024)
+            {
+                httpStatus = 413;
+                error = "Chunk exceeds 12 MB limit.";
+                return false;
+            }
+
+            string cleanId = StorageManager.SanitizeDisplayName(fileId);
+            string dir = StoragePaths.EnsureSafeSubPath(_storage.Paths.TempDir, Path.Combine(_storage.Paths.TempDir, "legacy_" + cleanId));
+            Directory.CreateDirectory(dir);
+            string partPath = StoragePaths.EnsureSafeSubPath(dir, Path.Combine(dir, string.Format(CultureInfo.InvariantCulture, "part_{0}", chunkIndex)));
+            File.WriteAllBytes(partPath, bytes);
+            return true;
+        }
+
+        /// <summary>
+        /// Backwards-compatible chunked finalizer (/api/direct-upload-complete) routed through full
+        /// FileValidator magic-byte checks, SHA-256 verification, safe GUID storage, and SQLite commit.
+        /// </summary>
+        public SubmissionRecord CompleteLegacyDirectUpload(
+            string clientIp,
+            string customerName,
+            string customerNote,
+            List<SessionFileDeclaration> files,
+            out int httpStatus,
+            out string error)
+        {
+            httpStatus = 200;
+            error = null;
+
+            var settings = _db.LoadSettings(_storage.Paths.DataRootDir);
+            if (settings.PauseReceiving)
+            {
+                httpStatus = 503;
+                error = "This shop is temporarily paused and not accepting new uploads.";
+                return null;
+            }
+            if (!_guard.CheckRateLimit(clientIp, true, out error))
+            {
+                httpStatus = 429;
+                return null;
+            }
+            if (files == null || files.Count == 0)
+            {
+                httpStatus = 400;
+                error = "No files listed.";
+                return null;
+            }
+
+            long expectedTotal = 0;
+            foreach (var f in files)
+            {
+                var v = FileValidator.ValidateMetadata(f.OriginalName, f.FileSize > 0 ? f.FileSize : 1, settings);
+                if (!v.IsValid) { httpStatus = 400; error = v.ErrorMessage; return null; }
+                expectedTotal += Math.Max(0, f.FileSize);
+            }
+            long availBytes;
+            if (!_storage.HasEnoughDiskSpace(expectedTotal * 2, settings.MinFreeDiskReserveBytes, out availBytes))
+            {
+                httpStatus = 507;
+                error = "Shop computer is low on disk space.";
+                return null;
+            }
+
+            string nowIso = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            string expIso = DateTime.UtcNow.AddHours(settings.RetentionHours).ToString("o", CultureInfo.InvariantCulture);
+            string submissionId = "sub_" + Guid.NewGuid().ToString("N");
+            string receiptCode = GenerateUniqueReceiptCode();
+            var shop = _db.GetPrimaryShop();
+
+            string receivedSubDir = Path.Combine(_storage.Paths.ReceivedDir, submissionId);
+            Directory.CreateDirectory(receivedSubDir);
+            var finalizedFiles = new List<FileRecord>();
+            var cleanupDirs = new List<string>();
+            long grandTotal = 0;
+
+            try
+            {
+                byte[] copyBuf = new byte[1024 * 1024];
+                foreach (var decl in files)
+                {
+                    string cleanSrcId = StorageManager.SanitizeDisplayName(decl.ClientFileId);
+                    string stageDir = StoragePaths.EnsureSafeSubPath(_storage.Paths.TempDir, Path.Combine(_storage.Paths.TempDir, "legacy_" + cleanSrcId));
+                    cleanupDirs.Add(stageDir);
+
+                    string ext = Path.GetExtension(decl.OriginalName).ToLowerInvariant();
+                    string internalName = _storage.GenerateInternalFilename(ext);
+                    string assembledTemp = Path.Combine(stageDir, "assembled_" + internalName);
+
+                    int count = Math.Max(1, decl.ChunkCount);
+                    long fileLen = 0;
+                    string shaHex;
+                    using (var outFs = File.Create(assembledTemp))
+                    using (var sha = SHA256.Create())
+                    {
+                        for (int ci = 0; ci < count; ci++)
+                        {
+                            string partPath = Path.Combine(stageDir, string.Format(CultureInfo.InvariantCulture, "part_{0}", ci));
+                            if (!File.Exists(partPath))
+                                throw new FileNotFoundException("Missing chunk " + ci + " for " + decl.OriginalName);
+                            using (var inFs = File.OpenRead(partPath))
+                            {
+                                int read;
+                                while ((read = inFs.Read(copyBuf, 0, copyBuf.Length)) > 0)
+                                {
+                                    outFs.Write(copyBuf, 0, read);
+                                    sha.TransformBlock(copyBuf, 0, read, null, 0);
+                                    fileLen += read;
+                                }
+                            }
+                        }
+                        sha.TransformFinalBlock(new byte[0], 0, 0);
+                        shaHex = BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+                    }
+
+                    var contentCheck = FileValidator.ValidateFileContent(assembledTemp, ext);
+                    if (!contentCheck.IsValid)
+                    {
+                        try { File.Delete(assembledTemp); } catch { }
+                        throw new InvalidDataException(contentCheck.ErrorMessage);
+                    }
+
+                    string finalPath = StoragePaths.EnsureSafeSubPath(_storage.Paths.ReceivedDir, Path.Combine(receivedSubDir, internalName));
+                    File.Move(assembledTemp, finalPath);
+                    grandTotal += fileLen;
+
+                    finalizedFiles.Add(new FileRecord
+                    {
+                        FileId = "f_" + Guid.NewGuid().ToString("N").Substring(0, 16),
+                        SubmissionId = submissionId,
+                        OriginalFilename = StorageManager.SanitizeDisplayName(decl.OriginalName),
+                        InternalFilename = internalName,
+                        ContentType = string.IsNullOrWhiteSpace(decl.ContentType) ? contentCheck.DetectedType : decl.ContentType,
+                        FileExtension = ext,
+                        FileSize = fileLen,
+                        Checksum = shaHex,
+                        StoragePath = finalPath,
+                        ConversionStatus = "none",
+                        ReceivedAt = nowIso
+                    });
+                }
+
+                var sub = new SubmissionRecord
+                {
+                    SubmissionId = submissionId,
+                    ShopId = shop.ShopId,
+                    ReceiptCode = receiptCode,
+                    CustomerName = string.IsNullOrWhiteSpace(customerName) ? "Anonymous" : customerName.Trim(),
+                    CustomerNote = (customerNote ?? "").Trim(),
+                    Status = "received",
+                    CreatedAt = nowIso,
+                    CompletedAt = nowIso,
+                    ExpiresAt = expIso,
+                    TotalSize = grandTotal,
+                    Files = finalizedFiles
+                };
+
+                _db.RunInTransaction(() =>
+                {
+                    _db.InsertSubmission(sub);
+                    foreach (var fr in finalizedFiles) _db.InsertFile(fr);
+                    _db.AddActivity("SUBMISSION_RECEIVED", "customer", submissionId,
+                        string.Format(CultureInfo.InvariantCulture, "Received {0} ({1} file(s), {2:F2} MB) via direct tunnel",
+                            receiptCode, finalizedFiles.Count, grandTotal / (1024.0 * 1024.0)));
+                });
+
+                foreach (var d in cleanupDirs) { if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { } }
+                _logger.Info("Transfer", string.Format(CultureInfo.InvariantCulture,
+                    "Committed direct chunked submission {0} ({1} file(s), {2:F2} MB)",
+                    receiptCode, finalizedFiles.Count, grandTotal / (1024.0 * 1024.0)));
+                FireSubmissionReceived(sub);
+                return sub;
+            }
+            catch (InvalidDataException dex)
+            {
+                try { if (Directory.Exists(receivedSubDir)) Directory.Delete(receivedSubDir, true); } catch { }
+                foreach (var d in cleanupDirs) { if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { } }
+                httpStatus = 400;
+                error = dex.Message;
+                return null;
+            }
+            catch (Exception ex)
+            {
+                try { if (Directory.Exists(receivedSubDir)) Directory.Delete(receivedSubDir, true); } catch { }
+                foreach (var d in cleanupDirs) { if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { } }
+                httpStatus = 500;
+                error = ex.Message;
+                return null;
+            }
+        }
+
         private void RollbackFailedCommit(string submissionId, string sessionId, string receivedSubDir)
         {
             try { if (Directory.Exists(receivedSubDir)) Directory.Delete(receivedSubDir, true); } catch { }

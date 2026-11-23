@@ -162,8 +162,8 @@
 
   <script>
     const BLOCKED_EXTS = ['.exe', '.dll', '.bat', '.cmd', '.msi', '.vbs', '.js', '.ps1', '.scr', '.com', '.hta', '.jar', '.sh'];
-    let allowedExts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp'];
-    let maxFileBytes = 100 * 1024 * 1024;
+    let allowedExts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.txt', '.csv', '.rtf', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.heic', '.heif', '.mp4', '.mov', '.m4v', '.zip'];
+    let maxFileBytes = 500 * 1024 * 1024;
     let maxSubmissionBytes = 500 * 1024 * 1024;
     let receiverChunkSize = 4 * 1024 * 1024; // 4 MiB (< 8 MiB per PRD Sec 8.5)
     let selectedFiles = [];

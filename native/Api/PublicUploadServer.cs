@@ -413,6 +413,80 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                // 9. Backwards-Compatible Chunked Direct Upload (for v3.2.x cached Netlify portals > 25MB)
+                if (path == "/api/direct-upload-chunk" && req.HttpMethod == "POST")
+                {
+                    Dictionary<string, string> fields;
+                    List<MultipartFilePart> parts;
+                    HttpHelpers.ParseMultipart(req, 12L * 1024L * 1024L + 512 * 1024, out fields, out parts);
+                    string fileId = fields.ContainsKey("fileId") ? fields["fileId"] : null;
+                    string idxStr = fields.ContainsKey("chunkIndex") ? fields["chunkIndex"] : null;
+                    int chunkIdx;
+                    if (!int.TryParse(idxStr, out chunkIdx) || parts.Count == 0)
+                    {
+                        HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Missing chunk parameters." } });
+                        return;
+                    }
+                    int status;
+                    string err;
+                    if (!_transfers.SaveLegacyDirectChunk(clientIp, fileId, chunkIdx, parts[0].Bytes, out status, out err))
+                    {
+                        HttpHelpers.WriteJson(res, status, new Dictionary<string, object> { { "success", false }, { "error", err } });
+                        return;
+                    }
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "chunkIndex", chunkIdx } });
+                    return;
+                }
+
+                if (path == "/api/direct-upload-complete" && req.HttpMethod == "POST")
+                {
+                    var body = HttpHelpers.ReadJsonBody(req);
+                    string custName = HttpHelpers.GetStr(body, "customerName");
+                    string custNote = HttpHelpers.GetStr(body, "instructions") ?? HttpHelpers.GetStr(body, "customerNote");
+                    var decls = new List<SessionFileDeclaration>();
+                    object rawFiles;
+                    if (body.TryGetValue("files", out rawFiles) && rawFiles is System.Collections.IList)
+                    {
+                        foreach (var item in (System.Collections.IList)rawFiles)
+                        {
+                            var fm = item as Dictionary<string, object>;
+                            if (fm == null) continue;
+                            decls.Add(new SessionFileDeclaration
+                            {
+                                ClientFileId = HttpHelpers.GetStr(fm, "id"),
+                                OriginalName = HttpHelpers.GetStr(fm, "originalName") ?? HttpHelpers.GetStr(fm, "name") ?? "file.bin",
+                                ContentType = HttpHelpers.GetStr(fm, "mimeType") ?? "application/octet-stream",
+                                FileSize = HttpHelpers.GetLong(fm, "sizeBytes", 1),
+                                ChunkCount = HttpHelpers.GetInt(fm, "chunkCount", 1)
+                            });
+                        }
+                    }
+
+                    int status;
+                    string err;
+                    var sub = _transfers.CompleteLegacyDirectUpload(clientIp, custName, custNote, decls, out status, out err);
+                    if (sub == null)
+                    {
+                        HttpHelpers.WriteJson(res, status, new Dictionary<string, object> { { "success", false }, { "error", err } });
+                        return;
+                    }
+                    var shop = _db.GetPrimaryShop();
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "receiptCode", sub.ReceiptCode },
+                        { "receiptId", sub.ReceiptCode },
+                        { "shopName", shop.ShopName },
+                        { "fileCount", sub.Files.Count },
+                        { "totalSizeBytes", sub.TotalSize },
+                        { "submittedAt", sub.CompletedAt ?? sub.CreatedAt },
+                        { "expiresAt", sub.ExpiresAt },
+                        { "status", sub.Status },
+                        { "storageMode", "local-pc" }
+                    });
+                    return;
+                }
+
                 // ALL OTHER PATHS (including /workspace, /api/state, /api/file, /api/storage, /api/settings, /api/tunnel)
                 // ARE STRICTLY NOT MOUNTED ON THE PUBLIC RECEIVER!
                 HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Not Found" } });

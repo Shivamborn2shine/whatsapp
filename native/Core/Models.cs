@@ -86,12 +86,12 @@ namespace ScanDrop.Native.Core
         public string PairingCode = "SD-PAIR-7890";
         public string StorageRoot = "";
         public int RetentionHours = 24;
-        public long MaxFileSizeBytes = 100L * 1024L * 1024L;       // Default 100 MB per PRD Sec 16 (configurable up to 500 MB)
+        public long MaxFileSizeBytes = 500L * 1024L * 1024L;       // Up to 500 MB per file (configurable)
         public long MaxSubmissionBytes = 500L * 1024L * 1024L;     // 500 MB max per submission
         public int ChunkSizeBytes = 4 * 1024 * 1024;               // 4 MiB (< 8 MiB per PRD Sec 8.5)
         public long MinFreeDiskReserveBytes = 500L * 1024L * 1024L; // 500 MB safety buffer
         public bool PauseReceiving = false;
-        public string AllowedExtensions = ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.jpg,.jpeg,.png,.webp,.bmp";
+        public string AllowedExtensions = ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.heic,.heif,.mp4,.mov,.m4v,.zip";
         public string Theme = "light"; // light | dark
         public bool FirstRunCompleted = false;
         public string PublicBaseUrl = "https://scandropdone.netlify.app";
