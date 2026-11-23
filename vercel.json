@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "buildCommand": "node build_netlify.js",
+  "outputDirectory": "dist_netlify",
+  "headers": [
+    {
+      "source": "/version.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    },
+    {
+      "source": "/downloads/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=60" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index?route=/$1" },
+    { "source": "/shop/(.*)", "destination": "/index.html" },
+    { "source": "/workspace/(.*)", "destination": "/workspace/index.html" },
+    { "source": "/superadmin/(.*)", "destination": "/superadmin/index.html" }
+  ]
+}
