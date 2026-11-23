@@ -209,7 +209,7 @@ namespace ScanDrop.Native.Api
                     var body = HttpHelpers.ReadJsonBody(req);
                     string subId = HttpHelpers.GetStr(body, "submissionId");
                     string status = (HttpHelpers.GetStr(body, "status") ?? "received").Trim().ToLowerInvariant();
-                    if (status == "incoming") status = "received";
+                    if (status == "incoming" || status == "unarchived") status = "received";
                     if (status == "completed") status = "printed";
                     var sub = _db.GetSubmissionByReceiptOrId(subId);
                     if (sub == null)
@@ -217,10 +217,26 @@ namespace ScanDrop.Native.Api
                         HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Submission not found." } });
                         return;
                     }
+                    bool wasArchived = string.Equals(sub.Status, "archived", StringComparison.OrdinalIgnoreCase);
+                    bool isUnarchiving = wasArchived && !string.Equals(status, "archived", StringComparison.OrdinalIgnoreCase);
                     _db.UpdateSubmissionStatus(sub.SubmissionId, status);
-                    _db.AddActivity("SUBMISSION_STATUS", "shopkeeper", sub.SubmissionId, "Marked " + sub.ReceiptCode + " as " + status);
+                    if (isUnarchiving)
+                    {
+                        var settings = _db.LoadSettings(_storage.Paths.DataRootDir);
+                        DateTime parsedExp;
+                        DateTime freshExp = DateTime.UtcNow.AddHours(Math.Max(1, settings.RetentionHours));
+                        if (!DateTime.TryParse(sub.ExpiresAt, null, DateTimeStyles.AdjustToUniversal, out parsedExp) || parsedExp < freshExp)
+                        {
+                            _db.ExtendSubmissionExpiry(sub.SubmissionId, freshExp.ToString("o", CultureInfo.InvariantCulture));
+                        }
+                        _db.AddActivity("SUBMISSION_STATUS", "shopkeeper", sub.SubmissionId, "Unarchived " + sub.ReceiptCode + " back to " + status);
+                    }
+                    else
+                    {
+                        _db.AddActivity("SUBMISSION_STATUS", "shopkeeper", sub.SubmissionId, "Marked " + sub.ReceiptCode + " as " + status);
+                    }
                     FireStateChanged();
-                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "status", status } });
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "status", status }, { "unarchived", isUnarchiving } });
                     return;
                 }
 

@@ -668,6 +668,13 @@ namespace ScanDrop.Native.Storage
             }
         }
 
+        public void ExtendSubmissionExpiry(string submissionOrReceipt, string newExpiresAtIso)
+        {
+            var sub = GetSubmissionByReceiptOrId(submissionOrReceipt);
+            if (sub == null) return;
+            Execute("UPDATE submissions SET expires_at = ? WHERE submission_id = ?;", newExpiresAtIso, sub.SubmissionId);
+        }
+
         public void RenameFile(string fileId, string newDisplayName)
         {
             Execute("UPDATE files SET original_filename = ? WHERE file_id = ?;", newDisplayName, fileId);

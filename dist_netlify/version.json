@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.0.2",
+    "version":  "4.0.3",
     "releaseDate":  "2026-11-23",
-    "releaseNotes":  "Switched cloud portal, tunnel registry, QR sharing URL, and OTA auto-updates to https://scandrop-xi.vercel.app with automatic migration from legacy Netlify settings.",
-    "sha256":  "79ea520aec55e89aca7b4f5db4743522c6aacb658b1770d3e2326575f19c9d94",
+    "releaseNotes":  "Added 1-click Unarchive (single and bulk) alongside Archive in Inbox with automatic retention window refresh on unarchive.",
+    "sha256":  "759cf33761100ea9c0470aead5b7627b834c46e6774fc3e3bf049a8212960885",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

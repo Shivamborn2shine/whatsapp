@@ -384,6 +384,17 @@
       await fetchCloudState(true);
     }
 
+    async function bulkUpdateSubStatus(ids, newStatus) {
+      if (!ids || ids.length === 0) return;
+      await Promise.all(ids.map(id => fetch('/api/submission/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: id, status: newStatus })
+      })));
+      checkedSubIds.clear();
+      await fetchCloudState(true);
+    }
+
     async function deleteSubmissions(ids) {
       if (!ids || ids.length === 0) return;
       if (!confirm('Permanently delete ' + ids.length + ' submission(s) from local disk?')) return;
@@ -770,6 +781,7 @@
             `;
           }).join('');
 
+          const isArchivedSub = (selectedSub.status || '').toLowerCase() === 'archived';
           const remHrs = Math.max(0, (new Date(selectedSub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
           const imgIds = (selectedSub.files || []).filter(f => ['.jpg','.jpeg','.png','.bmp'].includes((f.fileExtension || '').toLowerCase())).map(f => f.id);
           inspectorHtml = `
@@ -793,7 +805,7 @@
                   : `<div style="font-size:12.5px;display:flex;flex-direction:column;gap:9px;padding:6px 0;">
                       <div><span style="color:var(--muted);">Customer:</span> <strong>${esc(selectedSub.customerName)}</strong></div>
                       <div><span style="color:var(--muted);">Received:</span> <strong>${new Date(selectedSub.createdAt).toLocaleString()}</strong></div>
-                      <div><span style="color:var(--muted);">Auto-Purge:</span> <strong style="color:var(--warning);">${remHrs} hours left</strong></div>
+                      <div><span style="color:var(--muted);">Auto-Purge:</span> ${isArchivedSub ? '<strong style="color:var(--success);">Paused (Archived)</strong>' : '<strong style="color:var(--warning);">' + remHrs + ' hours left</strong>'}</div>
                       <div><span style="color:var(--muted);">Instructions:</span><div style="background:var(--surface-alt);padding:8px;border-radius:8px;border:1px solid var(--border);margin-top:4px;">${esc(selectedSub.instructions || 'None')}</div></div>
                     </div>`}
               </div>
@@ -802,7 +814,9 @@
 
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <button class="btn" onclick="updateSubStatus('${esc(selectedSub.id)}', 'printed')">✓ Mark Printed</button>
-                <button class="btn btn-outline" onclick="updateSubStatus('${esc(selectedSub.id)}', 'archived')">📦 Archive</button>
+                ${isArchivedSub
+                  ? `<button class="btn btn-outline" onclick="updateSubStatus('${esc(selectedSub.id)}', 'received')">📤 Unarchive</button>`
+                  : `<button class="btn btn-outline" onclick="updateSubStatus('${esc(selectedSub.id)}', 'archived')">📦 Archive</button>`}
               </div>
               <button class="btn btn-danger-soft" style="width:100%;" onclick="deleteSubmissions(['${esc(selectedSub.id)}'])">🗑 Delete Submission</button>
             </aside>
@@ -831,8 +845,9 @@
                   <input type="checkbox" ${allChecked ? 'checked' : ''} onchange='toggleSelectAll(${JSON.stringify(allFilteredIds)})'> Select All
                 </label>
                 <div style="display:flex;gap:7px;flex-wrap:wrap;">
-                  <button class="btn btn-outline" onclick="Array.from(checkedSubIds).forEach(id=>updateSubStatus(id,'printed'))">✓ Mark Printed</button>
-                  <button class="btn btn-outline" onclick="Array.from(checkedSubIds).forEach(id=>updateSubStatus(id,'archived'))">📦 Archive</button>
+                  <button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'printed')">✓ Mark Printed</button>
+                  ${subFilter !== 'archived' ? `<button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'archived')">📦 Archive</button>` : ''}
+                  ${(subFilter === 'archived' || subFilter === 'all') ? `<button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'received')">📤 Unarchive</button>` : ''}
                   <button class="btn btn-danger-soft" onclick="deleteSubmissions(Array.from(checkedSubIds))">🗑 Delete Selected</button>
                 </div>
               </div>

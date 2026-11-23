@@ -22,7 +22,7 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "4.0.2";
+        public const string CurrentVersion = "4.0.3";
         private const string PrimaryManifestUrl = "https://scandrop-xi.vercel.app/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";
         private const string PrimaryExeFallback = "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe";
@@ -158,6 +158,12 @@ namespace ScanDrop.Native
             {
                 string wsDir = Path.Combine(rootDir, "workspace");
                 string wsPath = Path.Combine(wsDir, "index.html");
+                // Never downgrade a newer local workspace/index.html with an older remote deployment
+                if (File.Exists(wsPath))
+                {
+                    var upd = CheckForUpdate();
+                    if (!upd.UpdateAvailable) return false;
+                }
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
                 using (var wc = new WebClient())
                 {
