@@ -22,10 +22,10 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "4.0.1";
-        private const string PrimaryManifestUrl = "https://scandropdone.netlify.app/version.json";
+        public const string CurrentVersion = "4.0.2";
+        private const string PrimaryManifestUrl = "https://scandrop-xi.vercel.app/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";
-        private const string PrimaryExeFallback = "https://scandropdone.netlify.app/downloads/ScanDrop.exe";
+        private const string PrimaryExeFallback = "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe";
         private const string GitHubExeFallback = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe";
 
         public static UpdateCheckResult CheckForUpdate()
@@ -163,7 +163,7 @@ namespace ScanDrop.Native
                 {
                     wc.Headers.Add("User-Agent", "ScanDrop-Station/" + CurrentVersion);
                     wc.Encoding = Encoding.UTF8;
-                    string remoteHtml = wc.DownloadString("https://scandropdone.netlify.app/workspace/index.html");
+                    string remoteHtml = wc.DownloadString("https://scandrop-xi.vercel.app/workspace/index.html");
                     if (!string.IsNullOrWhiteSpace(remoteHtml) && remoteHtml.Contains("Scan Drop"))
                     {
                         if (!Directory.Exists(wsDir)) Directory.CreateDirectory(wsDir);

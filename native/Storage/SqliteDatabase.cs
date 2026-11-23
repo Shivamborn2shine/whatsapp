@@ -483,7 +483,17 @@ namespace ScanDrop.Native.Storage
             if (wiz != null) m.FirstRunCompleted = (wiz == "1" || wiz.Equals("true", StringComparison.OrdinalIgnoreCase));
 
             string pubBase = GetSetting("public_base_url");
-            if (!string.IsNullOrWhiteSpace(pubBase)) m.PublicBaseUrl = pubBase.TrimEnd('/');
+            if (!string.IsNullOrWhiteSpace(pubBase))
+            {
+                string trimmedBase = pubBase.TrimEnd('/');
+                if (trimmedBase.Equals("https://scandropdone.netlify.app", StringComparison.OrdinalIgnoreCase) ||
+                    trimmedBase.Equals("http://scandropdone.netlify.app", StringComparison.OrdinalIgnoreCase))
+                {
+                    trimmedBase = "https://scandrop-xi.vercel.app";
+                    SetSetting("public_base_url", trimmedBase);
+                }
+                m.PublicBaseUrl = trimmedBase;
+            }
 
             return m;
         }

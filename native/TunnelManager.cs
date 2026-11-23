@@ -67,7 +67,7 @@ namespace ScanDrop.Native
         {
             _rootDir = rootDir;
             _localPort = localPort;
-            _cloudUrl = (cloudUrl ?? "https://scandropdone.netlify.app").TrimEnd('/');
+            _cloudUrl = (cloudUrl ?? "https://scandrop-xi.vercel.app").TrimEnd('/');
             _db = db;
             _logsDir = logsDir;
             _shopId = string.IsNullOrWhiteSpace(shopId) ? "shop_quickprint_01" : shopId.Trim();
@@ -969,9 +969,26 @@ namespace ScanDrop.Native
             {
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
                 var ser = new JavaScriptSerializer();
+                string slug = "quickprint";
+                string shopName = "QuickPrint Xerox & Stationery";
+                if (_db != null)
+                {
+                    try
+                    {
+                        var primary = _db.GetPrimaryShop();
+                        if (primary != null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(primary.Slug)) slug = primary.Slug;
+                            if (!string.IsNullOrWhiteSpace(primary.ShopName)) shopName = primary.ShopName;
+                        }
+                    }
+                    catch { }
+                }
                 string payload = ser.Serialize(new
                 {
                     shopId = _shopId,
+                    shopSlug = slug,
+                    shopName = shopName,
                     pairingCode = _pairingCode,
                     tunnelUrl = tunnelUrl
                 });
@@ -997,7 +1014,17 @@ namespace ScanDrop.Native
             {
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
                 var ser = new JavaScriptSerializer();
-                string payload = ser.Serialize(new { shopId = _shopId, pairingCode = _pairingCode });
+                string slug = "quickprint";
+                if (_db != null)
+                {
+                    try
+                    {
+                        var primary = _db.GetPrimaryShop();
+                        if (primary != null && !string.IsNullOrWhiteSpace(primary.Slug)) slug = primary.Slug;
+                    }
+                    catch { }
+                }
+                string payload = ser.Serialize(new { shopId = _shopId, shopSlug = slug, pairingCode = _pairingCode });
                 var req = (HttpWebRequest)WebRequest.Create(_cloudUrl + "/api/tunnel/disconnect");
                 req.Method = "POST";
                 req.ContentType = "application/json";

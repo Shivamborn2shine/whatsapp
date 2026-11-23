@@ -23,7 +23,7 @@ namespace ScanDrop.Native
     {
         private const int DefaultAdminPort = 3838;   // Localhost-only Admin & Workspace (NEVER tunneled)
         private const int DefaultPublicPort = 8787;  // Public Upload Receiver (PRD Sec 8.1 — tunneled)
-        private const string DefaultCloudUrl = "https://scandropdone.netlify.app";
+        private const string DefaultCloudUrl = "https://scandrop-xi.vercel.app";
 
         [STAThread]
         public static int Main(string[] args)
@@ -111,9 +111,12 @@ namespace ScanDrop.Native
                             publicReceiver.Start();
                             adminServer.Start();
 
-                            string cloudQrUrl = (settings.PublicBaseUrl ?? DefaultCloudUrl).TrimEnd('/') + "/shop/" + settings.ShopSlug;
+                            string cloudBase = string.IsNullOrWhiteSpace(settings.PublicBaseUrl)
+                                ? DefaultCloudUrl
+                                : settings.PublicBaseUrl.TrimEnd('/');
+                            string cloudQrUrl = cloudBase + "/shop/" + settings.ShopSlug;
                             // Tunnel strictly targets PublicUploadServer (:8787) — NEVER LocalAdminServer (:3838)!
-                            using (var tunnel = new TunnelManager(appRootDir, publicReceiver.Port, DefaultCloudUrl, settings.ShopId, settings.PairingCode, db, paths.LogsDir))
+                            using (var tunnel = new TunnelManager(appRootDir, publicReceiver.Port, cloudBase, settings.ShopId, settings.PairingCode, db, paths.LogsDir))
                             {
                                 adminServer.AttachServices(tunnel, publicReceiver);
                                 ThreadPool.QueueUserWorkItem(_ => tunnel.Start());

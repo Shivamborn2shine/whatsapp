@@ -94,7 +94,7 @@ namespace ScanDrop.Native.Core
         public string AllowedExtensions = ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.csv,.rtf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.heic,.heif,.mp4,.mov,.m4v,.zip";
         public string Theme = "light"; // light | dark
         public bool FirstRunCompleted = false;
-        public string PublicBaseUrl = "https://scandropdone.netlify.app";
+        public string PublicBaseUrl = "https://scandrop-xi.vercel.app";
     }
 
     public sealed class StorageSummary

@@ -4,7 +4,7 @@
  * Stores all customer files directly on the shopkeeper's local SSD/HDD
  * inside ./ScanDrop_Local_Inbox/ and exposes a fast local workspace at
  * http://localhost:3838/workspace/ while bridging customer uploads from
- * https://scandropdone.netlify.app directly to this PC via cloudflared.
+ * https://scandrop-xi.vercel.app directly to this PC via cloudflared.
  */
 
 const http = require('node:http');
@@ -15,7 +15,7 @@ const crypto = require('node:crypto');
 const { spawn, execSync } = require('node:child_process');
 
 const PORT = Number(process.env.PORT || 3838);
-const CLOUD_URL = (process.env.SCANDROP_CLOUD_URL || 'https://scandropdone.netlify.app').replace(/\/$/, '');
+const CLOUD_URL = (process.env.SCANDROP_CLOUD_URL || 'https://scandrop-xi.vercel.app').replace(/\/$/, '');
 const INBOX_DIR = path.resolve(__dirname, 'ScanDrop_Local_Inbox');
 const STATE_FILE = path.join(INBOX_DIR, 'state.json');
 const BIN_DIR = path.resolve(__dirname, 'bin');
