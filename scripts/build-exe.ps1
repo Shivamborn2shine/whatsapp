@@ -20,18 +20,32 @@ Start-Sleep -Milliseconds 300
 
 $outExe = Join-Path $binDir "ScanDrop.exe"
 $sources = @(
+    Join-Path $repoRoot "native\Core\Models.cs"
+    Join-Path $repoRoot "native\Core\SecretProtector.cs"
+    Join-Path $repoRoot "native\Core\AppLogger.cs"
+    Join-Path $repoRoot "native\Storage\StoragePaths.cs"
+    Join-Path $repoRoot "native\Storage\SqliteDatabase.cs"
+    Join-Path $repoRoot "native\Storage\StorageManager.cs"
+    Join-Path $repoRoot "native\Transfers\FileValidator.cs"
+    Join-Path $repoRoot "native\Transfers\UploadSecurityGuard.cs"
+    Join-Path $repoRoot "native\Transfers\TransferService.cs"
+    Join-Path $repoRoot "native\Conversion\ConversionEngine.cs"
+    Join-Path $repoRoot "native\Api\HttpHelpers.cs"
+    Join-Path $repoRoot "native\Api\PublicUploadServer.cs"
+    Join-Path $repoRoot "native\Api\LocalAdminServer.cs"
+    Join-Path $repoRoot "native\Ui\FirstRunWizardForm.cs"
     Join-Path $repoRoot "native\AutoUpdater.cs"
     Join-Path $repoRoot "native\TunnelManager.cs"
-    Join-Path $repoRoot "native\LocalHttpServer.cs"
     Join-Path $repoRoot "native\StationForm.cs"
     Join-Path $repoRoot "native\Program.cs"
 )
 
-Write-Host "=== Compiling ScanDrop.exe (Native Windows Local SSD & Tunnel Station) ===" -ForegroundColor Cyan
+Write-Host "=== Compiling ScanDrop.exe (PRD v2.0 Local-First Windows Station) ===" -ForegroundColor Cyan
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /out:$outExe `
     /r:System.dll `
     /r:System.Core.dll `
     /r:System.Drawing.dll `
+    /r:System.Security.dll `
     /r:System.Web.Extensions.dll `
     /r:System.Windows.Forms.dll `
     $sources

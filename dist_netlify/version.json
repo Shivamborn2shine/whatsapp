@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "3.3.1",
-    "releaseDate":  "2026-11-14",
-    "releaseNotes":  "1-click direct printing bypassing printer settings modal, and smart scroll retention fixing file list scroll jumping during background refresh.",
-    "sha256":  "5936a3c2532e88fe4a10d3b3112a934e958ae7e91f4e751cd8ba6fdb6d87d539",
+    "version":  "4.0.0",
+    "releaseDate":  "2026-11-23",
+    "releaseNotes":  "PRD v2.0 Local-First Upgrade: strict dual-port public/admin isolation (:8787 vs :3838), built-in Windows SQLite (WAL, 7 tables), DPAPI secret encryption, 4MiB resumable session uploads with magic-byte validation \u0026 6-char receipts, native Image-to-PDF + LibreOffice worker, First-Run Wizard, Pause Receiving, Light/Dark mode, and all 9 Windows file actions.",
+    "sha256":  "480ac5d9ed33f973f82c03a39b2dbdf07a70306d4db788d5d351faeaaa1ca9ce",
     "downloadUrl":  "https://scandropdone.netlify.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

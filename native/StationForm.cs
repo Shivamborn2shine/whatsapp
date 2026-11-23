@@ -6,35 +6,58 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using ScanDrop.Native.Api;
+using ScanDrop.Native.Core;
+using ScanDrop.Native.Storage;
+using ScanDrop.Native.Transfers;
+using ScanDrop.Native.Ui;
 
 namespace ScanDrop.Native
 {
     public sealed class StationForm : Form
     {
-        private readonly LocalHttpServer _server;
+        private readonly LocalAdminServer _adminServer;
+        private readonly PublicUploadServer _publicReceiver;
+        private readonly StorageManager _storage;
+        private readonly SqliteDatabase _db;
+        private readonly TransferService _transfers;
         private readonly TunnelManager _tunnel;
+        private readonly AppLogger _logger;
         private readonly string _cloudQrUrl;
-        private readonly int _port;
 
         private Label _statusBadge;
         private TextBox _tunnelUrlBox;
         private TextBox _storageBox;
+        private TextBox _healthBox;
         private TextBox _logBox;
         private Button _autoStartBtn;
+        private Button _pauseBtn;
         private NotifyIcon _trayIcon;
-        private System.Windows.Forms.Timer _storageTimer;
+        private System.Windows.Forms.Timer _statusTimer;
         private bool _allowExit;
 
-        public StationForm(LocalHttpServer server, TunnelManager tunnel, string cloudQrUrl, int port)
+        public StationForm(
+            LocalAdminServer adminServer,
+            PublicUploadServer publicReceiver,
+            StorageManager storage,
+            SqliteDatabase db,
+            TransferService transfers,
+            TunnelManager tunnel,
+            AppLogger logger,
+            string cloudQrUrl)
         {
-            _server = server;
+            _adminServer = adminServer;
+            _publicReceiver = publicReceiver;
+            _storage = storage;
+            _db = db;
+            _transfers = transfers;
             _tunnel = tunnel;
+            _logger = logger;
             _cloudQrUrl = cloudQrUrl;
-            _port = port;
 
-            Text = "Scan Drop v" + AutoUpdater.CurrentVersion + " — Local PC Storage & Tunnel Station";
-            Size = new Size(860, 600);
-            MinimumSize = new Size(780, 540);
+            Text = "Scan Drop v" + AutoUpdater.CurrentVersion + " — Local-First File Receiver & Tunnel Station";
+            Size = new Size(880, 640);
+            MinimumSize = new Size(800, 560);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(244, 247, 251);
             Font = new Font("Segoe UI", 9.5f);
@@ -44,40 +67,50 @@ namespace ScanDrop.Native
 
             Shown += (s, e) =>
             {
-                RefreshStorageStats();
+                RefreshStationMetrics();
                 ThreadPool.QueueUserWorkItem(_ => { Thread.Sleep(3000); RunUpdateCheck(false); });
             };
 
-            _storageTimer = new System.Windows.Forms.Timer { Interval = 5000 };
-            _storageTimer.Tick += (s, e) => RefreshStorageStats();
-            _storageTimer.Start();
+            _statusTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+            _statusTimer.Tick += (s, e) => RefreshStationMetrics();
+            _statusTimer.Start();
 
             _tunnel.OnStatusMessage += AppendLog;
-            _server.OnLog += AppendLog;
-            _server.OnSubmissionsChanged += () =>
+            _logger.OnLogLine += AppendLog;
+            _adminServer.OnStateChanged += () => SafeUi(RefreshStationMetrics);
+            _storage.OnStorageChanged += () => SafeUi(RefreshStationMetrics);
+
+            _transfers.OnSubmissionReceived += sub => SafeUi(() =>
             {
-                if (IsDisposed) return;
-                try { BeginInvoke((Action)RefreshStorageStats); } catch { }
-            };
-            _tunnel.OnTunnelUrlCaptured += url =>
-            {
-                if (IsDisposed) return;
-                BeginInvoke((Action)(() =>
+                RefreshStationMetrics();
+                if (_trayIcon != null)
                 {
-                    if (string.IsNullOrEmpty(url))
-                    {
-                        _tunnelUrlBox.Text = "Reconnecting (" + _tunnel.ActiveProviderName + ")...";
-                        _statusBadge.Text = "● Reconnecting (" + _tunnel.ActiveProviderName + ")";
-                        _statusBadge.ForeColor = Color.FromArgb(217, 119, 6);
-                    }
-                    else
-                    {
-                        _tunnelUrlBox.Text = url;
-                        _statusBadge.Text = "● Tunnel Live (" + _tunnel.ActiveProviderName + ")";
-                        _statusBadge.ForeColor = Color.FromArgb(22, 163, 74);
-                    }
-                }));
-            };
+                    _trayIcon.ShowBalloonTip(
+                        4500,
+                        "New Files Received — " + sub.ReceiptCode,
+                        string.Format(CultureInfo.InvariantCulture, "{0} sent {1} file(s) ({2}). Click to open Workspace.",
+                            sub.CustomerName, sub.Files.Count, FormatSize(sub.TotalSize)),
+                        ToolTipIcon.Info
+                    );
+                }
+            });
+
+            _tunnel.OnTunnelUrlCaptured += url => SafeUi(() =>
+            {
+                if (string.IsNullOrEmpty(url))
+                {
+                    _tunnelUrlBox.Text = "Reconnecting (" + _tunnel.ActiveProviderName + ")...";
+                    _statusBadge.Text = "● Reconnecting (" + _tunnel.ActiveProviderName + ")";
+                    _statusBadge.ForeColor = Color.FromArgb(217, 119, 6);
+                }
+                else
+                {
+                    _tunnelUrlBox.Text = url;
+                    _statusBadge.Text = "● Tunnel Live (" + _tunnel.ActiveProviderName + ") • Isolated Receiver :" + _publicReceiver.Port;
+                    _statusBadge.ForeColor = Color.FromArgb(22, 163, 74);
+                }
+                RefreshStationMetrics();
+            });
         }
 
         private void BuildUi()
@@ -85,7 +118,7 @@ namespace ScanDrop.Native
             var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Color.White, Padding = new Padding(20, 14, 20, 10) };
             var title = new Label
             {
-                Text = "⚡ Scan Drop — Shopkeeper PC Station",
+                Text = "⚡ Scan Drop — Local-First PC Station",
                 Font = new Font("Segoe UI", 14f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(15, 23, 42),
                 AutoSize = true,
@@ -93,7 +126,7 @@ namespace ScanDrop.Native
             };
             _statusBadge = new Label
             {
-                Text = "● Starting Local Server & Tunnel...",
+                Text = "● Starting Isolated Receiver & Tunnel...",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(217, 119, 6),
                 AutoSize = true,
@@ -119,45 +152,73 @@ namespace ScanDrop.Native
             header.Controls.Add(headerUpdateBtn);
             header.Resize += (s, e) => { headerUpdateBtn.Location = new Point(Math.Max(260, header.ClientSize.Width - headerUpdateBtn.Width - 20), 18); };
 
-            var infoCard = new Panel { Location = new Point(20, 88), Size = new Size(804, 184), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.White, Padding = new Padding(16) };
+            var infoCard = new Panel { Location = new Point(20, 86), Size = new Size(824, 216), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.White, Padding = new Padding(16) };
 
-            infoCard.Controls.Add(new Label { Text = "Local Workspace URL:", Location = new Point(16, 16), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            var localBox = new TextBox { Text = "http://127.0.0.1:" + _port + "/workspace/", ReadOnly = true, Location = new Point(170, 14), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            infoCard.Controls.Add(new Label { Text = "Local Workspace (Private):", Location = new Point(16, 16), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            var localBox = new TextBox { Text = "http://127.0.0.1:" + _adminServer.Port + "/workspace/  (Loopback-only — never exposed publicly)", ReadOnly = true, Location = new Point(186, 14), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(localBox);
 
-            infoCard.Controls.Add(new Label { Text = "Live Tunnel Endpoint:", Location = new Point(16, 50), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            _tunnelUrlBox = new TextBox { Text = "Connecting Cloudflare / OpenSSH...", ReadOnly = true, Location = new Point(170, 48), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            infoCard.Controls.Add(new Label { Text = "Public Tunnel URL:", Location = new Point(16, 49), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            _tunnelUrlBox = new TextBox { Text = "Connecting Cloudflare / OpenSSH...", ReadOnly = true, Location = new Point(186, 47), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(_tunnelUrlBox);
 
-            infoCard.Controls.Add(new Label { Text = "Customer QR Link:", Location = new Point(16, 84), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            var qrBox = new TextBox { Text = _cloudQrUrl, ReadOnly = true, Location = new Point(170, 82), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            infoCard.Controls.Add(new Label { Text = "Customer QR Link:", Location = new Point(16, 82), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            var qrBox = new TextBox { Text = _cloudQrUrl, ReadOnly = true, Location = new Point(186, 80), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(qrBox);
 
-            infoCard.Controls.Add(new Label { Text = "Local SSD Folder:", Location = new Point(16, 118), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            var dirBox = new TextBox { Text = _server.InboxDir, ReadOnly = true, Location = new Point(170, 116), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            infoCard.Controls.Add(new Label { Text = "Local Storage Root:", Location = new Point(16, 115), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            var dirBox = new TextBox { Text = _storage.Paths.DataRootDir, ReadOnly = true, Location = new Point(186, 113), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(dirBox);
 
-            infoCard.Controls.Add(new Label { Text = "Local SSD Used:", Location = new Point(16, 152), Size = new Size(150, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            _storageBox = new TextBox { Text = "Calculating disk usage...", ReadOnly = true, Location = new Point(170, 150), Size = new Size(610, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252), ForeColor = Color.FromArgb(15, 23, 42) };
+            infoCard.Controls.Add(new Label { Text = "Local SSD Used:", Location = new Point(16, 148), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            _storageBox = new TextBox { Text = "Calculating disk usage...", ReadOnly = true, Location = new Point(186, 146), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(_storageBox);
 
-            var btnRow = new FlowLayoutPanel { Location = new Point(20, 280), Size = new Size(804, 86), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, WrapContents = true };
+            infoCard.Controls.Add(new Label { Text = "Connection Monitor:", Location = new Point(16, 181), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            _healthBox = new TextBox { Text = "Initializing...", ReadOnly = true, Location = new Point(186, 179), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            infoCard.Controls.Add(_healthBox);
+
+            var btnRow = new FlowLayoutPanel { Location = new Point(20, 310), Size = new Size(824, 86), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, WrapContents = true };
 
             var openWsBtn = new Button { Text = "🖥️ Open Workspace", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.FromArgb(37, 99, 235), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Padding = new Padding(10, 4, 10, 4), Cursor = Cursors.Hand };
             openWsBtn.FlatAppearance.BorderSize = 0;
-            openWsBtn.Click += (s, e) => Process.Start("http://127.0.0.1:" + _port + "/workspace/");
+            openWsBtn.Click += (s, e) => Process.Start("http://127.0.0.1:" + _adminServer.Port + "/workspace/");
 
-            var openDirBtn = new Button { Text = "📂 Open Inbox Folder", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
-            openDirBtn.Click += (s, e) => Process.Start("explorer.exe", _server.InboxDir);
+            var openDirBtn = new Button { Text = "📂 Open Storage Folder", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
+            openDirBtn.Click += (s, e) => Process.Start("explorer.exe", _storage.Paths.ReceivedDir);
 
-            var copyQrBtn = new Button { Text = "📋 Copy QR Link", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
-            copyQrBtn.Click += (s, e) => { Clipboard.SetText(_cloudQrUrl); AppendLog("Copied Customer QR Link: " + _cloudQrUrl); };
+            var copyQrBtn = new Button { Text = "📋 Copy Upload Link", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
+            copyQrBtn.Click += (s, e) =>
+            {
+                string target = !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) ? _tunnel.LiveTunnelUrl : _cloudQrUrl;
+                Clipboard.SetText(target);
+                AppendLog("Copied direct Customer Upload URL: " + target);
+            };
+
+            _pauseBtn = new Button { Text = "⏸ Pause Receiving", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(180, 83, 9), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
+            _pauseBtn.Click += (s, e) => TogglePauseReceiving();
 
             var restartBtn = new Button { Text = "↻ Restart Tunnel", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             restartBtn.Click += (s, e) => { _tunnelUrlBox.Text = "Reconnecting..."; _tunnel.Restart(); };
 
             var tunnelCfgBtn = new Button { Text = "⚙️ Tunnel Settings", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             tunnelCfgBtn.Click += (s, e) => ShowTunnelSettingsDialog();
+
+            var wizardBtn = new Button { Text = "🛠 Shop Setup", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
+            wizardBtn.Click += (s, e) =>
+            {
+                using (var w = new FirstRunWizardForm(_db, _storage.Paths))
+                {
+                    if (w.ShowDialog(this) == DialogResult.OK)
+                    {
+                        RefreshStationMetrics();
+                        if (w.StorageRootChanged)
+                        {
+                            MessageBox.Show("New storage folder saved. Please restart Scan Drop to switch active storage directory.", "Scan Drop", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                    }
+                }
+            };
 
             _autoStartBtn = new Button { Text = IsAutoStartEnabled() ? "✅ Auto-Start ON" : "Auto-Start OFF", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
             _autoStartBtn.Click += (s, e) => ToggleAutoStart();
@@ -166,15 +227,12 @@ namespace ScanDrop.Native
             clearStorageBtn.FlatAppearance.BorderColor = Color.FromArgb(254, 202, 202);
             clearStorageBtn.Click += (s, e) => ShowClearStorageDialog();
 
-            var updateBtn = new Button { Text = "🔄 Check Updates", AutoSize = true, Height = 34, Margin = new Padding(0, 3, 8, 5), BackColor = Color.White, ForeColor = Color.FromArgb(29, 78, 216), FlatStyle = FlatStyle.Flat, Padding = new Padding(8, 4, 8, 4), Cursor = Cursors.Hand };
-            updateBtn.Click += (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(true));
-
-            btnRow.Controls.AddRange(new Control[] { openWsBtn, openDirBtn, copyQrBtn, restartBtn, tunnelCfgBtn, _autoStartBtn, clearStorageBtn, updateBtn });
+            btnRow.Controls.AddRange(new Control[] { openWsBtn, openDirBtn, copyQrBtn, _pauseBtn, restartBtn, tunnelCfgBtn, wizardBtn, _autoStartBtn, clearStorageBtn });
 
             _logBox = new TextBox
             {
-                Location = new Point(20, 372),
-                Size = new Size(804, 168),
+                Location = new Point(20, 404),
+                Size = new Size(824, 178),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 Multiline = true,
                 ReadOnly = true,
@@ -193,7 +251,8 @@ namespace ScanDrop.Native
         private void SetupTray()
         {
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Open Workspace", null, (s, e) => Process.Start("http://127.0.0.1:" + _port + "/workspace/"));
+            menu.Items.Add("Open Workspace", null, (s, e) => Process.Start("http://127.0.0.1:" + _adminServer.Port + "/workspace/"));
+            menu.Items.Add("Pause / Resume Receiving", null, (s, e) => TogglePauseReceiving());
             menu.Items.Add("Free Up Storage...", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); ShowClearStorageDialog(); });
             menu.Items.Add("Check for Updates", null, (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(true)));
             menu.Items.Add("Show Station Window", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
@@ -207,6 +266,7 @@ namespace ScanDrop.Native
                 Visible = true
             };
             _trayIcon.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
+            _trayIcon.BalloonTipClicked += (s, e) => { try { Process.Start("http://127.0.0.1:" + _adminServer.Port + "/workspace/"); } catch { } };
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -215,24 +275,79 @@ namespace ScanDrop.Native
             {
                 e.Cancel = true;
                 Hide();
-                _trayIcon.ShowBalloonTip(2000, "Scan Drop Running", "Local storage & tunnel stay active in the system tray.", ToolTipIcon.Info);
+                _trayIcon.ShowBalloonTip(2500, "Scan Drop Running in Background", "File receiver & tunnel stay active in the system tray.", ToolTipIcon.Info);
                 return;
             }
+            if (_statusTimer != null) { _statusTimer.Stop(); _statusTimer.Dispose(); }
             if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); }
             base.OnFormClosing(e);
         }
 
-        private void AppendLog(string msg)
+        private void TogglePauseReceiving()
+        {
+            var st = _db.LoadSettings(_storage.Paths.DataRootDir);
+            st.PauseReceiving = !st.PauseReceiving;
+            _db.SaveSettings(st);
+            _db.AddActivity("RECEIVING_TOGGLED", "shopkeeper", null, st.PauseReceiving ? "Paused customer uploads from PC Station." : "Resumed customer uploads from PC Station.");
+            AppendLog(st.PauseReceiving ? "⏸ Incoming customer uploads PAUSED." : "▶ Incoming customer uploads RESUMED.");
+            RefreshStationMetrics();
+        }
+
+        private void RefreshStationMetrics()
         {
             if (IsDisposed) return;
             try
             {
-                BeginInvoke((Action)(() =>
-                {
-                    _logBox.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg + Environment.NewLine);
-                }));
+                var st = _storage.GetStorageSummary();
+                int totalJobs = st.ActiveCount + st.CompletedCount;
+                _storageBox.Text = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0} used ({1} job(s), {2} temp/staging, {3} converted) • Drive Free: {4}",
+                    FormatSize(st.TotalUsedBytes), totalJobs,
+                    FormatSize(st.StagingBytes + st.OrphanBytes),
+                    FormatSize(st.ConvertedBytes),
+                    FormatSize(st.FreeDriveBytes)
+                );
+
+                var cfg = _db.LoadSettings(_storage.Paths.DataRootDir);
+                _pauseBtn.Text = cfg.PauseReceiving ? "▶ Resume Receiving" : "⏸ Pause Receiving";
+                _pauseBtn.BackColor = cfg.PauseReceiving ? Color.FromArgb(254, 243, 199) : Color.White;
+
+                string lastOk = _tunnel.LastHealthOkUtc.HasValue
+                    ? _tunnel.LastHealthOkUtc.Value.ToLocalTime().ToString("HH:mm:ss")
+                    : "Pending";
+                _healthBox.Text = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Receiver: {0} (:{1}) • Tunnel: {2} ({3}) • Uploads: {4} • Last Check: {5}",
+                    _publicReceiver.IsRunning ? "Running" : "Stopped",
+                    _publicReceiver.Port,
+                    _tunnel.CurrentHealthStatus,
+                    _tunnel.ActiveProviderName,
+                    cfg.PauseReceiving ? "PAUSED" : "Accepting",
+                    lastOk
+                );
             }
             catch { }
+        }
+
+        private void SafeUi(Action act)
+        {
+            if (IsDisposed) return;
+            try
+            {
+                if (InvokeRequired) BeginInvoke(act);
+                else act();
+            }
+            catch { }
+        }
+
+        private void AppendLog(string msg)
+        {
+            SafeUi(() =>
+            {
+                if (_logBox != null && !_logBox.IsDisposed)
+                    _logBox.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg + Environment.NewLine);
+            });
         }
 
         private static bool IsAutoStartEnabled()
@@ -240,9 +355,7 @@ namespace ScanDrop.Native
             try
             {
                 using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", false))
-                {
                     return key != null && key.GetValue("ScanDropStation") != null;
-                }
             }
             catch { return false; }
         }
@@ -262,9 +375,9 @@ namespace ScanDrop.Native
                     }
                     else
                     {
-                        key.SetValue("ScanDropStation", "\"" + Application.ExecutablePath + "\"");
+                        key.SetValue("ScanDropStation", "\"" + Application.ExecutablePath + "\" --minimized");
                         _autoStartBtn.Text = "✅ Auto-Start ON";
-                        AppendLog("Enabled Windows startup auto-launch.");
+                        AppendLog("Enabled Windows startup auto-launch (background tray mode).");
                     }
                 }
             }
@@ -275,27 +388,22 @@ namespace ScanDrop.Native
         {
             try
             {
-                string rootDir = Path.GetDirectoryName(_server.InboxDir);
-                if (AutoUpdater.SyncWorkspaceUi(rootDir))
-                {
+                if (AutoUpdater.SyncWorkspaceUi(_storage.Paths.AppRootDir))
                     AppendLog("✨ Synced latest Workspace UI from cloud CDN.");
-                }
 
                 var info = AutoUpdater.CheckForUpdate();
                 if (!info.UpdateAvailable)
                 {
-                    if (interactive && !IsDisposed)
+                    if (interactive)
                     {
                         AppendLog("Scan Drop v" + info.CurrentVersion + " is up to date.");
-                        BeginInvoke((Action)(() =>
-                            MessageBox.Show("You are running the latest version (v" + info.CurrentVersion + ").", "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                        SafeUi(() => MessageBox.Show("You are running the latest version (v" + info.CurrentVersion + ").", "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Information));
                     }
                     return;
                 }
 
                 AppendLog("🔔 Update available: v" + info.LatestVersion + " (current v" + info.CurrentVersion + ")");
-                if (IsDisposed) return;
-                BeginInvoke((Action)(() =>
+                SafeUi(() =>
                 {
                     var res = MessageBox.Show(
                         "Scan Drop v" + info.LatestVersion + " is available!\n\n" +
@@ -314,16 +422,16 @@ namespace ScanDrop.Native
                             if (!AutoUpdater.ApplyUpdate(info, () =>
                             {
                                 try { _tunnel.Dispose(); } catch { }
-                                try { _server.Dispose(); } catch { }
-                            }, out err) && !IsDisposed)
+                                try { _publicReceiver.Dispose(); } catch { }
+                                try { _adminServer.Dispose(); } catch { }
+                            }, out err))
                             {
                                 AppendLog("❌ Update failed: " + err);
-                                BeginInvoke((Action)(() =>
-                                    MessageBox.Show("Update failed: " + err, "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                                SafeUi(() => MessageBox.Show("Update failed: " + err, "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Error));
                             }
                         });
                     }
-                }));
+                });
             }
             catch (Exception ex)
             {
@@ -331,32 +439,9 @@ namespace ScanDrop.Native
             }
         }
 
-        private void RefreshStorageStats()
-        {
-            if (IsDisposed || _storageBox == null) return;
-            try
-            {
-                var st = _server.GetStorageSummary();
-                int totalJobs = st.ActiveCount + st.CompletedCount;
-                string summary = string.Format(
-                    CultureInfo.InvariantCulture,
-                    "{0} used ({1} job(s), {2} staging/temp) • Drive Free: {3}",
-                    FormatSize(st.TotalUsedBytes),
-                    totalJobs,
-                    FormatSize(st.StagingBytes + st.OrphanBytes),
-                    FormatSize(st.FreeDriveBytes)
-                );
-                _storageBox.Text = summary;
-                _storageBox.ForeColor = st.TotalUsedBytes > 250L * 1024L * 1024L
-                    ? Color.FromArgb(180, 83, 9)
-                    : Color.FromArgb(15, 23, 42);
-            }
-            catch { }
-        }
-
         private void ShowClearStorageDialog()
         {
-            var st = _server.GetStorageSummary();
+            var st = _storage.GetStorageSummary();
             using (var dlg = new Form())
             {
                 dlg.Text = "Scan Drop — Free Up Local PC Storage";
@@ -377,17 +462,16 @@ namespace ScanDrop.Native
                     BorderStyle = BorderStyle.FixedSingle,
                     Text = string.Format(
                         CultureInfo.InvariantCulture,
-                        "Storage Folder: {0}\n" +
+                        "Storage Root: {0}\n" +
                         "• Total Used: {1}  (Free on Drive: {2})\n" +
-                        "• Pending / Incoming Jobs ({3}): {4}\n" +
-                        "• Completed Jobs ({5}): {6}\n" +
-                        "• Temp Chunks & Orphaned Files: {7}",
-                        st.InboxDir,
-                        FormatSize(st.TotalUsedBytes),
-                        FormatSize(st.FreeDriveBytes),
+                        "• Active Jobs ({3}): {4}\n" +
+                        "• Printed / Completed Jobs ({5}): {6}\n" +
+                        "• Temp, Converted & Orphaned Files: {7}",
+                        st.StorageRoot,
+                        FormatSize(st.TotalUsedBytes), FormatSize(st.FreeDriveBytes),
                         st.ActiveCount, FormatSize(st.ActiveBytes),
                         st.CompletedCount, FormatSize(st.CompletedBytes),
-                        FormatSize(st.StagingBytes + st.OrphanBytes)
+                        FormatSize(st.StagingBytes + st.ConvertedBytes + st.OrphanBytes)
                     )
                 };
 
@@ -396,73 +480,33 @@ namespace ScanDrop.Native
                     if (askConfirm)
                     {
                         var confirm = MessageBox.Show(
-                            "This will permanently delete ALL uploaded customer files and temporary chunks from your PC (" + FormatSize(st.TotalUsedBytes) + ").\nShop pairing & settings will stay intact.\n\nContinue?",
+                            "Permanently delete ALL uploaded customer files and temp chunks (" + FormatSize(st.TotalUsedBytes) + ")?\nShop settings and permanently exported copies will stay intact.",
                             "Confirm Clear All Storage",
                             MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Warning
-                        );
+                            MessageBoxIcon.Warning);
                         if (confirm != DialogResult.Yes) return;
                     }
-                    var res = _server.ClearStorage(scope);
-                    RefreshStorageStats();
+                    var res = _storage.ClearStorage(scope);
+                    RefreshStationMetrics();
                     dlg.Close();
                     MessageBox.Show(
-                        string.Format(
-                            CultureInfo.InvariantCulture,
+                        string.Format(CultureInfo.InvariantCulture,
                             "Storage cleanup complete!\n\nFreed: {0}\nRemoved Jobs: {1}\nRemoved Temp/Orphan Items: {2}\nRemaining Used: {3}",
-                            FormatSize(res.FreedBytes),
-                            res.DeletedSubmissions,
-                            res.RemovedTempItems,
-                            FormatSize(res.Remaining.TotalUsedBytes)
-                        ),
-                        "Storage Freed",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information
-                    );
+                            FormatSize(res.FreedBytes), res.DeletedSubmissions, res.RemovedTempItems, FormatSize(res.Remaining.TotalUsedBytes)),
+                        "Storage Freed", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 };
 
-                var btnTemp = new Button
-                {
-                    Text = "🧹 Clear Temp, Expired & Orphans (" + FormatSize(st.StagingBytes + st.OrphanBytes) + ")",
-                    Location = new Point(20, 152),
-                    Size = new Size(434, 40),
-                    BackColor = Color.White,
-                    ForeColor = Color.FromArgb(15, 23, 42),
-                    FlatStyle = FlatStyle.Flat,
-                    Cursor = Cursors.Hand
-                };
+                var btnTemp = new Button { Text = "🧹 Clear Temp, Expired & Orphans (" + FormatSize(st.StagingBytes + st.OrphanBytes) + ")", Location = new Point(20, 152), Size = new Size(434, 40), BackColor = Color.White, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
                 btnTemp.Click += (s, e) => runClear("temp", false);
 
-                var btnCompleted = new Button
-                {
-                    Text = "✅ Clear Completed Jobs + Temp (" + FormatSize(st.CompletedBytes + st.StagingBytes + st.OrphanBytes) + ")",
-                    Location = new Point(20, 200),
-                    Size = new Size(434, 40),
-                    BackColor = Color.FromArgb(239, 246, 255),
-                    ForeColor = Color.FromArgb(29, 78, 216),
-                    FlatStyle = FlatStyle.Flat,
-                    Cursor = Cursors.Hand
-                };
+                var btnCompleted = new Button { Text = "✅ Clear Completed Jobs + Converted (" + FormatSize(st.CompletedBytes + st.ConvertedBytes + st.StagingBytes + st.OrphanBytes) + ")", Location = new Point(20, 200), Size = new Size(434, 40), BackColor = Color.FromArgb(239, 246, 255), ForeColor = Color.FromArgb(29, 78, 216), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
                 btnCompleted.Click += (s, e) => runClear("completed", false);
 
-                var btnAll = new Button
-                {
-                    Text = "🗑️ Clear ALL Uploaded Files & Staging (" + FormatSize(st.TotalUsedBytes) + ")",
-                    Location = new Point(20, 248),
-                    Size = new Size(434, 42),
-                    BackColor = Color.FromArgb(220, 38, 38),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                    Cursor = Cursors.Hand
-                };
+                var btnAll = new Button { Text = "🗑️ Clear ALL Uploaded Files & Staging (" + FormatSize(st.TotalUsedBytes) + ")", Location = new Point(20, 248), Size = new Size(434, 42), BackColor = Color.FromArgb(220, 38, 38), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Cursor = Cursors.Hand };
                 btnAll.FlatAppearance.BorderSize = 0;
                 btnAll.Click += (s, e) => runClear("all", true);
 
-                dlg.Controls.Add(infoText);
-                dlg.Controls.Add(btnTemp);
-                dlg.Controls.Add(btnCompleted);
-                dlg.Controls.Add(btnAll);
+                dlg.Controls.AddRange(new Control[] { infoText, btnTemp, btnCompleted, btnAll });
                 dlg.ShowDialog(this);
             }
         }
@@ -488,7 +532,7 @@ namespace ScanDrop.Native
                     Location = new Point(20, 14),
                     Size = new Size(464, 42),
                     ForeColor = Color.FromArgb(71, 85, 105),
-                    Text = "Auto Cascade automatically switches Cloudflare → OpenSSH → Pinggy and self-heals drops. Optionally paste a permanent Cloudflare Zero Trust token for 0 rate-limits."
+                    Text = "Auto Cascade automatically switches Cloudflare → OpenSSH → Pinggy. Optionally enter a permanent Cloudflare Named Tunnel token (encrypted via Windows DPAPI)."
                 };
 
                 dlg.Controls.Add(new Label { Text = "Provider Mode:", Location = new Point(20, 66), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
@@ -498,7 +542,7 @@ namespace ScanDrop.Native
                 modeBox.SelectedIndex = idx >= 0 ? idx : 0;
 
                 dlg.Controls.Add(new Label { Text = "Permanent CF Token:", Location = new Point(20, 106), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-                var tokBox = new TextBox { Location = new Point(170, 104), Size = new Size(314, 24), Text = curToken ?? "" };
+                var tokBox = new TextBox { Location = new Point(170, 104), Size = new Size(314, 24), Text = curToken ?? "", UseSystemPasswordChar = !string.IsNullOrEmpty(curToken) };
 
                 dlg.Controls.Add(new Label { Text = "Static Custom URL:", Location = new Point(20, 144), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
                 var urlBox = new TextBox { Location = new Point(170, 142), Size = new Size(314, 24), Text = curUrl ?? "" };
@@ -509,50 +553,17 @@ namespace ScanDrop.Native
                     Size = new Size(464, 38),
                     ForeColor = Color.FromArgb(100, 116, 139),
                     Font = new Font("Segoe UI", 8.5f),
-                    Text = "Leave Token & Custom URL blank for automatic free Quick Tunnels + OpenSSH + Pinggy failover."
+                    Text = "Tunnel forwards strictly to the isolated Public Upload Port (:" + _publicReceiver.Port + "). Your admin dashboard (:" + _adminServer.Port + ") is never exposed publicly."
                 };
 
-                var saveBtn = new Button
-                {
-                    Text = "Save & Reconnect Tunnel",
-                    Location = new Point(20, 234),
-                    Size = new Size(230, 38),
-                    BackColor = Color.FromArgb(37, 99, 235),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                    Cursor = Cursors.Hand
-                };
+                var saveBtn = new Button { Text = "Save & Reconnect Tunnel", Location = new Point(20, 234), Size = new Size(230, 38), BackColor = Color.FromArgb(37, 99, 235), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Cursor = Cursors.Hand };
                 saveBtn.FlatAppearance.BorderSize = 0;
-                saveBtn.Click += (s, e) =>
-                {
-                    _tunnel.SaveConfig(tokBox.Text, urlBox.Text, Convert.ToString(modeBox.SelectedItem));
-                    dlg.Close();
-                };
+                saveBtn.Click += (s, e) => { _tunnel.SaveConfig(tokBox.Text, urlBox.Text, Convert.ToString(modeBox.SelectedItem)); dlg.Close(); };
 
-                var resetBtn = new Button
-                {
-                    Text = "Reset to Auto Cascade",
-                    Location = new Point(264, 234),
-                    Size = new Size(220, 38),
-                    BackColor = Color.White,
-                    ForeColor = Color.FromArgb(15, 23, 42),
-                    FlatStyle = FlatStyle.Flat,
-                    Cursor = Cursors.Hand
-                };
-                resetBtn.Click += (s, e) =>
-                {
-                    _tunnel.SaveConfig("", "", "auto");
-                    dlg.Close();
-                };
+                var resetBtn = new Button { Text = "Reset to Auto Cascade", Location = new Point(264, 234), Size = new Size(220, 38), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
+                resetBtn.Click += (s, e) => { _tunnel.SaveConfig("", "", "auto"); dlg.Close(); };
 
-                dlg.Controls.Add(note);
-                dlg.Controls.Add(modeBox);
-                dlg.Controls.Add(tokBox);
-                dlg.Controls.Add(urlBox);
-                dlg.Controls.Add(hint);
-                dlg.Controls.Add(saveBtn);
-                dlg.Controls.Add(resetBtn);
+                dlg.Controls.AddRange(new Control[] { note, modeBox, tokBox, urlBox, hint, saveBtn, resetBtn });
                 dlg.ShowDialog(this);
             }
         }
@@ -566,4 +577,3 @@ namespace ScanDrop.Native
         }
     }
 }
-

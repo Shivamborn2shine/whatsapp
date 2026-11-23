@@ -1,10 +1,10 @@
-; Scan Drop Windows Setup Script — Inno Setup 6
-; Generates ScanDropSetup.exe
+; Scan Drop Windows Installer Script — Inno Setup 6 (PRD v2.0)
+; Generates ScanDropSetup.exe for Windows 10/11 (x64)
 
 #define MyAppName "Scan Drop"
-#define MyAppVersion "3.0.0"
-#define MyAppPublisher "Scan Drop Technologies"
-#define MyAppURL "https://scandrop.local"
+#define MyAppVersion "4.0.0"
+#define MyAppPublisher "Scan Drop"
+#define MyAppURL "https://scandropdone.netlify.app"
 #define MyAppExeName "ScanDrop.exe"
 
 [Setup]
@@ -17,41 +17,53 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\Scan Drop
 DisableProgramGroupPage=yes
+OutputDir=..\dist\installer
 OutputBaseFilename=ScanDropSetup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
-MinVersion=10.0
+MinVersion=10.0.17763
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "startupicon"; Description: "Start Scan Drop Background Sync Service automatically on Windows startup"; GroupDescription: "Windows Background Service:"
+Name: "autostart"; Description: "Run Scan Drop receiver automatically in background when Windows starts"; GroupDescription: "Background Operation:"
 
 [Files]
-Source: "..\desktop\dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\bin\ScanDrop.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\bin\cloudflared.exe"; DestDir: "{app}\bin"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\index.html"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\workspace\index.html"; DestDir: "{app}\workspace"; Flags: ignoreversion
+Source: "..\version.json"; DestDir: "{app}"; Flags: ignoreversion
+
+[Dirs]
+; Create PRD Section 6 standardized data directory under C:\ProgramData\ScanDrop with user write permissions
+Name: "{commonappdata}\ScanDrop"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\database"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\uploads"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\uploads\temp"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\uploads\received"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\uploads\quarantine"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\converted"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\previews"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\logs"; Permissions: users-modify
+Name: "{commonappdata}\ScanDrop\config"; Permissions: users-modify
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userstartup}\ScanDropService"; Filename: "{app}\resources\ScanDrop.Service.exe"; Tasks: startupicon
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ScanDropStation"; ValueData: """{app}\{#MyAppExeName}"" --minimized"; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-
-[Dirs]
-; Pre-create standardized Scan Drop local directories (PRD Section 7.1)
-Name: "{userdocs}\..\ScanDrop\Incoming"
-Name: "{userdocs}\..\ScanDrop\Processing"
-Name: "{userdocs}\..\ScanDrop\Completed"
-Name: "{userdocs}\..\ScanDrop\Derived"
-Name: "{userdocs}\..\ScanDrop\Temporary"
-Name: "{userdocs}\..\ScanDrop\Quarantine"
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch Scan Drop Setup Wizard"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{userdocs}\..\ScanDrop\Temporary\*"
-
+Type: filesandordirs; Name: "{commonappdata}\ScanDrop\uploads\temp"
+Type: filesandordirs; Name: "{commonappdata}\ScanDrop\previews"

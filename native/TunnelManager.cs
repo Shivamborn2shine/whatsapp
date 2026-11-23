@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
+using ScanDrop.Native.Storage;
 
 namespace ScanDrop.Native
 {
@@ -30,6 +31,8 @@ namespace ScanDrop.Native
         private readonly string _rootDir;
         private readonly int _localPort;
         private readonly string _cloudUrl;
+        private readonly SqliteDatabase _db;
+        private readonly string _logsDir;
         private string _shopId;
         private string _pairingCode;
         private readonly object _lock = new object();
@@ -45,6 +48,7 @@ namespace ScanDrop.Native
         private DateTime _localhostRunCooldownUntilUtc = DateTime.MinValue;
         private DateTime _pinggyCooldownUntilUtc = DateTime.MinValue;
         private int _generation;
+        private int _reconnectAttempt;
         private int _consecutiveHealthFailures;
         private bool _disposed;
         private bool _isSwitchingToFallback;
@@ -59,11 +63,13 @@ namespace ScanDrop.Native
         public string CurrentHealthStatus { get { return _healthStatus; } }
         public DateTime? LastHealthOkUtc { get { return _lastHealthOkUtc; } }
 
-        public TunnelManager(string rootDir, int localPort, string cloudUrl, string shopId, string pairingCode)
+        public TunnelManager(string rootDir, int localPort, string cloudUrl, string shopId, string pairingCode, SqliteDatabase db = null, string logsDir = null)
         {
             _rootDir = rootDir;
             _localPort = localPort;
             _cloudUrl = (cloudUrl ?? "https://scandropdone.netlify.app").TrimEnd('/');
+            _db = db;
+            _logsDir = logsDir;
             _shopId = string.IsNullOrWhiteSpace(shopId) ? "shop_quickprint_01" : shopId.Trim();
             _pairingCode = string.IsNullOrWhiteSpace(pairingCode) ? "SD-PAIR-7890" : pairingCode.Trim();
 
@@ -150,26 +156,52 @@ namespace ScanDrop.Native
             customUrl = null;
             providerMode = "auto";
 
-            try
+            // 1. Read DPAPI-encrypted tunnel config from local SQLite database first (PRD Sec 10)
+            if (_db != null)
             {
-                string cfgPath = Path.Combine(_rootDir, "config", "scandrop.json");
-                if (!File.Exists(cfgPath)) cfgPath = Path.Combine(_rootDir, "scandrop.json");
-                if (File.Exists(cfgPath))
+                try
                 {
-                    var ser = new JavaScriptSerializer();
-                    var dict = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(cfgPath, Encoding.UTF8));
-                    if (dict != null)
+                    token = _db.GetSetting("cloudflare_tunnel_token", "");
+                    customUrl = _db.GetSetting("custom_tunnel_url", "");
+                    string m = _db.GetSetting("tunnel_provider", "auto");
+                    if (!string.IsNullOrWhiteSpace(m)) providerMode = m.Trim().ToLowerInvariant();
+                }
+                catch { }
+            }
+
+            // 2. Fallback / one-time migration from legacy scandrop.json
+            if (string.IsNullOrWhiteSpace(token) && string.IsNullOrWhiteSpace(customUrl))
+            {
+                try
+                {
+                    string cfgPath = Path.Combine(_rootDir, "config", "scandrop.json");
+                    if (!File.Exists(cfgPath)) cfgPath = Path.Combine(_rootDir, "scandrop.json");
+                    if (File.Exists(cfgPath))
                     {
-                        if (dict.ContainsKey("cloudflareTunnelToken") && dict["cloudflareTunnelToken"] != null)
-                            token = Convert.ToString(dict["cloudflareTunnelToken"]).Trim();
-                        if (dict.ContainsKey("customTunnelUrl") && dict["customTunnelUrl"] != null)
-                            customUrl = Convert.ToString(dict["customTunnelUrl"]).Trim().TrimEnd('/');
-                        if (dict.ContainsKey("tunnelProvider") && dict["tunnelProvider"] != null)
-                            providerMode = Convert.ToString(dict["tunnelProvider"]).Trim().ToLowerInvariant();
+                        var ser = new JavaScriptSerializer();
+                        var dict = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(cfgPath, Encoding.UTF8));
+                        if (dict != null)
+                        {
+                            if (dict.ContainsKey("cloudflareTunnelToken") && dict["cloudflareTunnelToken"] != null)
+                                token = Convert.ToString(dict["cloudflareTunnelToken"]).Trim();
+                            if (dict.ContainsKey("customTunnelUrl") && dict["customTunnelUrl"] != null)
+                                customUrl = Convert.ToString(dict["customTunnelUrl"]).Trim().TrimEnd('/');
+                            if (dict.ContainsKey("tunnelProvider") && dict["tunnelProvider"] != null)
+                                providerMode = Convert.ToString(dict["tunnelProvider"]).Trim().ToLowerInvariant();
+                        }
+                        // Migrate token securely into DPAPI SQLite and scrub plaintext from json
+                        if (_db != null && !string.IsNullOrWhiteSpace(token))
+                        {
+                            _db.SetSetting("cloudflare_tunnel_token", token, true);
+                            _db.SetSetting("custom_tunnel_url", customUrl ?? "", false);
+                            _db.SetSetting("tunnel_provider", providerMode ?? "auto", false);
+                            dict["cloudflareTunnelToken"] = "";
+                            File.WriteAllText(cfgPath, ser.Serialize(dict), Encoding.UTF8);
+                        }
                     }
                 }
+                catch { }
             }
-            catch { }
 
             if (string.IsNullOrWhiteSpace(token))
                 token = Environment.GetEnvironmentVariable("CLOUDFLARE_TUNNEL_TOKEN");
@@ -179,25 +211,30 @@ namespace ScanDrop.Native
 
         public void SaveConfig(string token, string customUrl, string providerMode)
         {
-            string cfgDir = Path.Combine(_rootDir, "config");
-            if (!Directory.Exists(cfgDir)) Directory.CreateDirectory(cfgDir);
-            string cfgPath = Path.Combine(cfgDir, "scandrop.json");
+            string cleanToken = (token ?? "").Trim();
+            string cleanUrl = (customUrl ?? "").Trim().TrimEnd('/');
+            string cleanMode = string.IsNullOrWhiteSpace(providerMode) ? "auto" : providerMode.Trim().ToLowerInvariant();
 
-            var dict = new Dictionary<string, object>();
-            if (File.Exists(cfgPath))
+            if (_db != null)
             {
-                try
-                {
-                    var existing = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(cfgPath, Encoding.UTF8));
-                    if (existing != null) dict = existing;
-                }
-                catch { }
+                // Encrypted with Windows DPAPI — never stored in plaintext (PRD Sec 10)
+                _db.SetSetting("cloudflare_tunnel_token", cleanToken, true);
+                _db.SetSetting("custom_tunnel_url", cleanUrl, false);
+                _db.SetSetting("tunnel_provider", cleanMode, false);
             }
-
-            dict["cloudflareTunnelToken"] = (token ?? "").Trim();
-            dict["customTunnelUrl"] = (customUrl ?? "").Trim().TrimEnd('/');
-            dict["tunnelProvider"] = string.IsNullOrWhiteSpace(providerMode) ? "auto" : providerMode.Trim().ToLowerInvariant();
-            File.WriteAllText(cfgPath, new JavaScriptSerializer().Serialize(dict), Encoding.UTF8);
+            else
+            {
+                string cfgDir = Path.Combine(_rootDir, "config");
+                if (!Directory.Exists(cfgDir)) Directory.CreateDirectory(cfgDir);
+                string cfgPath = Path.Combine(cfgDir, "scandrop.json");
+                var dict = new Dictionary<string, object>
+                {
+                    { "cloudflareTunnelToken", "" },
+                    { "customTunnelUrl", cleanUrl },
+                    { "tunnelProvider", cleanMode }
+                };
+                File.WriteAllText(cfgPath, new JavaScriptSerializer().Serialize(dict), Encoding.UTF8);
+            }
 
             Restart();
         }
@@ -985,11 +1022,13 @@ namespace ScanDrop.Native
             catch { }
         }
 
-        private void ScheduleRestart(int delayMs, int expectedGen)
+        private void ScheduleRestart(int baseDelayMs, int expectedGen)
         {
+            int attempt = Interlocked.Increment(ref _reconnectAttempt);
+            int backoff = Math.Min(30000, baseDelayMs * (1 << Math.Min(attempt - 1, 3)));
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Thread.Sleep(delayMs);
+                Thread.Sleep(backoff);
                 if (_disposed || Volatile.Read(ref _generation) != expectedGen) return;
                 Start();
             });
@@ -998,6 +1037,7 @@ namespace ScanDrop.Native
         public void Restart()
         {
             Log("Restarting tunnel connection...");
+            Interlocked.Exchange(ref _reconnectAttempt, 0);
             _cloudflareCooldownUntilUtc = DateTime.MinValue;
             _localhostRunCooldownUntilUtc = DateTime.MinValue;
             _pinggyCooldownUntilUtc = DateTime.MinValue;
@@ -1022,9 +1062,9 @@ namespace ScanDrop.Native
         {
             try
             {
-                string dataDir = Path.Combine(_rootDir, "data");
-                if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
-                string logFile = Path.Combine(dataDir, "tunnel.log");
+                string logDir = !string.IsNullOrEmpty(_logsDir) ? _logsDir : Path.Combine(_rootDir, "data");
+                if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+                string logFile = Path.Combine(logDir, "tunnel.log");
                 if (File.Exists(logFile) && new FileInfo(logFile).Length > 2 * 1024 * 1024)
                 {
                     File.WriteAllText(logFile, "");
@@ -1036,6 +1076,7 @@ namespace ScanDrop.Native
 
         private void FireCaptured(string url)
         {
+            if (!string.IsNullOrEmpty(url)) Interlocked.Exchange(ref _reconnectAttempt, 0);
             var h = OnTunnelUrlCaptured;
             if (h != null) try { h(url); } catch { }
         }

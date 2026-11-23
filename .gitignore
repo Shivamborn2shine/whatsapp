@@ -23,6 +23,7 @@ pnpm-debug.log*
 *secret*
 *token*
 !desktop/src/service/syncService.ts # Keep source code
+!native/Core/SecretProtector.cs
 
 # Databases & Runtime Storage
 data/
@@ -33,6 +34,8 @@ data/
 *.sqlite
 *.sqlite3
 storage/
+!native/Storage/
+!native/Storage/*.cs
 temp/
 test_files/
 
