@@ -152,6 +152,31 @@
     .merge-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
     .fr-pair-row { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
 
+    /* Drag-to-Trash, Drag-in-to-Add, Reorder & Toast UX */
+    .insp-file-card[draggable="true"] { cursor:grab; transition:transform 0.12s, border-color 0.15s, opacity 0.15s, box-shadow 0.15s; }
+    .insp-file-card[draggable="true"]:active { cursor:grabbing; }
+    .insp-file-card.dragging { opacity:0.42; transform:scale(0.97); border:1.5px dashed var(--danger); }
+    .insp-file-card.drag-over-card { border-top:3px solid var(--primary); }
+    .drag-grip { color:var(--muted); font-size:13px; letter-spacing:-2px; cursor:grab; user-select:none; padding:2px 3px 2px 0; flex-shrink:0; opacity:0.75; }
+    .insp-file-card:hover .drag-grip { color:var(--primary); opacity:1; }
+    .card-trash-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:13px; padding:3px 6px; border-radius:6px; transition:all 0.12s; flex-shrink:0; }
+    .card-trash-btn:hover { background:rgba(220,38,38,0.12); color:#dc2626; }
+    .drop-in-zone { border:1.5px dashed rgba(37,99,235,0.45); background:var(--primary-soft); color:var(--primary); border-radius:10px; padding:10px 12px; text-align:center; font-size:11.5px; font-weight:700; cursor:pointer; transition:all 0.15s; }
+    .drop-in-zone:hover, .drop-in-zone.drag-active { border-color:var(--primary); background:rgba(37,99,235,0.18); box-shadow:0 0 0 3px rgba(37,99,235,0.16); }
+    #inspectorFilesScroll.ext-drag-over { outline:2px dashed var(--primary); outline-offset:2px; border-radius:10px; background:var(--primary-soft); }
+    .trash-drop-zone { display:none; border:2px dashed #ef4444; background:rgba(239,68,68,0.09); color:#dc2626; border-radius:10px; padding:11px 12px; text-align:center; font-size:12px; font-weight:800; transition:all 0.15s; }
+    body.dragging-file-active .trash-drop-zone { display:block; animation:sdPulseTrash 1.2s ease-in-out infinite; }
+    .trash-drop-zone.drag-active { background:rgba(239,68,68,0.22); border-style:solid; transform:scale(1.01); animation:none; }
+    body.dragging-file-active #nav-trash, body.dragging-file-active .insp-trash-tab { background:rgba(239,68,68,0.14); color:#dc2626 !important; border-radius:8px; }
+    body.dragging-file-active .list-panel { outline:2px dashed rgba(239,68,68,0.45); outline-offset:-3px; }
+    @keyframes sdPulseTrash { 0%,100% { border-color:#ef4444; } 50% { border-color:#fca5a5; } }
+    .more-actions-drawer { display:none; width:100%; margin-top:4px; padding-top:5px; border-top:1px dashed var(--border); gap:5px; flex-wrap:wrap; }
+    .more-actions-drawer.open { display:flex; }
+    .sd-toast-box { position:fixed; right:20px; bottom:20px; z-index:400; display:flex; flex-direction:column; gap:8px; max-width:410px; pointer-events:none; }
+    .sd-toast { pointer-events:auto; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.28); border-radius:12px; padding:11px 14px; font-size:12.5px; font-weight:600; box-shadow:0 12px 30px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .sd-toast-btn { background:#3b82f6; color:#fff; border:none; border-radius:7px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+    .sd-toast-btn:hover { background:#2563eb; }
+
   </style>
 </head>
 <body>
@@ -174,6 +199,10 @@
       </button>
       <button class="nav-item" id="nav-fileManager" onclick="setTab('fileManager', this)">
         <span class="nav-left"><span>📁</span><span>File Manager</span></span>
+      </button>
+      <button class="nav-item" id="nav-trash" onclick="setTab('trash', this)" ondragover="handleTrashZoneDragOver(event)" ondragleave="this.classList.remove('drag-active')" ondrop="handleTrashZoneDrop(event)">
+        <span class="nav-left"><span>🗑️</span><span>Trash</span></span>
+        <span class="badge badge-amber" id="badgeTrash" style="display:none;">0</span>
       </button>
       <button class="nav-item" id="nav-qr" onclick="setTab('qr', this)">
         <span class="nav-left"><span>⊞</span><span>QR &amp; Sharing</span></span>
@@ -524,8 +553,16 @@
       </div>
       <div style="padding:18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
         <p style="font-size:12.5px;color:var(--text-secondary);">
-          Reorder or uncheck files below. Any file you edited in PDF Studio, DOCX Studio, or Image Canvas automatically uses your <strong>Edited Version</strong>; untouched Word docs &amp; images convert to PDF automatically during merge.
+          Reorder, uncheck, or move unwanted files to Trash. Drop any newly edited Word (.docx), PDF, or Image files below to include them in this single print job.
         </p>
+        <div id="mergeDropZone" class="drop-in-zone"
+          onclick="document.getElementById('mergeAddFileInput').click()"
+          ondragover="handleAddZoneDragOver(event)"
+          ondragleave="this.classList.remove('drag-active')"
+          ondrop="handleAddZoneDrop(event, mergeQueue.submissionId, true)">
+          📥 Drag &amp; drop edited Word / PDF / Image files here to add to this merge (or click to browse)
+          <input type="file" id="mergeAddFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){uploadLocalFilesToSubmission(mergeQueue.submissionId,this.files,true);this.value='';}">
+        </div>
         <div id="mergeQueueList" style="display:flex;flex-direction:column;gap:8px;"></div>
         <div id="mergeProgressMsg" style="font-size:12.5px;font-weight:700;color:var(--primary);display:none;"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;">
@@ -535,6 +572,9 @@
       </div>
     </div>
   </div>
+
+  <!-- NON-BLOCKING TOAST NOTIFICATIONS (with Undo / Open in Word) -->
+  <div id="sdToastBox" class="sd-toast-box"></div>
 
 
   <!-- Hidden 1px print frame so Chromium activates PDF plugin cleanly for 1-click direct print -->
@@ -556,7 +596,8 @@
     const TAB_META = {
       dashboard: ['Dashboard', 'Station status, tunnel health, daily volume, and recent uploads'],
       inbox: ['File Inbox', 'Grouped customer submissions received on your Windows PC'],
-      fileManager: ['File Manager', 'Local storage breakdown, cleanup, and PDF conversion tools'],
+      fileManager: ['File Manager', 'Local storage breakdown, cleanup, and PDF / Word conversion outputs'],
+      trash: ['Trash', 'Individual files dragged out of submissions — restore anytime or delete permanently'],
       qr: ['QR & Sharing', 'Customer QR code and upload links for your shop counter'],
       activity: ['Activity Log', 'Operational events recorded in local SQLite database'],
       settings: ['Settings', 'Shop name, storage folder, retention, upload limits, printers & updates']
@@ -692,7 +733,8 @@
         }
 
         const newKey = JSON.stringify({
-          subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, s.totalSizeBytes, (s.files || []).map(f => f.originalName + ':' + f.conversionStatus).join(',')]),
+          subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, (s.trashedFiles || []).length, s.totalSizeBytes, (s.files || []).map(f => f.id + ':' + f.originalName + ':' + f.conversionStatus + ':' + (f.sortOrder || 0)).join(',')]),
+          trash: (cloudState.trashedFiles || []).map(t => t.id).join(','),
           conv: (cloudState.convertedFiles || []).length,
           acts: (cloudState.auditEvents || []).length,
           paused: data.acceptingUploads,
@@ -1044,6 +1086,12 @@
       const printedSubs = allSubs.filter(s => s.status === 'printed' || s.status === 'completed');
       const archivedSubs = allSubs.filter(s => s.status === 'archived');
       document.getElementById('badgeInbox').textContent = recSubs.length;
+      const globalTrash = cloudState.trashedFiles || [];
+      const bTrash = document.getElementById('badgeTrash');
+      if (bTrash) {
+        bTrash.textContent = globalTrash.length;
+        bTrash.style.display = globalTrash.length > 0 ? 'inline-block' : 'none';
+      }
 
       const q = (document.getElementById('searchInput').value || '').toLowerCase();
       const permanentUrl = (currentSettings.publicBaseUrl || 'https://scandrop-xi.vercel.app').replace(/[/]+$/, '') + '/shop/' + shop.slug;
@@ -1133,15 +1181,23 @@
 
         let inspectorHtml = '';
         if (selectedSub) {
+          const subTrashed = selectedSub.trashedFiles || [];
           const inspFilesHtml = (selectedSub.files || []).map(f => {
             const [cls, lbl] = getFileBadge(f.fileExtension);
             const fExt = (f.fileExtension || '').toLowerCase();
+            const isPdf = fExt === '.pdf';
+            const isWord = fExt === '.docx' || fExt === '.doc';
+            const isImg = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(fExt);
             const isEdited = f.conversionStatus === 'edited' && !!f.convertedUrl;
-            const canEdit = ['.pdf', '.docx', '.doc', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(fExt);
-            const editLabel = fExt === '.pdf' ? '✏️ Edit PDF' : ((fExt === '.docx' || fExt === '.doc') ? '📝 Edit Doc' : '🖼️ Canvas');
             return `
-              <div class="insp-file-card">
+              <div class="insp-file-card" draggable="true"
+                ondragstart="handleFileCardDragStart(event, '${esc(f.id)}', '${esc(f.originalName)}', '${esc(selectedSub.id)}')"
+                ondragend="handleFileCardDragEnd(event, '${esc(f.id)}', '${esc(f.originalName)}')"
+                ondragover="handleFileCardDragOver(event, '${esc(f.id)}')"
+                ondragleave="this.classList.remove('drag-over-card')"
+                ondrop="handleFileCardDrop(event, '${esc(f.id)}', '${esc(selectedSub.id)}')">
                 <div class="insp-file-top">
+                  <span class="drag-grip" title="Drag out to Trash, or drag up/down to reorder">⋮⋮</span>
                   <div class="file-type-box ${cls}">${lbl}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(f.originalName)}">${esc(f.originalName)}</div>
@@ -1150,30 +1206,58 @@
                       ${isEdited ? '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ Edited</span>' : (f.conversionStatus === 'converted' ? '<span>• PDF Ready</span>' : '')}
                     </div>
                   </div>
+                  <button class="card-trash-btn" title="Move to Trash (or drag card out)" onclick="trashFile('${esc(f.id)}', '${esc(f.originalName)}')">🗑</button>
                 </div>
                 <div class="insp-file-actions">
-                  ${canEdit ? `<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('${esc(f.id)}', '${esc(selectedSub.id)}')">${editLabel}</button>` : ''}
+                  ${isPdf ? `<button class="mini-btn mini-btn-edit" onclick="convertPdfToWord('${esc(f.id)}', '${esc(f.originalName)}', this)" title="Convert PDF to editable Word (.docx) and download">📝 To Word</button>` : ''}
+                  ${isWord ? `<button class="mini-btn mini-btn-edit" onclick="openFileNative('${esc(f.id)}')" title="Open directly in Microsoft Word">↗ Edit in Word</button>` : ''}
+                  ${isImg ? `<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('${esc(f.id)}', '${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>` : ''}
                   ${isEdited
                     ? `<button class="mini-btn" onclick="previewUrl('${esc(f.convertedUrl)}', '${esc(f.originalName)} (Edited)', '.pdf', '${esc(f.id)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="directPrint('${esc(f.convertedUrl)}', '${esc(f.originalName)}.pdf')">🖨 Print</button>`
                     : `<button class="mini-btn" onclick="previewFile('${esc(f.id)}', '${esc(f.originalName)}', '${esc(f.fileExtension)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="openPrintModal('${esc(f.id)}', '${esc(f.originalName)}')">🖨 Print</button>`}
-                  <button class="mini-btn" onclick="openFileNative('${esc(f.id)}')">↗ Open</button>
-                  <button class="mini-btn" onclick="openFileWithNative('${esc(f.id)}')">📂 Open With</button>
-                  <button class="mini-btn" onclick="convertFileToPdfServer('${esc(f.id)}')">📄 To PDF</button>
-                  <button class="mini-btn" onclick="renameFilePrompt('${esc(f.id)}', '${esc(f.originalName)}')">🏷️ Rename</button>
-                  <button class="mini-btn" onclick="exportFilePermanent('${esc(f.id)}')">💾 Save As</button>
-                  <button class="mini-btn" onclick="revealFileInFolder('${esc(f.id)}')">📁 Folder</button>
+                  <button class="mini-btn" onclick="downloadFile('${esc(f.id)}', '${esc(f.originalName)}')" title="Download file">⬇ Save</button>
+                  <button class="mini-btn" onclick="toggleCardMore('${esc(f.id)}', event)" title="More actions">⋯</button>
+                  <div class="more-actions-drawer" id="more_${esc(f.id)}">
+                    ${!isWord ? `<button class="mini-btn" onclick="openFileNative('${esc(f.id)}')">↗ Open</button>` : ''}
+                    <button class="mini-btn" onclick="openFileWithNative('${esc(f.id)}')">📂 Open With</button>
+                    ${!isPdf ? `<button class="mini-btn" onclick="convertFileToPdfServer('${esc(f.id)}')">📄 To PDF</button>` : ''}
+                    ${(isPdf || isWord) ? `<button class="mini-btn" onclick="openSmartEditorById('${esc(f.id)}', '${esc(selectedSub.id)}')">✏️ Quick Edit</button>` : ''}
+                    <button class="mini-btn" onclick="renameFilePrompt('${esc(f.id)}', '${esc(f.originalName)}')">🏷️ Rename</button>
+                    <button class="mini-btn" onclick="exportFilePermanent('${esc(f.id)}')">💾 Export</button>
+                    <button class="mini-btn" onclick="revealFileInFolder('${esc(f.id)}')">📁 Folder</button>
+                  </div>
                 </div>
               </div>
             `;
           }).join('');
 
+          const inspTrashHtml = subTrashed.length === 0
+            ? '<div style="padding:26px 12px;text-align:center;color:var(--muted);font-size:12px;">No trashed files for this job.<br><span style="font-size:11px;">Drag any file card out of the Files list (or click 🗑) to move it here.</span></div>'
+            : subTrashed.map(tf => {
+                const [cls, lbl] = getFileBadge(tf.fileExtension);
+                return `
+                  <div class="insp-file-card" style="opacity:0.92;border-style:dashed;">
+                    <div class="insp-file-top">
+                      <div class="file-type-box ${cls}">${lbl}</div>
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(tf.originalName)}">${esc(tf.originalName)}</div>
+                        <div style="font-size:11px;color:var(--muted);">${formatSize(tf.sizeBytes)} • Trashed ${timeAgo(tf.trashedAt)}</div>
+                      </div>
+                    </div>
+                    <div class="insp-file-actions">
+                      <button class="mini-btn mini-btn-edit" onclick="restoreFile('${esc(tf.id)}', '${esc(tf.originalName)}')">↩ Restore</button>
+                      <button class="mini-btn" style="color:var(--danger);" onclick="deleteFilePermanent('${esc(tf.id)}', '${esc(tf.originalName)}')">🗑 Delete Forever</button>
+                    </div>
+                  </div>
+                `;
+              }).join('') + `<button class="btn btn-danger-soft" style="width:100%;margin-top:6px;padding:7px;" onclick="emptyTrash('${esc(selectedSub.id)}')">🧹 Empty This Job's Trash</button>`;
+
           const isArchivedSub = (selectedSub.status || '').toLowerCase() === 'archived';
           const remHrs = Math.max(0, (new Date(selectedSub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
           const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
           const printableCount = (selectedSub.files || []).filter(f => printableExts.includes((f.fileExtension || '').toLowerCase())).length;
-          const imgIds = (selectedSub.files || []).filter(f => ['.jpg','.jpeg','.png','.bmp'].includes((f.fileExtension || '').toLowerCase())).map(f => f.id);
           inspectorHtml = `
             <aside class="inspector-panel">
               <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -1186,22 +1270,44 @@
 
               <div class="insp-tabs">
                 <button class="insp-tab ${inspectorTab === 'files' ? 'active' : ''}" onclick="inspectorTab='files';renderCurrentView()">Files (${(selectedSub.files || []).length})</button>
+                <button class="insp-tab insp-trash-tab ${inspectorTab === 'trash' ? 'active' : ''}" onclick="inspectorTab='trash';renderCurrentView()" ondragover="handleTrashZoneDragOver(event)" ondragleave="this.classList.remove('drag-active')" ondrop="handleTrashZoneDrop(event)">🗑️ Trash (${subTrashed.length})</button>
                 <button class="insp-tab ${inspectorTab === 'details' ? 'active' : ''}" onclick="inspectorTab='details';renderCurrentView()">Details</button>
               </div>
 
-              <div id="inspectorFilesScroll" style="max-height:360px;overflow-y:auto;padding-right:4px;">
+              <div id="inspectorFilesScroll" style="max-height:330px;overflow-y:auto;padding-right:4px;"
+                ondragover="if(!draggingFileState){event.preventDefault();this.classList.add('ext-drag-over');}"
+                ondragleave="this.classList.remove('ext-drag-over')"
+                ondrop="this.classList.remove('ext-drag-over');handleAddZoneDrop(event, '${esc(selectedSub.id)}', false)">
                 ${inspectorTab === 'files'
-                  ? (inspFilesHtml || '<p style="font-size:12px;color:var(--muted);">No files</p>')
-                  : `<div style="font-size:12.5px;display:flex;flex-direction:column;gap:9px;padding:6px 0;">
-                      <div><span style="color:var(--muted);">Customer:</span> <strong>${esc(selectedSub.customerName)}</strong></div>
-                      <div><span style="color:var(--muted);">Received:</span> <strong>${new Date(selectedSub.createdAt).toLocaleString()}</strong></div>
-                      <div><span style="color:var(--muted);">Auto-Purge:</span> ${isArchivedSub ? '<strong style="color:var(--success);">Paused (Archived)</strong>' : '<strong style="color:var(--warning);">' + remHrs + ' hours left</strong>'}</div>
-                      <div><span style="color:var(--muted);">Instructions:</span><div style="background:var(--surface-alt);padding:8px;border-radius:8px;border:1px solid var(--border);margin-top:4px;">${esc(selectedSub.instructions || 'None')}</div></div>
-                    </div>`}
+                  ? (inspFilesHtml || '<p style="font-size:12px;color:var(--muted);padding:14px 4px;text-align:center;">No active files. Drop edited files below or restore from Trash.</p>')
+                  : inspectorTab === 'trash'
+                    ? inspTrashHtml
+                    : `<div style="font-size:12.5px;display:flex;flex-direction:column;gap:9px;padding:6px 0;">
+                        <div><span style="color:var(--muted);">Customer:</span> <strong>${esc(selectedSub.customerName)}</strong></div>
+                        <div><span style="color:var(--muted);">Received:</span> <strong>${new Date(selectedSub.createdAt).toLocaleString()}</strong></div>
+                        <div><span style="color:var(--muted);">Auto-Purge:</span> ${isArchivedSub ? '<strong style="color:var(--success);">Paused (Archived)</strong>' : '<strong style="color:var(--warning);">' + remHrs + ' hours left</strong>'}</div>
+                        <div><span style="color:var(--muted);">Instructions:</span><div style="background:var(--surface-alt);padding:8px;border-radius:8px;border:1px solid var(--border);margin-top:4px;">${esc(selectedSub.instructions || 'None')}</div></div>
+                      </div>`}
               </div>
 
+              ${inspectorTab === 'files' ? `
+                <div id="inspectorTrashDropZone" class="trash-drop-zone"
+                  ondragover="handleTrashZoneDragOver(event)"
+                  ondragleave="this.classList.remove('drag-active')"
+                  ondrop="handleTrashZoneDrop(event)">
+                  🗑️ Drop here — or drag outside list — to move to Trash
+                </div>
+                <div class="drop-in-zone"
+                  onclick="document.getElementById('inspAddFileInput').click()"
+                  ondragover="handleAddZoneDragOver(event)"
+                  ondragleave="this.classList.remove('drag-active')"
+                  ondrop="handleAddZoneDrop(event, '${esc(selectedSub.id)}', false)">
+                  📥 Drop edited Word / PDF / Image files here to add for merging (or click)
+                  <input type="file" id="inspAddFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){uploadLocalFilesToSubmission('${esc(selectedSub.id)}',this.files,false);this.value='';}">
+                </div>
+              ` : ''}
+
               ${printableCount > 0 ? `<button class="btn" style="width:100%;background:#16a34a;" onclick="openMergeModal('${esc(selectedSub.id)}')">📑 Merge &amp; Print All (${printableCount} ${printableCount === 1 ? 'File' : 'Files'})</button>` : ''}
-              ${imgIds.length > 1 ? `<button class="btn btn-outline" style="width:100%;" onclick='convertFileToPdfServer(${JSON.stringify(imgIds)})'>📄 Quick Combine ${imgIds.length} Images → PDF</button>` : ''}
 
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <button class="btn" onclick="updateSubStatus('${esc(selectedSub.id)}', 'printed')">✓ Mark Printed</button>
@@ -1216,7 +1322,7 @@
 
         container.innerHTML = `
           <div class="split-grid">
-            <div class="list-panel">
+            <div class="list-panel" ondragover="handleTrashZoneDragOver(event)" ondrop="handleTrashZoneDrop(event)">
               <div class="filter-bar">
                 <div class="filter-tabs">
                   <button class="filter-tab ${subFilter === 'all' ? 'active' : ''}" onclick="subFilter='all';renderCurrentView()">All (${allSubs.length})</button>
@@ -1264,16 +1370,53 @@
           </div>
 
           <div class="list-panel" style="padding:20px;">
-            <h3 style="margin-bottom:12px;">📄 Converted PDF Outputs</h3>
-            ${converted.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted PDFs yet. Use "To PDF" on any image or Office document in Inbox.</p>' :
-              converted.map(c => `<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <div><strong>${esc(c.name)}</strong> <span style="font-size:11px;color:var(--muted);">(${formatSize(c.sizeBytes)})</span></div>
-                <div style="display:flex;gap:6px;">
-                  <button class="btn btn-outline" onclick="previewUrl('${esc(c.url)}','${esc(c.name)}','.pdf',null)">👁 Preview</button>
-                  <button class="btn" onclick="directPrint('${esc(c.url)}','${esc(c.name)}')">🖨 Print</button>
-                  <button class="btn btn-outline" onclick="downloadFile(null,'${esc(c.name)}','${esc(c.url)}')">⬇ Download</button>
-                </div>
-              </div>`).join('')}
+            <h3 style="margin-bottom:12px;">📄 Converted PDF &amp; Word (.docx) Outputs</h3>
+            ${converted.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted files yet. Use "To Word" on any PDF or "To PDF" on any image/Word doc in Inbox.</p>' :
+              converted.map(c => {
+                const isDocx = (c.ext === '.docx') || (c.name || '').toLowerCase().endsWith('.docx');
+                return `<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <div><strong>${esc(c.name)}</strong> <span style="font-size:11px;color:var(--muted);">(${formatSize(c.sizeBytes)})</span></div>
+                  <div style="display:flex;gap:6px;">
+                    ${isDocx
+                      ? `<button class="btn" onclick="openConvertedNative('${esc(c.name)}')">↗ Open in Word</button>`
+                      : `<button class="btn btn-outline" onclick="previewUrl('${esc(c.url)}','${esc(c.name)}','.pdf',null)">👁 Preview</button>
+                         <button class="btn" onclick="directPrint('${esc(c.url)}','${esc(c.name)}')">🖨 Print</button>`}
+                    <button class="btn btn-outline" onclick="downloadFile(null,'${esc(c.name)}','${esc(c.url)}')">⬇ Download</button>
+                  </div>
+                </div>`;
+              }).join('')}
+          </div>
+        `;
+      }
+      else if (currentTab === 'trash') {
+        const items = globalTrash.filter(t => !q || (t.originalName || '').toLowerCase().includes(q) || (t.receiptCode || '').toLowerCase().includes(q) || (t.customerName || '').toLowerCase().includes(q));
+        container.innerHTML = `
+          <div class="list-panel" style="padding:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h3>🗑️ Trash (${items.length} file${items.length === 1 ? '' : 's'})</h3>
+                <p style="font-size:12px;color:var(--muted);margin-top:2px;">Files dragged out of customer submissions land here and are excluded from Merge &amp; Print. Restore anytime or permanently delete.</p>
+              </div>
+              ${globalTrash.length > 0 ? '<button class="btn btn-danger-soft" onclick="emptyTrash(null)">🧹 Empty All Trash</button>' : ''}
+            </div>
+            ${items.length === 0
+              ? '<div style="padding:48px 20px;text-align:center;color:var(--muted);"><div style="font-size:32px;margin-bottom:8px;">🗑️</div><strong>Trash is empty</strong><p style="font-size:12px;margin-top:4px;">Drag any unwanted file out of a submission in Inbox to move it here.</p></div>'
+              : items.map(t => {
+                  const [cls, lbl] = getFileBadge(t.fileExtension);
+                  return `<div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+                      <div class="file-type-box ${cls}">${lbl}</div>
+                      <div style="min-width:0;">
+                        <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.originalName)}</div>
+                        <div style="font-size:11.5px;color:var(--muted);">Job <strong>${esc(t.receiptCode)}</strong> (${esc(t.customerName)}) • ${formatSize(t.sizeBytes)} • Trashed ${timeAgo(t.trashedAt)}</div>
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:7px;">
+                      <button class="btn" onclick="restoreFile('${esc(t.id)}','${esc(t.originalName)}')">↩ Restore</button>
+                      <button class="btn btn-danger-soft" onclick="deleteFilePermanent('${esc(t.id)}','${esc(t.originalName)}')">🗑 Delete Forever</button>
+                    </div>
+                  </div>`;
+                }).join('')}
           </div>
         `;
       }
@@ -2505,10 +2648,278 @@
           '<div style="display:flex;gap:4px;">' +
             '<button class="mini-btn" onclick="mergeMove(' + idx + ',-1)" title="Move Up">↑</button>' +
             '<button class="mini-btn" onclick="mergeMove(' + idx + ',1)" title="Move Down">↓</button>' +
-            '<button class="mini-btn" onclick="closeStudioModal(\'mergePrintModal\');openSmartEditorById(\'' + esc(f.id) + '\',\'' + esc(mergeQueue.submissionId) + '\')">✏️ Edit</button>' +
+            '<button class="mini-btn" style="color:var(--danger);" onclick="mergeTrashFile(\'' + esc(f.id) + '\',\'' + esc(f.originalName) + '\')" title="Move to Trash">🗑</button>' +
           '</div>' +
         '</div>';
       }).join('');
+    }
+
+    async function mergeTrashFile(fileId, fileName) {
+      await trashFile(fileId, fileName);
+      if (mergeQueue.submissionId) openMergeModal(mergeQueue.submissionId);
+    }
+
+    // ------------------------------------------------------------------------
+    // 5. PDF -> WORD (.docx), DRAG-OUT-TO-TRASH, DRAG-IN-TO-ADD & TOASTS
+    // ------------------------------------------------------------------------
+    function showToast(message, actionLabel, actionFn, durationMs) {
+      const box = document.getElementById('sdToastBox');
+      if (!box) return;
+      const el = document.createElement('div');
+      el.className = 'sd-toast';
+      const txt = document.createElement('span');
+      txt.textContent = message;
+      el.appendChild(txt);
+      if (actionLabel && typeof actionFn === 'function') {
+        const btn = document.createElement('button');
+        btn.className = 'sd-toast-btn';
+        btn.textContent = actionLabel;
+        btn.onclick = () => { el.remove(); actionFn(); };
+        el.appendChild(btn);
+      }
+      box.appendChild(el);
+      setTimeout(() => { try { el.remove(); } catch {} }, durationMs || 6500);
+    }
+
+    async function convertPdfToWord(fileId, fileName, btnEl) {
+      const origText = btnEl ? btnEl.textContent : '';
+      if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Converting...'; }
+      showToast('Converting "' + fileName + '" to editable Word (.docx)...', null, null, 4500);
+      try {
+        const res = await fetch('/api/file/convert-docx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          alert('PDF to Word failed: ' + (data.error || 'Ensure Microsoft Word or LibreOffice is installed.'));
+          return;
+        }
+        await fetchCloudState(true);
+        // Trigger immediate download so shopkeeper can open & edit in Word, then drag back in!
+        const a = document.createElement('a');
+        a.href = data.downloadUrl || (data.url + '&download=1');
+        a.download = data.outputFilename || 'converted.docx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        showToast(
+          '✓ Downloaded ' + data.outputFilename + ' (' + data.engine + '). Edit in Word, then drag it back here!',
+          '↗ Open in Word',
+          () => openConvertedNative(data.outputFilename),
+          10000
+        );
+      } catch (err) {
+        alert('PDF to Word error: ' + err.message);
+      } finally {
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = origText; }
+      }
+    }
+
+    async function openConvertedNative(name) {
+      try {
+        const res = await fetch('/api/converted/open', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        if (!res.ok) alert('Could not open converted file.');
+      } catch {}
+    }
+
+    async function trashFile(fileId, fileName) {
+      const res = await fetch('/api/file/trash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Could not move file to Trash: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('🗑️ Moved "' + (fileName || 'file') + '" to Trash', '↩ Undo', () => restoreFile(fileId, fileName), 7000);
+    }
+
+    async function restoreFile(fileId, fileName) {
+      const res = await fetch('/api/file/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Restore failed: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('↩ Restored "' + (fileName || 'file') + '" back to submission', null, null, 3500);
+    }
+
+    async function deleteFilePermanent(fileId, fileName) {
+      if (!confirm('Permanently delete "' + (fileName || 'this file') + '" from disk?')) return;
+      const res = await fetch('/api/file/delete-permanent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Delete failed: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('Deleted permanently (freed ' + formatSize(data.freedBytes) + ')', null, null, 3500);
+    }
+
+    async function emptyTrash(submissionId) {
+      const msg = submissionId
+        ? 'Permanently delete all trashed files in this submission?'
+        : 'Permanently empty ALL files in Trash across all submissions?';
+      if (!confirm(msg)) return;
+      const res = await fetch('/api/trash/empty', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submissionId ? { submissionId } : {})
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Empty Trash failed: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('🧹 Emptied Trash (' + data.deletedCount + ' file(s), freed ' + formatSize(data.freedBytes) + ')', null, null, 4500);
+    }
+
+    async function uploadLocalFilesToSubmission(submissionId, fileList, refreshMerge) {
+      if (!submissionId || !fileList || fileList.length === 0) return;
+      const files = Array.from(fileList);
+      showToast('Adding ' + files.length + ' file(s) to ' + submissionId + '...', null, null, 3000);
+      let added = 0;
+      const errs = [];
+      for (const f of files) {
+        try {
+          const res = await fetch('/api/submission/add-file', {
+            method: 'POST',
+            headers: {
+              'Content-Type': f.type || 'application/octet-stream',
+              'X-Submission-Id': submissionId,
+              'X-File-Name': encodeURIComponent(f.name)
+            },
+            body: f
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) errs.push(f.name + ': ' + (data.error || 'failed'));
+          else added++;
+        } catch (err) {
+          errs.push(f.name + ': ' + err.message);
+        }
+      }
+      await fetchCloudState(true);
+      if (refreshMerge && mergeQueue.submissionId) openMergeModal(mergeQueue.submissionId);
+      if (added > 0) showToast('✓ Added ' + added + ' file(s) to ' + submissionId + ' — ready to Merge & Print!', null, null, 5000);
+      if (errs.length > 0) alert('Some files could not be added:\n' + errs.join('\n'));
+    }
+
+    let draggingFileState = null;
+
+    function handleFileCardDragStart(ev, fileId, fileName, subId) {
+      draggingFileState = { fileId, fileName, subId, handled: false };
+      ev.dataTransfer.effectAllowed = 'move';
+      try { ev.dataTransfer.setData('application/x-scandrop-file', fileId); } catch {}
+      try { ev.dataTransfer.setData('text/plain', fileName); } catch {}
+      if (ev.currentTarget) ev.currentTarget.classList.add('dragging');
+      document.body.classList.add('dragging-file-active');
+    }
+
+    function handleFileCardDragEnd(ev, fileId, fileName) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('dragging');
+      document.body.classList.remove('dragging-file-active');
+      document.querySelectorAll('.drag-over-card,.drag-active').forEach(n => n.classList.remove('drag-over-card', 'drag-active'));
+      const st = draggingFileState;
+      draggingFileState = null;
+      if (!st || st.handled) return;
+
+      // Intuitive "drag out of the list" -> automatically move to Trash!
+      const listEl = document.getElementById('inspectorFilesScroll');
+      if (listEl && (ev.clientX !== 0 || ev.clientY !== 0)) {
+        const r = listEl.getBoundingClientRect();
+        const pad = 18;
+        const outside = ev.clientX < (r.left - pad) || ev.clientX > (r.right + pad) || ev.clientY < (r.top - pad) || ev.clientY > (r.bottom + pad);
+        if (outside) {
+          trashFile(fileId, fileName);
+        }
+      }
+    }
+
+    function handleFileCardDragOver(ev, targetFileId) {
+      if (draggingFileState && draggingFileState.fileId !== targetFileId) {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        if (ev.currentTarget) ev.currentTarget.classList.add('drag-over-card');
+      } else if (ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('Files')) {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'copy';
+      }
+    }
+
+    async function handleFileCardDrop(ev, targetFileId, subId) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('drag-over-card');
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await uploadLocalFilesToSubmission(subId, ev.dataTransfer.files, false);
+        return;
+      }
+      if (!draggingFileState || draggingFileState.fileId === targetFileId) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      draggingFileState.handled = true;
+      const sub = (cloudState.submissions || []).find(s => s.id === subId || s.receiptCode === subId);
+      if (!sub) return;
+      const ids = (sub.files || []).map(f => f.id);
+      const fromIdx = ids.indexOf(draggingFileState.fileId);
+      const toIdx = ids.indexOf(targetFileId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      ids.splice(fromIdx, 1);
+      ids.splice(toIdx, 0, draggingFileState.fileId);
+      await fetch('/api/submission/reorder-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: sub.id, fileIds: ids })
+      });
+      await fetchCloudState(true);
+    }
+
+    function handleTrashZoneDragOver(ev) {
+      if (!draggingFileState) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('drag-active');
+    }
+
+    async function handleTrashZoneDrop(ev) {
+      if (!draggingFileState) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
+      const st = draggingFileState;
+      st.handled = true;
+      await trashFile(st.fileId, st.fileName);
+    }
+
+    function handleAddZoneDragOver(ev) {
+      if (draggingFileState) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'copy';
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('drag-active');
+    }
+
+    async function handleAddZoneDrop(ev, subId, refreshMerge) {
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
+      if (draggingFileState) return;
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await uploadLocalFilesToSubmission(subId, ev.dataTransfer.files, !!refreshMerge);
+      }
+    }
+
+    function toggleCardMore(fileId, ev) {
+      if (ev) ev.stopPropagation();
+      const el = document.getElementById('more_' + fileId);
+      if (el) el.classList.toggle('open');
     }
 
     function mergeMove(idx, delta) {

@@ -31,6 +31,31 @@ const studioCss = `
     .docx-block-row { border:1px solid var(--border); border-radius:8px; padding:8px; background:var(--surface-alt); display:flex; flex-direction:column; gap:5px; }
     .merge-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
     .fr-pair-row { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
+
+    /* Drag-to-Trash, Drag-in-to-Add, Reorder & Toast UX */
+    .insp-file-card[draggable="true"] { cursor:grab; transition:transform 0.12s, border-color 0.15s, opacity 0.15s, box-shadow 0.15s; }
+    .insp-file-card[draggable="true"]:active { cursor:grabbing; }
+    .insp-file-card.dragging { opacity:0.42; transform:scale(0.97); border:1.5px dashed var(--danger); }
+    .insp-file-card.drag-over-card { border-top:3px solid var(--primary); }
+    .drag-grip { color:var(--muted); font-size:13px; letter-spacing:-2px; cursor:grab; user-select:none; padding:2px 3px 2px 0; flex-shrink:0; opacity:0.75; }
+    .insp-file-card:hover .drag-grip { color:var(--primary); opacity:1; }
+    .card-trash-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:13px; padding:3px 6px; border-radius:6px; transition:all 0.12s; flex-shrink:0; }
+    .card-trash-btn:hover { background:rgba(220,38,38,0.12); color:#dc2626; }
+    .drop-in-zone { border:1.5px dashed rgba(37,99,235,0.45); background:var(--primary-soft); color:var(--primary); border-radius:10px; padding:10px 12px; text-align:center; font-size:11.5px; font-weight:700; cursor:pointer; transition:all 0.15s; }
+    .drop-in-zone:hover, .drop-in-zone.drag-active { border-color:var(--primary); background:rgba(37,99,235,0.18); box-shadow:0 0 0 3px rgba(37,99,235,0.16); }
+    #inspectorFilesScroll.ext-drag-over { outline:2px dashed var(--primary); outline-offset:2px; border-radius:10px; background:var(--primary-soft); }
+    .trash-drop-zone { display:none; border:2px dashed #ef4444; background:rgba(239,68,68,0.09); color:#dc2626; border-radius:10px; padding:11px 12px; text-align:center; font-size:12px; font-weight:800; transition:all 0.15s; }
+    body.dragging-file-active .trash-drop-zone { display:block; animation:sdPulseTrash 1.2s ease-in-out infinite; }
+    .trash-drop-zone.drag-active { background:rgba(239,68,68,0.22); border-style:solid; transform:scale(1.01); animation:none; }
+    body.dragging-file-active #nav-trash, body.dragging-file-active .insp-trash-tab { background:rgba(239,68,68,0.14); color:#dc2626 !important; border-radius:8px; }
+    body.dragging-file-active .list-panel { outline:2px dashed rgba(239,68,68,0.45); outline-offset:-3px; }
+    @keyframes sdPulseTrash { 0%,100% { border-color:#ef4444; } 50% { border-color:#fca5a5; } }
+    .more-actions-drawer { display:none; width:100%; margin-top:4px; padding-top:5px; border-top:1px dashed var(--border); gap:5px; flex-wrap:wrap; }
+    .more-actions-drawer.open { display:flex; }
+    .sd-toast-box { position:fixed; right:20px; bottom:20px; z-index:400; display:flex; flex-direction:column; gap:8px; max-width:410px; pointer-events:none; }
+    .sd-toast { pointer-events:auto; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.28); border-radius:12px; padding:11px 14px; font-size:12.5px; font-weight:600; box-shadow:0 12px 30px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .sd-toast-btn { background:#3b82f6; color:#fff; border:none; border-radius:7px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+    .sd-toast-btn:hover { background:#2563eb; }
 `;
 
 const studioHtml = `
@@ -320,8 +345,16 @@ const studioHtml = `
       </div>
       <div style="padding:18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
         <p style="font-size:12.5px;color:var(--text-secondary);">
-          Reorder or uncheck files below. Any file you edited in PDF Studio, DOCX Studio, or Image Canvas automatically uses your <strong>Edited Version</strong>; untouched Word docs &amp; images convert to PDF automatically during merge.
+          Reorder, uncheck, or move unwanted files to Trash. Drop any newly edited Word (.docx), PDF, or Image files below to include them in this single print job.
         </p>
+        <div id="mergeDropZone" class="drop-in-zone"
+          onclick="document.getElementById('mergeAddFileInput').click()"
+          ondragover="handleAddZoneDragOver(event)"
+          ondragleave="this.classList.remove('drag-active')"
+          ondrop="handleAddZoneDrop(event, mergeQueue.submissionId, true)">
+          📥 Drag &amp; drop edited Word / PDF / Image files here to add to this merge (or click to browse)
+          <input type="file" id="mergeAddFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){uploadLocalFilesToSubmission(mergeQueue.submissionId,this.files,true);this.value='';}">
+        </div>
         <div id="mergeQueueList" style="display:flex;flex-direction:column;gap:8px;"></div>
         <div id="mergeProgressMsg" style="font-size:12.5px;font-weight:700;color:var(--primary);display:none;"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;">
@@ -331,6 +364,9 @@ const studioHtml = `
       </div>
     </div>
   </div>
+
+  <!-- NON-BLOCKING TOAST NOTIFICATIONS (with Undo / Open in Word) -->
+  <div id="sdToastBox" class="sd-toast-box"></div>
 `;
 
 const studioJs = `
@@ -1443,10 +1479,278 @@ const studioJs = `
           '<div style="display:flex;gap:4px;">' +
             '<button class="mini-btn" onclick="mergeMove(' + idx + ',-1)" title="Move Up">↑</button>' +
             '<button class="mini-btn" onclick="mergeMove(' + idx + ',1)" title="Move Down">↓</button>' +
-            '<button class="mini-btn" onclick="closeStudioModal(\\'mergePrintModal\\');openSmartEditorById(\\'' + esc(f.id) + '\\',\\'' + esc(mergeQueue.submissionId) + '\\')">✏️ Edit</button>' +
+            '<button class="mini-btn" style="color:var(--danger);" onclick="mergeTrashFile(\\'' + esc(f.id) + '\\',\\'' + esc(f.originalName) + '\\')" title="Move to Trash">🗑</button>' +
           '</div>' +
         '</div>';
       }).join('');
+    }
+
+    async function mergeTrashFile(fileId, fileName) {
+      await trashFile(fileId, fileName);
+      if (mergeQueue.submissionId) openMergeModal(mergeQueue.submissionId);
+    }
+
+    // ------------------------------------------------------------------------
+    // 5. PDF -> WORD (.docx), DRAG-OUT-TO-TRASH, DRAG-IN-TO-ADD & TOASTS
+    // ------------------------------------------------------------------------
+    function showToast(message, actionLabel, actionFn, durationMs) {
+      const box = document.getElementById('sdToastBox');
+      if (!box) return;
+      const el = document.createElement('div');
+      el.className = 'sd-toast';
+      const txt = document.createElement('span');
+      txt.textContent = message;
+      el.appendChild(txt);
+      if (actionLabel && typeof actionFn === 'function') {
+        const btn = document.createElement('button');
+        btn.className = 'sd-toast-btn';
+        btn.textContent = actionLabel;
+        btn.onclick = () => { el.remove(); actionFn(); };
+        el.appendChild(btn);
+      }
+      box.appendChild(el);
+      setTimeout(() => { try { el.remove(); } catch {} }, durationMs || 6500);
+    }
+
+    async function convertPdfToWord(fileId, fileName, btnEl) {
+      const origText = btnEl ? btnEl.textContent : '';
+      if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Converting...'; }
+      showToast('Converting "' + fileName + '" to editable Word (.docx)...', null, null, 4500);
+      try {
+        const res = await fetch('/api/file/convert-docx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          alert('PDF to Word failed: ' + (data.error || 'Ensure Microsoft Word or LibreOffice is installed.'));
+          return;
+        }
+        await fetchCloudState(true);
+        // Trigger immediate download so shopkeeper can open & edit in Word, then drag back in!
+        const a = document.createElement('a');
+        a.href = data.downloadUrl || (data.url + '&download=1');
+        a.download = data.outputFilename || 'converted.docx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        showToast(
+          '✓ Downloaded ' + data.outputFilename + ' (' + data.engine + '). Edit in Word, then drag it back here!',
+          '↗ Open in Word',
+          () => openConvertedNative(data.outputFilename),
+          10000
+        );
+      } catch (err) {
+        alert('PDF to Word error: ' + err.message);
+      } finally {
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = origText; }
+      }
+    }
+
+    async function openConvertedNative(name) {
+      try {
+        const res = await fetch('/api/converted/open', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        if (!res.ok) alert('Could not open converted file.');
+      } catch {}
+    }
+
+    async function trashFile(fileId, fileName) {
+      const res = await fetch('/api/file/trash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Could not move file to Trash: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('🗑️ Moved "' + (fileName || 'file') + '" to Trash', '↩ Undo', () => restoreFile(fileId, fileName), 7000);
+    }
+
+    async function restoreFile(fileId, fileName) {
+      const res = await fetch('/api/file/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Restore failed: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('↩ Restored "' + (fileName || 'file') + '" back to submission', null, null, 3500);
+    }
+
+    async function deleteFilePermanent(fileId, fileName) {
+      if (!confirm('Permanently delete "' + (fileName || 'this file') + '" from disk?')) return;
+      const res = await fetch('/api/file/delete-permanent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Delete failed: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('Deleted permanently (freed ' + formatSize(data.freedBytes) + ')', null, null, 3500);
+    }
+
+    async function emptyTrash(submissionId) {
+      const msg = submissionId
+        ? 'Permanently delete all trashed files in this submission?'
+        : 'Permanently empty ALL files in Trash across all submissions?';
+      if (!confirm(msg)) return;
+      const res = await fetch('/api/trash/empty', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submissionId ? { submissionId } : {})
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Empty Trash failed: ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      showToast('🧹 Emptied Trash (' + data.deletedCount + ' file(s), freed ' + formatSize(data.freedBytes) + ')', null, null, 4500);
+    }
+
+    async function uploadLocalFilesToSubmission(submissionId, fileList, refreshMerge) {
+      if (!submissionId || !fileList || fileList.length === 0) return;
+      const files = Array.from(fileList);
+      showToast('Adding ' + files.length + ' file(s) to ' + submissionId + '...', null, null, 3000);
+      let added = 0;
+      const errs = [];
+      for (const f of files) {
+        try {
+          const res = await fetch('/api/submission/add-file', {
+            method: 'POST',
+            headers: {
+              'Content-Type': f.type || 'application/octet-stream',
+              'X-Submission-Id': submissionId,
+              'X-File-Name': encodeURIComponent(f.name)
+            },
+            body: f
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) errs.push(f.name + ': ' + (data.error || 'failed'));
+          else added++;
+        } catch (err) {
+          errs.push(f.name + ': ' + err.message);
+        }
+      }
+      await fetchCloudState(true);
+      if (refreshMerge && mergeQueue.submissionId) openMergeModal(mergeQueue.submissionId);
+      if (added > 0) showToast('✓ Added ' + added + ' file(s) to ' + submissionId + ' — ready to Merge & Print!', null, null, 5000);
+      if (errs.length > 0) alert('Some files could not be added:\\n' + errs.join('\\n'));
+    }
+
+    let draggingFileState = null;
+
+    function handleFileCardDragStart(ev, fileId, fileName, subId) {
+      draggingFileState = { fileId, fileName, subId, handled: false };
+      ev.dataTransfer.effectAllowed = 'move';
+      try { ev.dataTransfer.setData('application/x-scandrop-file', fileId); } catch {}
+      try { ev.dataTransfer.setData('text/plain', fileName); } catch {}
+      if (ev.currentTarget) ev.currentTarget.classList.add('dragging');
+      document.body.classList.add('dragging-file-active');
+    }
+
+    function handleFileCardDragEnd(ev, fileId, fileName) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('dragging');
+      document.body.classList.remove('dragging-file-active');
+      document.querySelectorAll('.drag-over-card,.drag-active').forEach(n => n.classList.remove('drag-over-card', 'drag-active'));
+      const st = draggingFileState;
+      draggingFileState = null;
+      if (!st || st.handled) return;
+
+      // Intuitive "drag out of the list" -> automatically move to Trash!
+      const listEl = document.getElementById('inspectorFilesScroll');
+      if (listEl && (ev.clientX !== 0 || ev.clientY !== 0)) {
+        const r = listEl.getBoundingClientRect();
+        const pad = 18;
+        const outside = ev.clientX < (r.left - pad) || ev.clientX > (r.right + pad) || ev.clientY < (r.top - pad) || ev.clientY > (r.bottom + pad);
+        if (outside) {
+          trashFile(fileId, fileName);
+        }
+      }
+    }
+
+    function handleFileCardDragOver(ev, targetFileId) {
+      if (draggingFileState && draggingFileState.fileId !== targetFileId) {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        if (ev.currentTarget) ev.currentTarget.classList.add('drag-over-card');
+      } else if (ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('Files')) {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'copy';
+      }
+    }
+
+    async function handleFileCardDrop(ev, targetFileId, subId) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('drag-over-card');
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await uploadLocalFilesToSubmission(subId, ev.dataTransfer.files, false);
+        return;
+      }
+      if (!draggingFileState || draggingFileState.fileId === targetFileId) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      draggingFileState.handled = true;
+      const sub = (cloudState.submissions || []).find(s => s.id === subId || s.receiptCode === subId);
+      if (!sub) return;
+      const ids = (sub.files || []).map(f => f.id);
+      const fromIdx = ids.indexOf(draggingFileState.fileId);
+      const toIdx = ids.indexOf(targetFileId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      ids.splice(fromIdx, 1);
+      ids.splice(toIdx, 0, draggingFileState.fileId);
+      await fetch('/api/submission/reorder-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: sub.id, fileIds: ids })
+      });
+      await fetchCloudState(true);
+    }
+
+    function handleTrashZoneDragOver(ev) {
+      if (!draggingFileState) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('drag-active');
+    }
+
+    async function handleTrashZoneDrop(ev) {
+      if (!draggingFileState) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
+      const st = draggingFileState;
+      st.handled = true;
+      await trashFile(st.fileId, st.fileName);
+    }
+
+    function handleAddZoneDragOver(ev) {
+      if (draggingFileState) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'copy';
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('drag-active');
+    }
+
+    async function handleAddZoneDrop(ev, subId, refreshMerge) {
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
+      if (draggingFileState) return;
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await uploadLocalFilesToSubmission(subId, ev.dataTransfer.files, !!refreshMerge);
+      }
+    }
+
+    function toggleCardMore(fileId, ev) {
+      if (ev) ev.stopPropagation();
+      const el = document.getElementById('more_' + fileId);
+      if (el) el.classList.toggle('open');
     }
 
     function mergeMove(idx, delta) {

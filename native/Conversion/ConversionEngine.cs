@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Microsoft.Win32;
 using ScanDrop.Native.Core;
 using ScanDrop.Native.Storage;
 
@@ -275,6 +276,189 @@ namespace ScanDrop.Native.Conversion
                 return Fail("Microsoft Word PDF conversion timed out after 40 seconds.");
             }
             return result ?? Fail("Unknown Word conversion error.");
+        }
+
+        /// <summary>
+        /// Converts a PDF file into an editable Microsoft Word (.docx) document using Microsoft Word's
+        /// native PDF Reflow engine (preferred) or LibreOffice Writer as fallback.
+        /// </summary>
+        public ConversionResult ConvertPdfToDocx(string pdfPath, string preferredBaseName)
+        {
+            if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+                return Fail("Source PDF not found on disk.");
+
+            if (!Directory.Exists(_paths.ConvertedDir)) Directory.CreateDirectory(_paths.ConvertedDir);
+            string cleanBase = StorageManager.SanitizeDisplayName(
+                string.IsNullOrWhiteSpace(preferredBaseName) ? Path.GetFileNameWithoutExtension(pdfPath) : preferredBaseName
+            );
+            if (cleanBase.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                cleanBase = cleanBase.Substring(0, cleanBase.Length - 4);
+            if (cleanBase.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+                cleanBase = cleanBase.Substring(0, cleanBase.Length - 5);
+            if (string.IsNullOrWhiteSpace(cleanBase)) cleanBase = "document";
+
+            string desiredName = cleanBase + ".docx";
+            string outPath = Path.Combine(_paths.ConvertedDir, desiredName);
+            if (File.Exists(outPath))
+            {
+                desiredName = cleanBase + "_" + DateTime.UtcNow.ToString("HHmmss", CultureInfo.InvariantCulture) + ".docx";
+                outPath = Path.Combine(_paths.ConvertedDir, desiredName);
+            }
+
+            if (IsMicrosoftWordInstalled())
+            {
+                return ConvertPdfToDocxWithWordCom(pdfPath, outPath);
+            }
+
+            string soffice = FindLibreOfficePath();
+            if (!string.IsNullOrEmpty(soffice))
+            {
+                return ConvertPdfToDocxWithLibreOffice(soffice, pdfPath, outPath);
+            }
+
+            return Fail("Microsoft Word or LibreOffice is required to convert PDF to editable Word (.docx).");
+        }
+
+        private ConversionResult ConvertPdfToDocxWithWordCom(string pdfPath, string outDocxPath)
+        {
+            string fullSrc = Path.GetFullPath(pdfPath);
+            string fullOut = Path.GetFullPath(outDocxPath);
+            ConversionResult result = null;
+
+            var t = new Thread(() =>
+            {
+                object wordApp = null;
+                object docs = null;
+                object doc = null;
+                try
+                {
+                    // Suppress Microsoft Word's one-time "Word will now convert your PDF" modal dialog
+                    string[] verKeys = new[] { @"Software\Microsoft\Office\16.0\Word\Options", @"Software\Microsoft\Office\15.0\Word\Options" };
+                    foreach (var vk in verKeys)
+                    {
+                        try
+                        {
+                            using (var k = Registry.CurrentUser.CreateSubKey(vk))
+                            {
+                                if (k != null) k.SetValue("DisableConvertPdfWarning", 1, RegistryValueKind.DWord);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    Type wordType = Type.GetTypeFromProgID("Word.Application");
+                    if (wordType == null)
+                    {
+                        result = Fail("Microsoft Word COM automation is unavailable.");
+                        return;
+                    }
+                    wordApp = Activator.CreateInstance(wordType);
+                    wordType.InvokeMember("Visible", BindingFlags.SetProperty, null, wordApp, new object[] { false });
+                    wordType.InvokeMember("DisplayAlerts", BindingFlags.SetProperty, null, wordApp, new object[] { 0 });
+                    try { wordType.InvokeMember("AutomationSecurity", BindingFlags.SetProperty, null, wordApp, new object[] { 3 }); } catch { }
+
+                    docs = wordType.InvokeMember("Documents", BindingFlags.GetProperty, null, wordApp, null);
+                    // FileName, ConfirmConversions=false, ReadOnly=true, AddToRecentFiles=false
+                    doc = docs.GetType().InvokeMember("Open", BindingFlags.InvokeMethod, null, docs,
+                        new object[] { fullSrc, false, true, false });
+
+                    // 12 = wdFormatXMLDocument (.docx)
+                    doc.GetType().InvokeMember("SaveAs2", BindingFlags.InvokeMethod, null, doc,
+                        new object[] { fullOut, 12 });
+                    doc.GetType().InvokeMember("Close", BindingFlags.InvokeMethod, null, doc, new object[] { false });
+
+                    if (!File.Exists(fullOut))
+                    {
+                        result = Fail("Microsoft Word did not produce a .docx file.");
+                        return;
+                    }
+                    _logger.Info("Conversion", "Word COM PDF->DOCX: " + Path.GetFileName(fullSrc) + " -> " + Path.GetFileName(fullOut));
+                    result = new ConversionResult
+                    {
+                        Success = true,
+                        OutputPath = fullOut,
+                        OutputFilename = Path.GetFileName(fullOut),
+                        OutputSizeBytes = new FileInfo(fullOut).Length,
+                        EngineUsed = "Microsoft Word"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    string msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                    _logger.Error("Conversion", "Word COM PDF->DOCX error: " + msg);
+                    result = Fail("PDF to Word conversion failed: " + msg);
+                }
+                finally
+                {
+                    try { if (doc != null) Marshal.ReleaseComObject(doc); } catch { }
+                    try { if (docs != null) Marshal.ReleaseComObject(docs); } catch { }
+                    try
+                    {
+                        if (wordApp != null)
+                        {
+                            wordApp.GetType().InvokeMember("Quit", BindingFlags.InvokeMethod, null, wordApp, new object[] { false });
+                            Marshal.ReleaseComObject(wordApp);
+                        }
+                    }
+                    catch { }
+                }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            if (!t.Join(60000))
+            {
+                return Fail("PDF to Word conversion timed out after 60 seconds (file may be very large or password-protected).");
+            }
+            return result ?? Fail("Unknown PDF to Word conversion error.");
+        }
+
+        private ConversionResult ConvertPdfToDocxWithLibreOffice(string soffice, string pdfPath, string outDocxPath)
+        {
+            string tempOut = Path.Combine(_paths.TempDir, "lo_pdf2docx_" + Guid.NewGuid().ToString("N"));
+            string profileDir = Path.Combine(tempOut, "profile");
+            Directory.CreateDirectory(profileDir);
+            try
+            {
+                string profileUri = new Uri(profileDir).AbsoluteUri;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = soffice,
+                    Arguments = "-env:UserInstallation=" + profileUri + " --headless --norestore --nolockcheck --nodefault --nofirststartwizard --infilter=\"writer_pdf_import\" --convert-to docx --outdir \"" + tempOut + "\" \"" + pdfPath + "\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var proc = Process.Start(psi))
+                {
+                    if (proc == null) return Fail("Could not launch LibreOffice.");
+                    if (!proc.WaitForExit(60000))
+                    {
+                        try { proc.Kill(); } catch { }
+                        return Fail("LibreOffice PDF to Word conversion timed out after 60s.");
+                    }
+                }
+                string[] docxFiles = Directory.GetFiles(tempOut, "*.docx");
+                if (docxFiles.Length == 0) return Fail("LibreOffice did not produce a .docx output.");
+                File.Copy(docxFiles[0], outDocxPath, true);
+                return new ConversionResult
+                {
+                    Success = true,
+                    OutputPath = outDocxPath,
+                    OutputFilename = Path.GetFileName(outDocxPath),
+                    OutputSizeBytes = new FileInfo(outDocxPath).Length,
+                    EngineUsed = "LibreOffice Writer"
+                };
+            }
+            catch (Exception ex)
+            {
+                return Fail("LibreOffice PDF to Word error: " + ex.Message);
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true); } catch { }
+            }
         }
 
         /// <summary>

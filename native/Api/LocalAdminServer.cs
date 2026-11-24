@@ -6,6 +6,7 @@ using System.Drawing.Printing;
 using System.Globalization;
 using System.IO;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using ScanDrop.Native.Conversion;
@@ -423,6 +424,54 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (path == "/api/file/convert-docx" && req.HttpMethod == "POST")
+                {
+                    HandleConvertPdfToDocx(req, res);
+                    return;
+                }
+
+                if (path == "/api/converted/open" && req.HttpMethod == "POST")
+                {
+                    HandleOpenConverted(req, res);
+                    return;
+                }
+
+                if (path == "/api/file/trash" && req.HttpMethod == "POST")
+                {
+                    HandleTrashOrRestoreFiles(req, res, true);
+                    return;
+                }
+
+                if (path == "/api/file/restore" && req.HttpMethod == "POST")
+                {
+                    HandleTrashOrRestoreFiles(req, res, false);
+                    return;
+                }
+
+                if (path == "/api/file/delete-permanent" && req.HttpMethod == "POST")
+                {
+                    HandleDeleteFilePermanent(req, res);
+                    return;
+                }
+
+                if (path == "/api/trash/empty" && req.HttpMethod == "POST")
+                {
+                    HandleEmptyTrash(req, res);
+                    return;
+                }
+
+                if (path == "/api/submission/add-file" && req.HttpMethod == "POST")
+                {
+                    HandleAddFileToSubmission(req, res);
+                    return;
+                }
+
+                if (path == "/api/submission/reorder-files" && req.HttpMethod == "POST")
+                {
+                    HandleReorderSubmissionFiles(req, res);
+                    return;
+                }
+
                 if (path == "/api/printers" && req.HttpMethod == "GET")
                 {
                     HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
@@ -681,7 +730,24 @@ namespace ScanDrop.Native.Api
                         { "sha256Hash", f.Checksum },
                         { "conversionStatus", f.ConversionStatus },
                         { "convertedUrl", !string.IsNullOrEmpty(f.ConvertedPath) ? ("/api/converted?name=" + Uri.EscapeDataString(Path.GetFileName(f.ConvertedPath))) : null },
-                        { "receivedAt", f.ReceivedAt }
+                        { "receivedAt", f.ReceivedAt },
+                        { "sortOrder", f.SortOrder }
+                    });
+                }
+
+                var tfDtos = new List<object>();
+                foreach (var tf in s.TrashedFiles)
+                {
+                    tfDtos.Add(new Dictionary<string, object>
+                    {
+                        { "id", tf.FileId },
+                        { "submissionId", s.ReceiptCode },
+                        { "receiptCode", s.ReceiptCode },
+                        { "customerName", s.CustomerName },
+                        { "originalName", tf.OriginalFilename },
+                        { "fileExtension", tf.FileExtension },
+                        { "sizeBytes", tf.FileSize },
+                        { "trashedAt", tf.TrashedAt ?? tf.ReceivedAt }
                     });
                 }
 
@@ -695,9 +761,36 @@ namespace ScanDrop.Native.Api
                     { "instructions", s.CustomerNote },
                     { "status", s.Status },
                     { "files", fDtos },
+                    { "trashedFiles", tfDtos },
                     { "totalSizeBytes", s.TotalSize },
                     { "createdAt", s.CompletedAt ?? s.CreatedAt },
                     { "expiresAt", s.ExpiresAt }
+                });
+            }
+
+            var globalTrashDtos = new List<object>();
+            var trashRows = _db.GetAllTrashedFilesWithParent();
+            foreach (var tr in trashRows)
+            {
+                object v;
+                string fid = tr.TryGetValue("file_id", out v) && v != null ? Convert.ToString(v) : "";
+                string sid = tr.TryGetValue("submission_id", out v) && v != null ? Convert.ToString(v) : "";
+                string rcode = tr.TryGetValue("receipt_code", out v) && v != null ? Convert.ToString(v) : sid;
+                string cname = tr.TryGetValue("customer_name", out v) && v != null ? Convert.ToString(v) : "Anonymous";
+                string oname = tr.TryGetValue("original_filename", out v) && v != null ? Convert.ToString(v) : "";
+                string fext = tr.TryGetValue("file_extension", out v) && v != null ? Convert.ToString(v) : "";
+                long fsize = tr.TryGetValue("file_size", out v) && v != null ? Convert.ToInt64(v, CultureInfo.InvariantCulture) : 0;
+                string tat = tr.TryGetValue("trashed_at", out v) && v != null ? Convert.ToString(v) : "";
+                globalTrashDtos.Add(new Dictionary<string, object>
+                {
+                    { "id", fid },
+                    { "submissionId", rcode },
+                    { "receiptCode", rcode },
+                    { "customerName", cname },
+                    { "originalName", oname },
+                    { "fileExtension", fext },
+                    { "sizeBytes", fsize },
+                    { "trashedAt", tat }
                 });
             }
 
@@ -718,7 +811,11 @@ namespace ScanDrop.Native.Api
             var convertedList = new List<object>();
             if (Directory.Exists(_storage.Paths.ConvertedDir))
             {
-                foreach (var f in Directory.GetFiles(_storage.Paths.ConvertedDir, "*.pdf"))
+                var convFiles = new List<string>();
+                convFiles.AddRange(Directory.GetFiles(_storage.Paths.ConvertedDir, "*.pdf"));
+                convFiles.AddRange(Directory.GetFiles(_storage.Paths.ConvertedDir, "*.docx"));
+                convFiles.Sort((a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                foreach (var f in convFiles)
                 {
                     try
                     {
@@ -726,6 +823,7 @@ namespace ScanDrop.Native.Api
                         convertedList.Add(new Dictionary<string, object>
                         {
                             { "name", fi.Name },
+                            { "ext", fi.Extension.ToLowerInvariant() },
                             { "sizeBytes", fi.Length },
                             { "createdAt", fi.LastWriteTimeUtc.ToString("o") },
                             { "url", "/api/converted?name=" + Uri.EscapeDataString(fi.Name) }
@@ -754,6 +852,7 @@ namespace ScanDrop.Native.Api
             {
                 { "shops", new List<object> { shopObj } },
                 { "submissions", subDtos },
+                { "trashedFiles", globalTrashDtos },
                 { "auditEvents", actDtos },
                 { "convertedFiles", convertedList },
                 { "printerProfiles", GetInstalledPrinters() }
@@ -1237,6 +1336,278 @@ namespace ScanDrop.Native.Api
                 { "engine", conv.EngineUsed },
                 { "url", "/api/converted?name=" + Uri.EscapeDataString(conv.OutputFilename) }
             });
+        }
+
+        private void HandleConvertPdfToDocx(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string fileId = HttpHelpers.GetStr(body, "fileId");
+            var file = _db.GetFileById(fileId);
+            if (file == null || !File.Exists(file.StoragePath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "PDF file not found." } });
+                return;
+            }
+            string ext = (file.FileExtension ?? "").ToLowerInvariant();
+            if (ext != ".pdf")
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Only .pdf files can be converted to Word (.docx)." } });
+                return;
+            }
+
+            string baseName = Path.GetFileNameWithoutExtension(file.OriginalFilename);
+            var conv = _converter.ConvertPdfToDocx(file.StoragePath, baseName);
+            if (!conv.Success)
+            {
+                HttpHelpers.WriteJson(res, 422, new Dictionary<string, object> { { "success", false }, { "error", conv.ErrorMessage } });
+                return;
+            }
+
+            _db.AddActivity("PDF_TO_DOCX", "shopkeeper", file.SubmissionId,
+                "Converted " + file.OriginalFilename + " -> " + conv.OutputFilename + " (" + conv.EngineUsed + ")");
+            FireStateChanged();
+
+            string url = "/api/converted?name=" + Uri.EscapeDataString(conv.OutputFilename);
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "outputFilename", conv.OutputFilename },
+                { "sizeBytes", conv.OutputSizeBytes },
+                { "engine", conv.EngineUsed },
+                { "url", url },
+                { "downloadUrl", url + "&download=1" }
+            });
+        }
+
+        private void HandleOpenConverted(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string name = Path.GetFileName(HttpHelpers.GetStr(body, "name") ?? "");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Converted filename required." } });
+                return;
+            }
+            string fullPath = Path.Combine(_storage.Paths.ConvertedDir, name);
+            if (!File.Exists(fullPath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Converted file not found." } });
+                return;
+            }
+            Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+        }
+
+        private void HandleTrashOrRestoreFiles(HttpListenerRequest req, HttpListenerResponse res, bool toTrash)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            var ids = ExtractStringIds(body, "fileId", "fileIds");
+            if (ids.Count == 0)
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "No fileId provided." } });
+                return;
+            }
+
+            int updated = 0;
+            foreach (var fid in ids)
+            {
+                var f = _db.GetFileById(fid);
+                if (f == null) continue;
+                _db.SetFileTrashed(fid, toTrash);
+                _db.AddActivity(toTrash ? "FILE_TRASHED" : "FILE_RESTORED", "shopkeeper", f.SubmissionId,
+                    (toTrash ? "Moved " : "Restored ") + f.OriginalFilename + (toTrash ? " to Trash." : " from Trash."));
+                updated++;
+            }
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "updatedCount", updated },
+                { "trashed", toTrash }
+            });
+        }
+
+        private void HandleDeleteFilePermanent(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            var ids = ExtractStringIds(body, "fileId", "fileIds");
+            long freed = 0;
+            int deleted = 0;
+            foreach (var fid in ids)
+            {
+                var f = _db.GetFileById(fid);
+                if (f == null) continue;
+                freed += _storage.DeleteSingleFilePermanently(fid);
+                deleted++;
+            }
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "deletedCount", deleted },
+                { "freedBytes", freed }
+            });
+        }
+
+        private void HandleEmptyTrash(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string subFilter = HttpHelpers.GetStr(body, "submissionId");
+            string resolvedSubId = null;
+            if (!string.IsNullOrWhiteSpace(subFilter))
+            {
+                var sub = _db.GetSubmissionByReceiptOrId(subFilter);
+                if (sub != null) resolvedSubId = sub.SubmissionId;
+            }
+
+            var trashed = _db.GetAllTrashedFilesWithParent();
+            int deleted = 0;
+            long freed = 0;
+            foreach (var row in trashed)
+            {
+                object v;
+                string fid = row.TryGetValue("file_id", out v) && v != null ? Convert.ToString(v) : "";
+                string sid = row.TryGetValue("submission_id", out v) && v != null ? Convert.ToString(v) : "";
+                if (!string.IsNullOrEmpty(resolvedSubId) && !string.Equals(sid, resolvedSubId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.IsNullOrEmpty(fid)) continue;
+                freed += _storage.DeleteSingleFilePermanently(fid);
+                deleted++;
+            }
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "deletedCount", deleted },
+                { "freedBytes", freed }
+            });
+        }
+
+        private void HandleAddFileToSubmission(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string subKey = req.Headers["X-Submission-Id"];
+            string rawName = req.Headers["X-File-Name"];
+            if (!string.IsNullOrEmpty(rawName))
+            {
+                try { rawName = Uri.UnescapeDataString(rawName); } catch { }
+            }
+
+            var sub = _db.GetSubmissionByReceiptOrId(subKey);
+            if (sub == null)
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Submission not found." } });
+                return;
+            }
+
+            string displayName = StorageManager.SanitizeDisplayName(string.IsNullOrWhiteSpace(rawName) ? "added_file.pdf" : rawName);
+            string ext = Path.GetExtension(displayName).ToLowerInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = ".bin";
+
+            string subDir = Path.Combine(_storage.Paths.ReceivedDir, sub.SubmissionId);
+            if (!Directory.Exists(subDir)) Directory.CreateDirectory(subDir);
+
+            string internalName = _storage.GenerateInternalFilename(ext);
+            string destPath = Path.Combine(subDir, internalName);
+
+            long writtenBytes = 0;
+            string shaHex;
+            using (var sha = SHA256.Create())
+            using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                byte[] buf = new byte[65536];
+                int read;
+                while ((read = req.InputStream.Read(buf, 0, buf.Length)) > 0)
+                {
+                    fs.Write(buf, 0, read);
+                    sha.TransformBlock(buf, 0, read, null, 0);
+                    writtenBytes += read;
+                }
+                sha.TransformFinalBlock(new byte[0], 0, 0);
+                shaHex = BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+            }
+
+            if (writtenBytes <= 0)
+            {
+                try { File.Delete(destPath); } catch { }
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Dropped file is empty." } });
+                return;
+            }
+
+            string nowIso = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            var fileRec = new FileRecord
+            {
+                FileId = "file_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                SubmissionId = sub.SubmissionId,
+                OriginalFilename = displayName,
+                InternalFilename = internalName,
+                ContentType = string.IsNullOrWhiteSpace(req.ContentType) ? "application/octet-stream" : req.ContentType,
+                FileExtension = ext,
+                FileSize = writtenBytes,
+                Checksum = shaHex,
+                StoragePath = destPath,
+                ConversionStatus = "none",
+                ConvertedPath = null,
+                ReceivedAt = nowIso,
+                IsTrashed = false,
+                TrashedAt = null,
+                SortOrder = _db.GetNextFileSortOrder(sub.SubmissionId)
+            };
+
+            _db.InsertFile(fileRec);
+            _db.RecalculateSubmissionTotalSize(sub.SubmissionId);
+            _db.AddActivity("FILE_ADDED_LOCAL", "shopkeeper", sub.SubmissionId,
+                "Added local file '" + displayName + "' (" + writtenBytes + " B) to " + sub.ReceiptCode + " for editing/merging.");
+            FireStateChanged();
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "file", new Dictionary<string, object>
+                    {
+                        { "id", fileRec.FileId },
+                        { "submissionId", sub.ReceiptCode },
+                        { "originalName", fileRec.OriginalFilename },
+                        { "fileExtension", fileRec.FileExtension },
+                        { "sizeBytes", fileRec.FileSize },
+                        { "sortOrder", fileRec.SortOrder }
+                    }
+                }
+            });
+        }
+
+        private void HandleReorderSubmissionFiles(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string subKey = HttpHelpers.GetStr(body, "submissionId");
+            var sub = _db.GetSubmissionByReceiptOrId(subKey);
+            if (sub == null)
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Submission not found." } });
+                return;
+            }
+            var orderedIds = ExtractStringIds(body, null, "fileIds");
+            _db.UpdateSubmissionFileOrder(sub.SubmissionId, orderedIds);
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+        }
+
+        private static List<string> ExtractStringIds(Dictionary<string, object> body, string singleKey, string listKey)
+        {
+            var ids = new List<string>();
+            if (!string.IsNullOrEmpty(singleKey))
+            {
+                string single = HttpHelpers.GetStr(body, singleKey);
+                if (!string.IsNullOrWhiteSpace(single)) ids.Add(single.Trim());
+            }
+            object rawList;
+            if (!string.IsNullOrEmpty(listKey) && body != null && body.TryGetValue(listKey, out rawList) && rawList is System.Collections.IEnumerable && !(rawList is string))
+            {
+                foreach (var item in (System.Collections.IEnumerable)rawList)
+                {
+                    string s = Convert.ToString(item);
+                    if (!string.IsNullOrWhiteSpace(s) && !ids.Contains(s.Trim())) ids.Add(s.Trim());
+                }
+            }
+            return ids;
         }
 
         private void HandleNativePrint(HttpListenerRequest req, HttpListenerResponse res)

@@ -153,7 +153,7 @@ namespace ScanDrop.Native.Storage
 
         public void DeleteSubmissionFilesFromDisk(string submissionId)
         {
-            var files = _db.GetFilesForSubmission(submissionId);
+            var files = _db.GetFilesForSubmission(submissionId, true);
             foreach (var f in files)
             {
                 TryDeleteFile(f.StoragePath);
@@ -161,6 +161,20 @@ namespace ScanDrop.Native.Storage
             }
             string subDir = Path.Combine(_paths.ReceivedDir, submissionId);
             if (Directory.Exists(subDir)) try { Directory.Delete(subDir, true); } catch { }
+        }
+
+        public long DeleteSingleFilePermanently(string fileId)
+        {
+            var f = _db.DeleteSingleFileRecord(fileId);
+            if (f == null) return 0;
+            long freed = 0;
+            try { if (!string.IsNullOrEmpty(f.StoragePath) && File.Exists(f.StoragePath)) freed += new FileInfo(f.StoragePath).Length; } catch { }
+            try { if (!string.IsNullOrEmpty(f.ConvertedPath) && File.Exists(f.ConvertedPath)) freed += new FileInfo(f.ConvertedPath).Length; } catch { }
+            TryDeleteFile(f.StoragePath);
+            if (!string.IsNullOrEmpty(f.ConvertedPath)) TryDeleteFile(f.ConvertedPath);
+            _db.AddActivity("FILE_DELETED", "shopkeeper", f.SubmissionId, "Permanently deleted " + f.OriginalFilename + " from Trash.");
+            FireChanged();
+            return freed;
         }
 
         public int DeleteSubmissions(IEnumerable<string> ids)

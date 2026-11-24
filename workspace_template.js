@@ -162,6 +162,10 @@ ${studioCss}
       <button class="nav-item" id="nav-fileManager" onclick="setTab('fileManager', this)">
         <span class="nav-left"><span>📁</span><span>File Manager</span></span>
       </button>
+      <button class="nav-item" id="nav-trash" onclick="setTab('trash', this)" ondragover="handleTrashZoneDragOver(event)" ondragleave="this.classList.remove('drag-active')" ondrop="handleTrashZoneDrop(event)">
+        <span class="nav-left"><span>🗑️</span><span>Trash</span></span>
+        <span class="badge badge-amber" id="badgeTrash" style="display:none;">0</span>
+      </button>
       <button class="nav-item" id="nav-qr" onclick="setTab('qr', this)">
         <span class="nav-left"><span>⊞</span><span>QR &amp; Sharing</span></span>
       </button>
@@ -245,7 +249,8 @@ ${studioHtml}
     const TAB_META = {
       dashboard: ['Dashboard', 'Station status, tunnel health, daily volume, and recent uploads'],
       inbox: ['File Inbox', 'Grouped customer submissions received on your Windows PC'],
-      fileManager: ['File Manager', 'Local storage breakdown, cleanup, and PDF conversion tools'],
+      fileManager: ['File Manager', 'Local storage breakdown, cleanup, and PDF / Word conversion outputs'],
+      trash: ['Trash', 'Individual files dragged out of submissions — restore anytime or delete permanently'],
       qr: ['QR & Sharing', 'Customer QR code and upload links for your shop counter'],
       activity: ['Activity Log', 'Operational events recorded in local SQLite database'],
       settings: ['Settings', 'Shop name, storage folder, retention, upload limits, printers & updates']
@@ -381,7 +386,8 @@ ${studioHtml}
         }
 
         const newKey = JSON.stringify({
-          subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, s.totalSizeBytes, (s.files || []).map(f => f.originalName + ':' + f.conversionStatus).join(',')]),
+          subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, (s.trashedFiles || []).length, s.totalSizeBytes, (s.files || []).map(f => f.id + ':' + f.originalName + ':' + f.conversionStatus + ':' + (f.sortOrder || 0)).join(',')]),
+          trash: (cloudState.trashedFiles || []).map(t => t.id).join(','),
           conv: (cloudState.convertedFiles || []).length,
           acts: (cloudState.auditEvents || []).length,
           paused: data.acceptingUploads,
@@ -733,6 +739,12 @@ ${studioHtml}
       const printedSubs = allSubs.filter(s => s.status === 'printed' || s.status === 'completed');
       const archivedSubs = allSubs.filter(s => s.status === 'archived');
       document.getElementById('badgeInbox').textContent = recSubs.length;
+      const globalTrash = cloudState.trashedFiles || [];
+      const bTrash = document.getElementById('badgeTrash');
+      if (bTrash) {
+        bTrash.textContent = globalTrash.length;
+        bTrash.style.display = globalTrash.length > 0 ? 'inline-block' : 'none';
+      }
 
       const q = (document.getElementById('searchInput').value || '').toLowerCase();
       const permanentUrl = (currentSettings.publicBaseUrl || 'https://scandrop-xi.vercel.app').replace(/[/]+$/, '') + '/shop/' + shop.slug;
@@ -822,15 +834,23 @@ ${studioHtml}
 
         let inspectorHtml = '';
         if (selectedSub) {
+          const subTrashed = selectedSub.trashedFiles || [];
           const inspFilesHtml = (selectedSub.files || []).map(f => {
             const [cls, lbl] = getFileBadge(f.fileExtension);
             const fExt = (f.fileExtension || '').toLowerCase();
+            const isPdf = fExt === '.pdf';
+            const isWord = fExt === '.docx' || fExt === '.doc';
+            const isImg = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(fExt);
             const isEdited = f.conversionStatus === 'edited' && !!f.convertedUrl;
-            const canEdit = ['.pdf', '.docx', '.doc', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(fExt);
-            const editLabel = fExt === '.pdf' ? '✏️ Edit PDF' : ((fExt === '.docx' || fExt === '.doc') ? '📝 Edit Doc' : '🖼️ Canvas');
             return \`
-              <div class="insp-file-card">
+              <div class="insp-file-card" draggable="true"
+                ondragstart="handleFileCardDragStart(event, '\${esc(f.id)}', '\${esc(f.originalName)}', '\${esc(selectedSub.id)}')"
+                ondragend="handleFileCardDragEnd(event, '\${esc(f.id)}', '\${esc(f.originalName)}')"
+                ondragover="handleFileCardDragOver(event, '\${esc(f.id)}')"
+                ondragleave="this.classList.remove('drag-over-card')"
+                ondrop="handleFileCardDrop(event, '\${esc(f.id)}', '\${esc(selectedSub.id)}')">
                 <div class="insp-file-top">
+                  <span class="drag-grip" title="Drag out to Trash, or drag up/down to reorder">⋮⋮</span>
                   <div class="file-type-box \${cls}">\${lbl}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="\${esc(f.originalName)}">\${esc(f.originalName)}</div>
@@ -839,30 +859,58 @@ ${studioHtml}
                       \${isEdited ? '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ Edited</span>' : (f.conversionStatus === 'converted' ? '<span>• PDF Ready</span>' : '')}
                     </div>
                   </div>
+                  <button class="card-trash-btn" title="Move to Trash (or drag card out)" onclick="trashFile('\${esc(f.id)}', '\${esc(f.originalName)}')">🗑</button>
                 </div>
                 <div class="insp-file-actions">
-                  \${canEdit ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')">\${editLabel}</button>\` : ''}
+                  \${isPdf ? \`<button class="mini-btn mini-btn-edit" onclick="convertPdfToWord('\${esc(f.id)}', '\${esc(f.originalName)}', this)" title="Convert PDF to editable Word (.docx) and download">📝 To Word</button>\` : ''}
+                  \${isWord ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open directly in Microsoft Word">↗ Edit in Word</button>\` : ''}
+                  \${isImg ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>\` : ''}
                   \${isEdited
                     ? \`<button class="mini-btn" onclick="previewUrl('\${esc(f.convertedUrl)}', '\${esc(f.originalName)} (Edited)', '.pdf', '\${esc(f.id)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="directPrint('\${esc(f.convertedUrl)}', '\${esc(f.originalName)}.pdf')">🖨 Print</button>\`
                     : \`<button class="mini-btn" onclick="previewFile('\${esc(f.id)}', '\${esc(f.originalName)}', '\${esc(f.fileExtension)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="openPrintModal('\${esc(f.id)}', '\${esc(f.originalName)}')">🖨 Print</button>\`}
-                  <button class="mini-btn" onclick="openFileNative('\${esc(f.id)}')">↗ Open</button>
-                  <button class="mini-btn" onclick="openFileWithNative('\${esc(f.id)}')">📂 Open With</button>
-                  <button class="mini-btn" onclick="convertFileToPdfServer('\${esc(f.id)}')">📄 To PDF</button>
-                  <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')">🏷️ Rename</button>
-                  <button class="mini-btn" onclick="exportFilePermanent('\${esc(f.id)}')">💾 Save As</button>
-                  <button class="mini-btn" onclick="revealFileInFolder('\${esc(f.id)}')">📁 Folder</button>
+                  <button class="mini-btn" onclick="downloadFile('\${esc(f.id)}', '\${esc(f.originalName)}')" title="Download file">⬇ Save</button>
+                  <button class="mini-btn" onclick="toggleCardMore('\${esc(f.id)}', event)" title="More actions">⋯</button>
+                  <div class="more-actions-drawer" id="more_\${esc(f.id)}">
+                    \${!isWord ? \`<button class="mini-btn" onclick="openFileNative('\${esc(f.id)}')">↗ Open</button>\` : ''}
+                    <button class="mini-btn" onclick="openFileWithNative('\${esc(f.id)}')">📂 Open With</button>
+                    \${!isPdf ? \`<button class="mini-btn" onclick="convertFileToPdfServer('\${esc(f.id)}')">📄 To PDF</button>\` : ''}
+                    \${(isPdf || isWord) ? \`<button class="mini-btn" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')">✏️ Quick Edit</button>\` : ''}
+                    <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')">🏷️ Rename</button>
+                    <button class="mini-btn" onclick="exportFilePermanent('\${esc(f.id)}')">💾 Export</button>
+                    <button class="mini-btn" onclick="revealFileInFolder('\${esc(f.id)}')">📁 Folder</button>
+                  </div>
                 </div>
               </div>
             \`;
           }).join('');
 
+          const inspTrashHtml = subTrashed.length === 0
+            ? '<div style="padding:26px 12px;text-align:center;color:var(--muted);font-size:12px;">No trashed files for this job.<br><span style="font-size:11px;">Drag any file card out of the Files list (or click 🗑) to move it here.</span></div>'
+            : subTrashed.map(tf => {
+                const [cls, lbl] = getFileBadge(tf.fileExtension);
+                return \`
+                  <div class="insp-file-card" style="opacity:0.92;border-style:dashed;">
+                    <div class="insp-file-top">
+                      <div class="file-type-box \${cls}">\${lbl}</div>
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="\${esc(tf.originalName)}">\${esc(tf.originalName)}</div>
+                        <div style="font-size:11px;color:var(--muted);">\${formatSize(tf.sizeBytes)} • Trashed \${timeAgo(tf.trashedAt)}</div>
+                      </div>
+                    </div>
+                    <div class="insp-file-actions">
+                      <button class="mini-btn mini-btn-edit" onclick="restoreFile('\${esc(tf.id)}', '\${esc(tf.originalName)}')">↩ Restore</button>
+                      <button class="mini-btn" style="color:var(--danger);" onclick="deleteFilePermanent('\${esc(tf.id)}', '\${esc(tf.originalName)}')">🗑 Delete Forever</button>
+                    </div>
+                  </div>
+                \`;
+              }).join('') + \`<button class="btn btn-danger-soft" style="width:100%;margin-top:6px;padding:7px;" onclick="emptyTrash('\${esc(selectedSub.id)}')">🧹 Empty This Job's Trash</button>\`;
+
           const isArchivedSub = (selectedSub.status || '').toLowerCase() === 'archived';
           const remHrs = Math.max(0, (new Date(selectedSub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
           const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
           const printableCount = (selectedSub.files || []).filter(f => printableExts.includes((f.fileExtension || '').toLowerCase())).length;
-          const imgIds = (selectedSub.files || []).filter(f => ['.jpg','.jpeg','.png','.bmp'].includes((f.fileExtension || '').toLowerCase())).map(f => f.id);
           inspectorHtml = \`
             <aside class="inspector-panel">
               <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -875,22 +923,44 @@ ${studioHtml}
 
               <div class="insp-tabs">
                 <button class="insp-tab \${inspectorTab === 'files' ? 'active' : ''}" onclick="inspectorTab='files';renderCurrentView()">Files (\${(selectedSub.files || []).length})</button>
+                <button class="insp-tab insp-trash-tab \${inspectorTab === 'trash' ? 'active' : ''}" onclick="inspectorTab='trash';renderCurrentView()" ondragover="handleTrashZoneDragOver(event)" ondragleave="this.classList.remove('drag-active')" ondrop="handleTrashZoneDrop(event)">🗑️ Trash (\${subTrashed.length})</button>
                 <button class="insp-tab \${inspectorTab === 'details' ? 'active' : ''}" onclick="inspectorTab='details';renderCurrentView()">Details</button>
               </div>
 
-              <div id="inspectorFilesScroll" style="max-height:360px;overflow-y:auto;padding-right:4px;">
+              <div id="inspectorFilesScroll" style="max-height:330px;overflow-y:auto;padding-right:4px;"
+                ondragover="if(!draggingFileState){event.preventDefault();this.classList.add('ext-drag-over');}"
+                ondragleave="this.classList.remove('ext-drag-over')"
+                ondrop="this.classList.remove('ext-drag-over');handleAddZoneDrop(event, '\${esc(selectedSub.id)}', false)">
                 \${inspectorTab === 'files'
-                  ? (inspFilesHtml || '<p style="font-size:12px;color:var(--muted);">No files</p>')
-                  : \`<div style="font-size:12.5px;display:flex;flex-direction:column;gap:9px;padding:6px 0;">
-                      <div><span style="color:var(--muted);">Customer:</span> <strong>\${esc(selectedSub.customerName)}</strong></div>
-                      <div><span style="color:var(--muted);">Received:</span> <strong>\${new Date(selectedSub.createdAt).toLocaleString()}</strong></div>
-                      <div><span style="color:var(--muted);">Auto-Purge:</span> \${isArchivedSub ? '<strong style="color:var(--success);">Paused (Archived)</strong>' : '<strong style="color:var(--warning);">' + remHrs + ' hours left</strong>'}</div>
-                      <div><span style="color:var(--muted);">Instructions:</span><div style="background:var(--surface-alt);padding:8px;border-radius:8px;border:1px solid var(--border);margin-top:4px;">\${esc(selectedSub.instructions || 'None')}</div></div>
-                    </div>\`}
+                  ? (inspFilesHtml || '<p style="font-size:12px;color:var(--muted);padding:14px 4px;text-align:center;">No active files. Drop edited files below or restore from Trash.</p>')
+                  : inspectorTab === 'trash'
+                    ? inspTrashHtml
+                    : \`<div style="font-size:12.5px;display:flex;flex-direction:column;gap:9px;padding:6px 0;">
+                        <div><span style="color:var(--muted);">Customer:</span> <strong>\${esc(selectedSub.customerName)}</strong></div>
+                        <div><span style="color:var(--muted);">Received:</span> <strong>\${new Date(selectedSub.createdAt).toLocaleString()}</strong></div>
+                        <div><span style="color:var(--muted);">Auto-Purge:</span> \${isArchivedSub ? '<strong style="color:var(--success);">Paused (Archived)</strong>' : '<strong style="color:var(--warning);">' + remHrs + ' hours left</strong>'}</div>
+                        <div><span style="color:var(--muted);">Instructions:</span><div style="background:var(--surface-alt);padding:8px;border-radius:8px;border:1px solid var(--border);margin-top:4px;">\${esc(selectedSub.instructions || 'None')}</div></div>
+                      </div>\`}
               </div>
 
+              \${inspectorTab === 'files' ? \`
+                <div id="inspectorTrashDropZone" class="trash-drop-zone"
+                  ondragover="handleTrashZoneDragOver(event)"
+                  ondragleave="this.classList.remove('drag-active')"
+                  ondrop="handleTrashZoneDrop(event)">
+                  🗑️ Drop here — or drag outside list — to move to Trash
+                </div>
+                <div class="drop-in-zone"
+                  onclick="document.getElementById('inspAddFileInput').click()"
+                  ondragover="handleAddZoneDragOver(event)"
+                  ondragleave="this.classList.remove('drag-active')"
+                  ondrop="handleAddZoneDrop(event, '\${esc(selectedSub.id)}', false)">
+                  📥 Drop edited Word / PDF / Image files here to add for merging (or click)
+                  <input type="file" id="inspAddFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){uploadLocalFilesToSubmission('\${esc(selectedSub.id)}',this.files,false);this.value='';}">
+                </div>
+              \` : ''}
+
               \${printableCount > 0 ? \`<button class="btn" style="width:100%;background:#16a34a;" onclick="openMergeModal('\${esc(selectedSub.id)}')">📑 Merge &amp; Print All (\${printableCount} \${printableCount === 1 ? 'File' : 'Files'})</button>\` : ''}
-              \${imgIds.length > 1 ? \`<button class="btn btn-outline" style="width:100%;" onclick='convertFileToPdfServer(\${JSON.stringify(imgIds)})'>📄 Quick Combine \${imgIds.length} Images → PDF</button>\` : ''}
 
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <button class="btn" onclick="updateSubStatus('\${esc(selectedSub.id)}', 'printed')">✓ Mark Printed</button>
@@ -905,7 +975,7 @@ ${studioHtml}
 
         container.innerHTML = \`
           <div class="split-grid">
-            <div class="list-panel">
+            <div class="list-panel" ondragover="handleTrashZoneDragOver(event)" ondrop="handleTrashZoneDrop(event)">
               <div class="filter-bar">
                 <div class="filter-tabs">
                   <button class="filter-tab \${subFilter === 'all' ? 'active' : ''}" onclick="subFilter='all';renderCurrentView()">All (\${allSubs.length})</button>
@@ -953,16 +1023,53 @@ ${studioHtml}
           </div>
 
           <div class="list-panel" style="padding:20px;">
-            <h3 style="margin-bottom:12px;">📄 Converted PDF Outputs</h3>
-            \${converted.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted PDFs yet. Use "To PDF" on any image or Office document in Inbox.</p>' :
-              converted.map(c => \`<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <div><strong>\${esc(c.name)}</strong> <span style="font-size:11px;color:var(--muted);">(\${formatSize(c.sizeBytes)})</span></div>
-                <div style="display:flex;gap:6px;">
-                  <button class="btn btn-outline" onclick="previewUrl('\${esc(c.url)}','\${esc(c.name)}','.pdf',null)">👁 Preview</button>
-                  <button class="btn" onclick="directPrint('\${esc(c.url)}','\${esc(c.name)}')">🖨 Print</button>
-                  <button class="btn btn-outline" onclick="downloadFile(null,'\${esc(c.name)}','\${esc(c.url)}')">⬇ Download</button>
-                </div>
-              </div>\`).join('')}
+            <h3 style="margin-bottom:12px;">📄 Converted PDF &amp; Word (.docx) Outputs</h3>
+            \${converted.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted files yet. Use "To Word" on any PDF or "To PDF" on any image/Word doc in Inbox.</p>' :
+              converted.map(c => {
+                const isDocx = (c.ext === '.docx') || (c.name || '').toLowerCase().endsWith('.docx');
+                return \`<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <div><strong>\${esc(c.name)}</strong> <span style="font-size:11px;color:var(--muted);">(\${formatSize(c.sizeBytes)})</span></div>
+                  <div style="display:flex;gap:6px;">
+                    \${isDocx
+                      ? \`<button class="btn" onclick="openConvertedNative('\${esc(c.name)}')">↗ Open in Word</button>\`
+                      : \`<button class="btn btn-outline" onclick="previewUrl('\${esc(c.url)}','\${esc(c.name)}','.pdf',null)">👁 Preview</button>
+                         <button class="btn" onclick="directPrint('\${esc(c.url)}','\${esc(c.name)}')">🖨 Print</button>\`}
+                    <button class="btn btn-outline" onclick="downloadFile(null,'\${esc(c.name)}','\${esc(c.url)}')">⬇ Download</button>
+                  </div>
+                </div>\`;
+              }).join('')}
+          </div>
+        \`;
+      }
+      else if (currentTab === 'trash') {
+        const items = globalTrash.filter(t => !q || (t.originalName || '').toLowerCase().includes(q) || (t.receiptCode || '').toLowerCase().includes(q) || (t.customerName || '').toLowerCase().includes(q));
+        container.innerHTML = \`
+          <div class="list-panel" style="padding:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <div>
+                <h3>🗑️ Trash (\${items.length} file\${items.length === 1 ? '' : 's'})</h3>
+                <p style="font-size:12px;color:var(--muted);margin-top:2px;">Files dragged out of customer submissions land here and are excluded from Merge &amp; Print. Restore anytime or permanently delete.</p>
+              </div>
+              \${globalTrash.length > 0 ? '<button class="btn btn-danger-soft" onclick="emptyTrash(null)">🧹 Empty All Trash</button>' : ''}
+            </div>
+            \${items.length === 0
+              ? '<div style="padding:48px 20px;text-align:center;color:var(--muted);"><div style="font-size:32px;margin-bottom:8px;">🗑️</div><strong>Trash is empty</strong><p style="font-size:12px;margin-top:4px;">Drag any unwanted file out of a submission in Inbox to move it here.</p></div>'
+              : items.map(t => {
+                  const [cls, lbl] = getFileBadge(t.fileExtension);
+                  return \`<div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+                      <div class="file-type-box \${cls}">\${lbl}</div>
+                      <div style="min-width:0;">
+                        <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">\${esc(t.originalName)}</div>
+                        <div style="font-size:11.5px;color:var(--muted);">Job <strong>\${esc(t.receiptCode)}</strong> (\${esc(t.customerName)}) • \${formatSize(t.sizeBytes)} • Trashed \${timeAgo(t.trashedAt)}</div>
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:7px;">
+                      <button class="btn" onclick="restoreFile('\${esc(t.id)}','\${esc(t.originalName)}')">↩ Restore</button>
+                      <button class="btn btn-danger-soft" onclick="deleteFilePermanent('\${esc(t.id)}','\${esc(t.originalName)}')">🗑 Delete Forever</button>
+                    </div>
+                  </div>\`;
+                }).join('')}
           </div>
         \`;
       }

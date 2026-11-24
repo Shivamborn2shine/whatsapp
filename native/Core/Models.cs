@@ -23,9 +23,12 @@ namespace ScanDrop.Native.Core
         public long FileSize;
         public string Checksum;
         public string StoragePath;
-        public string ConversionStatus; // none, converting, converted, failed
+        public string ConversionStatus; // none, converting, converted, edited, failed
         public string ConvertedPath;
         public string ReceivedAt;
+        public bool IsTrashed;
+        public string TrashedAt;
+        public int SortOrder;
     }
 
     public sealed class SubmissionRecord
@@ -42,6 +45,7 @@ namespace ScanDrop.Native.Core
         public string ExpiresAt;
         public long TotalSize;
         public List<FileRecord> Files = new List<FileRecord>();
+        public List<FileRecord> TrashedFiles = new List<FileRecord>();
     }
 
     public sealed class UploadSessionRecord

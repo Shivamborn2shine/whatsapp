@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.3.0",
+    "version":  "4.4.0",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Built-in PDF Studio (Find \u0026 Replace headers/text, click-to-edit, whiteout \u0026 image overlay), Word DOCX Studio (split-run header/body/table Find \u0026 Replace, image resize \u0026 Microsoft Word/LibreOffice PDF preview), Image Print Canvas (A4/4x6 drag, resize, rotate, ID/Passport presets), and Merge \u0026 Print All (combine edited/original PDFs, Docs \u0026 Images into 1 single print command).",
-    "sha256":  "02990b1ffab3cafaf3add856e08d21f496d7052f83fed7a95de7afc9619c939d",
+    "releaseNotes":  "One-click PDF to Word (.docx) conversion via Microsoft Word/LibreOffice with instant download, drag-files-out-to-Trash (with Undo, per-job \u0026 global Trash tabs, Restore, Empty Trash), drag-and-drop new/edited files into any submission or Merge modal for later merging, and streamlined file cards.",
+    "sha256":  "ea4fbbf4f67920dfe6671cb78381c6d8a017f22a1d82f6fe258103532a57db60",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

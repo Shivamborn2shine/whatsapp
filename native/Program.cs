@@ -476,10 +476,60 @@ namespace ScanDrop.Native
                             if (Math.Abs(inspAfter.Images[0].WidthCm - 15.0) > 0.2 || Math.Abs(inspAfter.Images[0].HeightCm - 7.5) > 0.2)
                                 throw new Exception("Edited DOCX image resize mismatch: " + inspAfter.Images[0].WidthCm + "x" + inspAfter.Images[0].HeightCm);
                             Console.WriteLine("  [PASS] 15. DOCX OpenXML Studio split-run header/body replace & image scaling verified");
+
+                            // Test 16: Per-file Trash, Restore, Drag-in Local Add & Reorder
+                            var stSub = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (stSub == null || stSub.Files.Count < 2)
+                                throw new Exception("Expected at least 2 files in self-test submission for Test 16.");
+                            string targetFid = stSub.Files[0].FileId;
+                            HttpPostJson(admBase + "/api/file/trash", ser.Serialize(new { fileId = targetFid }));
+                            var afterTrash = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (afterTrash.Files.Count != 1 || afterTrash.TrashedFiles.Count != 1)
+                                throw new Exception("File trash failed: active=" + afterTrash.Files.Count + " trashed=" + afterTrash.TrashedFiles.Count);
+
+                            HttpPostJson(admBase + "/api/file/restore", ser.Serialize(new { fileId = targetFid }));
+                            var afterRestore = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (afterRestore.Files.Count != 2 || afterRestore.TrashedFiles.Count != 0)
+                                throw new Exception("File restore failed!");
+
+                            // Simulate dragging a new edited PDF into the customer's submission
+                            var addReq = (HttpWebRequest)WebRequest.Create(admBase + "/api/submission/add-file");
+                            addReq.Method = "POST";
+                            addReq.ContentType = "application/pdf";
+                            addReq.Headers["X-Submission-Id"] = receiptCode;
+                            addReq.Headers["X-File-Name"] = Uri.EscapeDataString("Edited_Chapter1 (Final).pdf");
+                            addReq.ContentLength = samplePdf.Length;
+                            using (var rs = addReq.GetRequestStream()) rs.Write(samplePdf, 0, samplePdf.Length);
+                            using (var addResp = (HttpWebResponse)addReq.GetResponse())
+                            {
+                                if ((int)addResp.StatusCode != 200) throw new Exception("add-file returned HTTP " + (int)addResp.StatusCode);
+                            }
+                            var afterAdd = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (afterAdd.Files.Count != 3)
+                                throw new Exception("Expected 3 files after drag-in add, got " + afterAdd.Files.Count);
+
+                            // Reorder last file to index 0
+                            string addedFid = afterAdd.Files[2].FileId;
+                            HttpPostJson(admBase + "/api/submission/reorder-files", ser.Serialize(new
+                            {
+                                submissionId = receiptCode,
+                                fileIds = new[] { addedFid, afterAdd.Files[0].FileId, afterAdd.Files[1].FileId }
+                            }));
+                            var afterReorder = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (afterReorder.Files[0].FileId != addedFid)
+                                throw new Exception("File reorder did not persist!");
+
+                            // Permanent delete of single trashed file leaves the other 2 intact
+                            HttpPostJson(admBase + "/api/file/trash", ser.Serialize(new { fileId = addedFid }));
+                            HttpPostJson(admBase + "/api/file/delete-permanent", ser.Serialize(new { fileId = addedFid }));
+                            var afterPermDel = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (afterPermDel.Files.Count != 2 || afterPermDel.TrashedFiles.Count != 0)
+                                throw new Exception("Permanent single-file delete did not clean up cleanly!");
+                            Console.WriteLine("  [PASS] 16. Per-file Trash, Restore, Drag-in Add, Reorder & Permanent Delete verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 15 PRD v2.0 + CLOUDFLARE + STUDIO SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 16 PRD v2.0 + CLOUDFLARE + WORKFLOW SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

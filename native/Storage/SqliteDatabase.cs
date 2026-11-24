@@ -197,7 +197,25 @@ namespace ScanDrop.Native.Storage
                 CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC);
             ");
 
+            EnsureFilesExtraColumns();
             EnsureDefaultShop();
+        }
+
+        private void EnsureFilesExtraColumns()
+        {
+            var cols = Query("PRAGMA table_info(files);");
+            var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in cols)
+            {
+                string name = Str(row, "name");
+                if (!string.IsNullOrEmpty(name)) existing.Add(name);
+            }
+            if (!existing.Contains("is_trashed"))
+                ExecRaw("ALTER TABLE files ADD COLUMN is_trashed INTEGER NOT NULL DEFAULT 0;");
+            if (!existing.Contains("trashed_at"))
+                ExecRaw("ALTER TABLE files ADD COLUMN trashed_at TEXT;");
+            if (!existing.Contains("sort_order"))
+                ExecRaw("ALTER TABLE files ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;");
         }
 
         private void EnsureDefaultShop()
@@ -628,7 +646,12 @@ namespace ScanDrop.Native.Storage
             var rows = Query("SELECT * FROM submissions WHERE idempotency_key = ? LIMIT 1;", idempotencyKey.Trim());
             if (rows.Count == 0) return null;
             var sub = MapSubmission(rows[0]);
-            sub.Files = GetFilesForSubmission(sub.SubmissionId);
+            var all = GetFilesForSubmission(sub.SubmissionId, true);
+            foreach (var f in all)
+            {
+                if (f.IsTrashed) sub.TrashedFiles.Add(f);
+                else sub.Files.Add(f);
+            }
             return sub;
         }
 
@@ -639,7 +662,12 @@ namespace ScanDrop.Native.Storage
             var rows = Query("SELECT * FROM submissions WHERE UPPER(receipt_code) = ? OR UPPER(submission_id) = ? LIMIT 1;", q, q);
             if (rows.Count == 0) return null;
             var sub = MapSubmission(rows[0]);
-            sub.Files = GetFilesForSubmission(sub.SubmissionId);
+            var all = GetFilesForSubmission(sub.SubmissionId, true);
+            foreach (var f in all)
+            {
+                if (f.IsTrashed) sub.TrashedFiles.Add(f);
+                else sub.Files.Add(f);
+            }
             return sub;
         }
 
@@ -655,15 +683,25 @@ namespace ScanDrop.Native.Storage
             {
                 var sub = MapSubmission(r);
                 List<FileRecord> fl;
-                if (allFiles.TryGetValue(sub.SubmissionId, out fl)) sub.Files = fl;
+                if (allFiles.TryGetValue(sub.SubmissionId, out fl))
+                {
+                    foreach (var f in fl)
+                    {
+                        if (f.IsTrashed) sub.TrashedFiles.Add(f);
+                        else sub.Files.Add(f);
+                    }
+                }
                 list.Add(sub);
             }
             return list;
         }
 
-        public List<FileRecord> GetFilesForSubmission(string submissionId)
+        public List<FileRecord> GetFilesForSubmission(string submissionId, bool includeTrashed = false)
         {
-            var rows = Query("SELECT * FROM files WHERE submission_id = ? ORDER BY received_at ASC;", submissionId);
+            string sql = includeTrashed
+                ? "SELECT * FROM files WHERE submission_id = ? ORDER BY sort_order ASC, received_at ASC;"
+                : "SELECT * FROM files WHERE submission_id = ? AND COALESCE(is_trashed, 0) = 0 ORDER BY sort_order ASC, received_at ASC;";
+            var rows = Query(sql, submissionId);
             var list = new List<FileRecord>(rows.Count);
             foreach (var r in rows) list.Add(MapFile(r));
             return list;
@@ -671,7 +709,7 @@ namespace ScanDrop.Native.Storage
 
         private Dictionary<string, List<FileRecord>> GetAllFilesGrouped()
         {
-            var rows = Query("SELECT * FROM files ORDER BY received_at ASC;");
+            var rows = Query("SELECT * FROM files ORDER BY sort_order ASC, received_at ASC;");
             var map = new Dictionary<string, List<FileRecord>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in rows)
             {
@@ -685,6 +723,62 @@ namespace ScanDrop.Native.Storage
                 bucket.Add(f);
             }
             return map;
+        }
+
+        public List<Dictionary<string, object>> GetAllTrashedFilesWithParent()
+        {
+            var rows = Query(
+                "SELECT f.*, s.receipt_code, s.customer_name FROM files f " +
+                "LEFT JOIN submissions s ON s.submission_id = f.submission_id " +
+                "WHERE COALESCE(f.is_trashed, 0) = 1 ORDER BY COALESCE(f.trashed_at, f.received_at) DESC;"
+            );
+            return rows;
+        }
+
+        public int GetNextFileSortOrder(string submissionId)
+        {
+            var rows = Query("SELECT COALESCE(MAX(sort_order), -1) AS mx FROM files WHERE submission_id = ?;", submissionId);
+            if (rows.Count == 0) return 0;
+            return (int)Long(rows[0], "mx") + 1;
+        }
+
+        public void SetFileTrashed(string fileId, bool trashed)
+        {
+            var f = GetFileById(fileId);
+            if (f == null) return;
+            string nowIso = trashed ? DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) : null;
+            Execute("UPDATE files SET is_trashed = ?, trashed_at = ? WHERE file_id = ?;", trashed ? 1 : 0, nowIso, fileId);
+            RecalculateSubmissionTotalSize(f.SubmissionId);
+        }
+
+        public FileRecord DeleteSingleFileRecord(string fileId)
+        {
+            var f = GetFileById(fileId);
+            if (f == null) return null;
+            Execute("DELETE FROM files WHERE file_id = ?;", fileId);
+            RecalculateSubmissionTotalSize(f.SubmissionId);
+            return f;
+        }
+
+        public void UpdateSubmissionFileOrder(string submissionId, List<string> orderedFileIds)
+        {
+            if (string.IsNullOrWhiteSpace(submissionId) || orderedFileIds == null) return;
+            RunInTransaction(() =>
+            {
+                for (int i = 0; i < orderedFileIds.Count; i++)
+                {
+                    Execute("UPDATE files SET sort_order = ? WHERE file_id = ? AND submission_id = ?;", i, orderedFileIds[i], submissionId);
+                }
+            });
+        }
+
+        public void RecalculateSubmissionTotalSize(string submissionId)
+        {
+            if (string.IsNullOrWhiteSpace(submissionId)) return;
+            Execute(
+                "UPDATE submissions SET total_size = COALESCE((SELECT SUM(file_size) FROM files WHERE submission_id = ? AND COALESCE(is_trashed, 0) = 0), 0) WHERE submission_id = ?;",
+                submissionId, submissionId
+            );
         }
 
         public FileRecord GetFileById(string fileId)
@@ -714,11 +808,12 @@ namespace ScanDrop.Native.Storage
         public void InsertFile(FileRecord f)
         {
             Execute(
-                "INSERT INTO files (file_id, submission_id, original_filename, internal_filename, content_type, file_extension, file_size, checksum, storage_path, conversion_status, converted_path, received_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                "INSERT INTO files (file_id, submission_id, original_filename, internal_filename, content_type, file_extension, file_size, checksum, storage_path, conversion_status, converted_path, received_at, is_trashed, trashed_at, sort_order) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                 f.FileId, f.SubmissionId, f.OriginalFilename, f.InternalFilename, f.ContentType ?? "application/octet-stream",
                 f.FileExtension ?? "", f.FileSize, f.Checksum ?? "", f.StoragePath,
-                f.ConversionStatus ?? "none", f.ConvertedPath, f.ReceivedAt
+                f.ConversionStatus ?? "none", f.ConvertedPath, f.ReceivedAt,
+                f.IsTrashed ? 1 : 0, f.TrashedAt, f.SortOrder
             );
         }
 
@@ -993,7 +1088,10 @@ namespace ScanDrop.Native.Storage
                 StoragePath = Str(r, "storage_path"),
                 ConversionStatus = Str(r, "conversion_status"),
                 ConvertedPath = Str(r, "converted_path"),
-                ReceivedAt = Str(r, "received_at")
+                ReceivedAt = Str(r, "received_at"),
+                IsTrashed = Long(r, "is_trashed") != 0,
+                TrashedAt = Str(r, "trashed_at"),
+                SortOrder = (int)Long(r, "sort_order")
             };
         }
 
