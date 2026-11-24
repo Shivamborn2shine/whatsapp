@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { studioCss, studioHtml, studioJs } = require('./studio_module');
 
 function loadDataUri(relPath, mime) {
   try {
@@ -22,6 +23,7 @@ module.exports = `<!DOCTYPE html>
   <title>ScanDrop — Shopkeeper Workspace</title>
   <link rel="icon" type="image/png" href="${FAVICON_URI || '/assets/favicon-32.png'}">
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -134,6 +136,9 @@ module.exports = `<!DOCTYPE html>
     th { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; }
     td { padding: 10px; border-bottom: 1px solid var(--border); }
     code { background: var(--surface-alt); padding: 2px 5px; border-radius: 5px; font-size: 11.5px; }
+    .mini-btn-edit { background: var(--primary-soft); color: var(--primary); border-color: rgba(37,99,235,0.35); }
+    .mini-btn-edit:hover { background: var(--primary); color: #fff; }
+${studioCss}
   </style>
 </head>
 <body>
@@ -218,6 +223,8 @@ module.exports = `<!DOCTYPE html>
       <div id="previewBody" style="flex:1;background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;"></div>
     </div>
   </div>
+
+${studioHtml}
 
   <!-- Hidden 1px print frame so Chromium activates PDF plugin cleanly for 1-click direct print -->
   <iframe id="directPrintFrame" style="position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0.01;pointer-events:none;"></iframe>
@@ -769,7 +776,7 @@ module.exports = `<!DOCTYPE html>
                 \${lastMeta.tunnelRetryCount > 0 ? \`<div><strong>Retries:</strong> \${lastMeta.tunnelRetryCount} • <strong>Next Retry:</strong> \${nextRetry}</div>\` : ''}
                 \${lastMeta.tunnelLastFailure ? \`<div style="color:var(--danger);font-size:11.5px;"><strong>Last Failure:</strong> \${esc(lastMeta.tunnelLastFailure)}</div>\` : ''}
                 <div><strong>Uploads:</strong> \${lastMeta.acceptingUploads === false ? '<span style="color:var(--warning);font-weight:700;">Paused</span>' : '<span style="color:var(--success);font-weight:700;">Accepting</span>'}</div>
-                <div><strong>Office→PDF:</strong> \${lastMeta.libreOfficeInstalled ? 'LibreOffice Ready' : 'Images Ready (Install LibreOffice for DOCX)'}</div>
+                <div><strong>Office→PDF:</strong> \${esc(lastMeta.officeEngine || (lastMeta.libreOfficeInstalled ? 'LibreOffice Ready' : 'Images & DOCX XML Ready'))}</div>
               </div>
               <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
                 <button class="btn" onclick="setTab('qr')">⊞ Show Shop QR</button>
@@ -817,22 +824,33 @@ module.exports = `<!DOCTYPE html>
         if (selectedSub) {
           const inspFilesHtml = (selectedSub.files || []).map(f => {
             const [cls, lbl] = getFileBadge(f.fileExtension);
+            const fExt = (f.fileExtension || '').toLowerCase();
+            const isEdited = f.conversionStatus === 'edited' && !!f.convertedUrl;
+            const canEdit = ['.pdf', '.docx', '.doc', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(fExt);
+            const editLabel = fExt === '.pdf' ? '✏️ Edit PDF' : ((fExt === '.docx' || fExt === '.doc') ? '📝 Edit Doc' : '🖼️ Canvas');
             return \`
               <div class="insp-file-card">
                 <div class="insp-file-top">
                   <div class="file-type-box \${cls}">\${lbl}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="\${esc(f.originalName)}">\${esc(f.originalName)}</div>
-                    <div style="font-size:11px;color:var(--muted);">\${formatSize(f.sizeBytes)}\${f.conversionStatus === 'converted' ? ' • PDF Ready' : ''}</div>
+                    <div style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                      <span>\${formatSize(f.sizeBytes)}</span>
+                      \${isEdited ? '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ Edited</span>' : (f.conversionStatus === 'converted' ? '<span>• PDF Ready</span>' : '')}
+                    </div>
                   </div>
                 </div>
                 <div class="insp-file-actions">
-                  <button class="mini-btn" onclick="previewFile('\${esc(f.id)}', '\${esc(f.originalName)}', '\${esc(f.fileExtension)}')">👁 Preview</button>
-                  <button class="mini-btn" onclick="openPrintModal('\${esc(f.id)}', '\${esc(f.originalName)}')">🖨 Print</button>
+                  \${canEdit ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')">\${editLabel}</button>\` : ''}
+                  \${isEdited
+                    ? \`<button class="mini-btn" onclick="previewUrl('\${esc(f.convertedUrl)}', '\${esc(f.originalName)} (Edited)', '.pdf', '\${esc(f.id)}')">👁 Preview</button>
+                       <button class="mini-btn" onclick="directPrint('\${esc(f.convertedUrl)}', '\${esc(f.originalName)}.pdf')">🖨 Print</button>\`
+                    : \`<button class="mini-btn" onclick="previewFile('\${esc(f.id)}', '\${esc(f.originalName)}', '\${esc(f.fileExtension)}')">👁 Preview</button>
+                       <button class="mini-btn" onclick="openPrintModal('\${esc(f.id)}', '\${esc(f.originalName)}')">🖨 Print</button>\`}
                   <button class="mini-btn" onclick="openFileNative('\${esc(f.id)}')">↗ Open</button>
                   <button class="mini-btn" onclick="openFileWithNative('\${esc(f.id)}')">📂 Open With</button>
                   <button class="mini-btn" onclick="convertFileToPdfServer('\${esc(f.id)}')">📄 To PDF</button>
-                  <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')">✏️ Rename</button>
+                  <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')">🏷️ Rename</button>
                   <button class="mini-btn" onclick="exportFilePermanent('\${esc(f.id)}')">💾 Save As</button>
                   <button class="mini-btn" onclick="revealFileInFolder('\${esc(f.id)}')">📁 Folder</button>
                 </div>
@@ -842,6 +860,8 @@ module.exports = `<!DOCTYPE html>
 
           const isArchivedSub = (selectedSub.status || '').toLowerCase() === 'archived';
           const remHrs = Math.max(0, (new Date(selectedSub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
+          const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
+          const printableCount = (selectedSub.files || []).filter(f => printableExts.includes((f.fileExtension || '').toLowerCase())).length;
           const imgIds = (selectedSub.files || []).filter(f => ['.jpg','.jpeg','.png','.bmp'].includes((f.fileExtension || '').toLowerCase())).map(f => f.id);
           inspectorHtml = \`
             <aside class="inspector-panel">
@@ -869,7 +889,8 @@ module.exports = `<!DOCTYPE html>
                     </div>\`}
               </div>
 
-              \${imgIds.length > 1 ? \`<button class="btn btn-outline" style="width:100%;" onclick='convertFileToPdfServer(\${JSON.stringify(imgIds)})'>📄 Combine All \${imgIds.length} Images into 1 PDF</button>\` : ''}
+              \${printableCount > 0 ? \`<button class="btn" style="width:100%;background:#16a34a;" onclick="openMergeModal('\${esc(selectedSub.id)}')">📑 Merge &amp; Print All (\${printableCount} \${printableCount === 1 ? 'File' : 'Files'})</button>\` : ''}
+              \${imgIds.length > 1 ? \`<button class="btn btn-outline" style="width:100%;" onclick='convertFileToPdfServer(\${JSON.stringify(imgIds)})'>📄 Quick Combine \${imgIds.length} Images → PDF</button>\` : ''}
 
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <button class="btn" onclick="updateSubStatus('\${esc(selectedSub.id)}', 'printed')">✓ Mark Printed</button>
@@ -1063,10 +1084,12 @@ module.exports = `<!DOCTYPE html>
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restoreScroll);
     }
 
+${studioJs}
+
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
       else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(true); }
-      else if (e.key === 'Escape') { closePreview(); }
+      else if (e.key === 'Escape') { closePreview(); closeStudioModal('mergePrintModal'); }
     });
 
     fetchCloudState(true);

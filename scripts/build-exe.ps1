@@ -30,6 +30,7 @@ $sources = @(
     Join-Path $repoRoot "native\Transfers\FileValidator.cs"
     Join-Path $repoRoot "native\Transfers\UploadSecurityGuard.cs"
     Join-Path $repoRoot "native\Transfers\TransferService.cs"
+    Join-Path $repoRoot "native\Conversion\DocxEditor.cs"
     Join-Path $repoRoot "native\Conversion\ConversionEngine.cs"
     Join-Path $repoRoot "native\Api\HttpHelpers.cs"
     Join-Path $repoRoot "native\Api\PublicUploadServer.cs"
@@ -52,9 +53,13 @@ $cscArgs = @(
     "/r:System.dll",
     "/r:System.Core.dll",
     "/r:System.Drawing.dll",
+    "/r:System.IO.Compression.dll",
+    "/r:System.IO.Compression.FileSystem.dll",
     "/r:System.Security.dll",
     "/r:System.Web.Extensions.dll",
-    "/r:System.Windows.Forms.dll"
+    "/r:System.Windows.Forms.dll",
+    "/r:System.Xml.dll",
+    "/r:System.Xml.Linq.dll"
 )
 if (Test-Path $iconFile) {
     $cscArgs += "/win32icon:$iconFile"

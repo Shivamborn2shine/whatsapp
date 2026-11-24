@@ -1,0 +1,1525 @@
+// ScanDrop — Local Document, PDF, Image Canvas & Merge-Print Studio
+// Injected cleanly into workspace_template.js (runs 100% locally on 127.0.0.1:3838).
+
+const studioCss = `
+    .studio-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,0.72); backdrop-filter:blur(4px); z-index:200; align-items:center; justify-content:center; padding:16px; }
+    .studio-overlay.open { display:flex; }
+    .studio-shell { width:96vw; height:93vh; max-width:1440px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:16px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.35); }
+    .studio-topbar { padding:12px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); flex-shrink:0; flex-wrap:wrap; }
+    .studio-body { flex:1; display:flex; overflow:hidden; min-height:0; }
+    .studio-side { width:360px; border-right:1px solid var(--border); overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; background:var(--surface-alt); flex-shrink:0; }
+    .studio-side.wide { width:430px; }
+    .studio-stage { flex:1; overflow:auto; padding:18px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; background:var(--bg); position:relative; min-width:0; }
+    .studio-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+    .studio-card h4 { font-size:12.5px; font-weight:800; color:var(--text); display:flex; align-items:center; justify-content:space-between; gap:6px; }
+    .studio-lbl { font-size:11px; font-weight:700; color:var(--muted); display:block; margin-bottom:3px; }
+    .pdf-page-wrap { position:relative; background:#fff; box-shadow:0 8px 28px rgba(0,0,0,0.22); border-radius:4px; overflow:hidden; user-select:none; }
+    .pdf-text-hit { position:absolute; cursor:pointer; border:1px solid transparent; border-radius:2px; transition:background 0.1s, border-color 0.1s; }
+    .pdf-text-hit:hover { background:rgba(37,99,235,0.16); border-color:rgba(37,99,235,0.65); }
+    .pdf-text-hit.header-hit { border-bottom:1px dashed rgba(245,158,11,0.75); }
+    .pdf-overlay-img { position:absolute; border:2px dashed #2563eb; cursor:move; box-sizing:border-box; }
+    .pdf-overlay-img .resize-handle { position:absolute; right:-7px; bottom:-7px; width:14px; height:14px; background:#2563eb; border:2px solid #fff; border-radius:50%; cursor:nwse-resize; }
+    .canvas-paper { position:relative; background:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.25); overflow:hidden; user-select:none; }
+    .canvas-margin-guide { position:absolute; inset:14px; border:1px dashed rgba(148,163,184,0.45); pointer-events:none; }
+    .canvas-item { position:absolute; cursor:move; box-sizing:border-box; border:2px solid transparent; }
+    .canvas-item.selected { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,0.2); }
+    .canvas-item img { width:100%; height:100%; display:block; pointer-events:none; }
+    .canvas-handle { position:absolute; right:-8px; bottom:-8px; width:16px; height:16px; background:#2563eb; border:2px solid #fff; border-radius:50%; cursor:nwse-resize; display:none; }
+    .canvas-item.selected .canvas-handle { display:block; }
+    .canvas-dim-tag { position:absolute; left:4px; top:4px; background:rgba(15,23,42,0.82); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; pointer-events:none; display:none; }
+    .canvas-item.selected .canvas-dim-tag { display:block; }
+    .docx-block-row { border:1px solid var(--border); border-radius:8px; padding:8px; background:var(--surface-alt); display:flex; flex-direction:column; gap:5px; }
+    .merge-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+    .fr-pair-row { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
+`;
+
+const studioHtml = `
+  <!-- 1. PDF EDITOR STUDIO MODAL -->
+  <div id="pdfStudioModal" class="studio-overlay">
+    <div class="studio-shell">
+      <div class="studio-topbar">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <strong style="font-size:15px;">📄 PDF Studio</strong>
+          <span id="pdfStudioFileName" class="badge badge-blue" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;"></span>
+          <span id="pdfStudioStatus" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-outline" onclick="pdfStudioUndo()">↩ Undo</button>
+          <button class="btn btn-outline" onclick="pdfStudioReset()">↻ Original</button>
+          <button class="btn" onclick="pdfStudioSave(false)">💾 Save Edited PDF</button>
+          <button class="btn" style="background:#16a34a;" onclick="pdfStudioSave(true)">🖨 Save &amp; Direct Print</button>
+          <button class="btn btn-outline" onclick="closeStudioModal('pdfStudioModal')">✕ Close</button>
+        </div>
+      </div>
+      <div class="studio-body">
+        <div class="studio-side">
+          <div class="studio-card">
+            <h4>🎓 Detected Page Headers <span class="badge badge-amber" id="pdfHeaderCount">0</span></h4>
+            <p style="font-size:11px;color:var(--muted);">Click any detected header (Name / Roll No.) to replace across all pages.</p>
+            <div id="pdfDetectedHeaders" style="display:flex;flex-direction:column;gap:5px;max-height:140px;overflow-y:auto;"></div>
+          </div>
+
+          <div class="studio-card">
+            <h4>🔍 Find &amp; Replace Text</h4>
+            <div><label class="studio-lbl">Find Text (e.g. Old Student Name or Roll No.)</label><input id="pdfFindInput" class="field-input" placeholder="Exact or partial text on PDF"></div>
+            <div><label class="studio-lbl">Replace With (e.g. New Name / Roll No.)</label><input id="pdfReplaceInput" class="field-input" placeholder="Replacement text"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div>
+                <label class="studio-lbl">Scope</label>
+                <select id="pdfReplaceScope" class="field-input">
+                  <option value="all">All Pages</option>
+                  <option value="headers">Headers Only (Top 18%)</option>
+                  <option value="current">Current Page Only</option>
+                </select>
+              </div>
+              <div>
+                <label class="studio-lbl">Font Size</label>
+                <select id="pdfReplaceFontSize" class="field-input">
+                  <option value="auto">Auto Match</option>
+                  <option value="9">9 pt</option>
+                  <option value="10">10 pt</option>
+                  <option value="11">11 pt</option>
+                  <option value="12">12 pt</option>
+                  <option value="14">14 pt</option>
+                  <option value="16">16 pt</option>
+                  <option value="20">20 pt</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <label style="font-size:11.5px;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="pdfReplaceBold"> Bold text</label>
+              <button class="btn" onclick="pdfApplyFindReplace()">✨ Replace Now</button>
+            </div>
+          </div>
+
+          <div class="studio-card">
+            <h4>✏️ Click-to-Edit &amp; Add Text</h4>
+            <p style="font-size:11px;color:var(--muted);">Click any text box on the PDF page to edit it directly, or toggle Add Text / Whiteout below.</p>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button id="pdfModeSelectBtn" class="btn" style="font-size:11px;padding:6px 9px;" onclick="setPdfToolMode('edit')">👆 Edit Text</button>
+              <button id="pdfModeAddTextBtn" class="btn btn-outline" style="font-size:11px;padding:6px 9px;" onclick="setPdfToolMode('addText')">➕ Add Text</button>
+              <button id="pdfModeWhiteoutBtn" class="btn btn-outline" style="font-size:11px;padding:6px 9px;" onclick="setPdfToolMode('whiteout')">⬜ Cover Box</button>
+            </div>
+            <div id="pdfInlineEditor" style="display:none;border-top:1px solid var(--border);padding-top:8px;margin-top:4px;">
+              <label class="studio-lbl" id="pdfInlineLabel">Edit Selected Text</label>
+              <input id="pdfInlineText" class="field-input" style="margin-bottom:6px;">
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="pdfInlineSize" type="number" min="6" max="48" value="11" class="field-input" style="width:72px;" title="Font size (pt)">
+                <label style="font-size:11px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="pdfInlineBold"> Bold</label>
+                <button class="btn" style="margin-left:auto;" onclick="pdfCommitInlineEdit()">Apply</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="studio-card">
+            <h4>🖼️ Adjust / Overlay Images</h4>
+            <p style="font-size:11px;color:var(--muted);">Cover an old image with Cover Box, then place and resize a replacement or new image on the page.</p>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <input type="file" id="pdfOverlayFileInput" accept="image/*" style="display:none;" onchange="pdfAddOverlayFromFile(this)">
+              <button class="btn btn-outline" style="font-size:11px;" onclick="document.getElementById('pdfOverlayFileInput').click()">📁 Pick Image</button>
+              <select id="pdfSubImgPicker" class="field-input" style="flex:1;font-size:11px;padding:5px 7px;" onchange="if(this.value){pdfAddOverlayFromUrl(this.value);this.value='';}">
+                <option value="">+ From Submission...</option>
+              </select>
+            </div>
+            <div id="pdfOverlayList" style="display:flex;flex-direction:column;gap:5px;"></div>
+          </div>
+        </div>
+
+        <div class="studio-stage">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);padding:7px 14px;border-radius:10px;flex-wrap:wrap;">
+            <button class="btn btn-outline" style="padding:5px 10px;" onclick="pdfChangePage(-1)">◀ Prev</button>
+            <strong id="pdfPageLabel" style="font-size:12.5px;">Page 1 / 1</strong>
+            <button class="btn btn-outline" style="padding:5px 10px;" onclick="pdfChangePage(1)">Next ▶</button>
+            <span style="color:var(--border);">|</span>
+            <label style="font-size:12px;color:var(--muted);">Zoom:</label>
+            <select id="pdfZoomSelect" class="field-input" style="width:92px;padding:4px 8px;" onchange="pdfRenderCurrentPage()">
+              <option value="1.0">100%</option>
+              <option value="1.35" selected>135%</option>
+              <option value="1.7">170%</option>
+            </select>
+            <span id="pdfToolHint" style="font-size:11.5px;color:var(--primary);font-weight:600;">Click any text on the page to edit</span>
+          </div>
+          <div id="pdfPageContainer" class="pdf-page-wrap">
+            <canvas id="pdfRenderCanvas"></canvas>
+            <div id="pdfTextLayer" style="position:absolute;inset:0;"></div>
+            <div id="pdfOverlayLayer" style="position:absolute;inset:0;pointer-events:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. DOCX EDITOR STUDIO MODAL -->
+  <div id="docxStudioModal" class="studio-overlay">
+    <div class="studio-shell">
+      <div class="studio-topbar">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <strong style="font-size:15px;">📝 Word (DOCX) Studio</strong>
+          <span id="docxStudioFileName" class="badge badge-blue"></span>
+          <span id="docxStudioEngine" class="badge badge-green"></span>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <button class="btn btn-outline" onclick="docxInspectLoad(true)">↻ Load Original</button>
+          <button class="btn" id="docxApplyBtn" onclick="docxSaveAndPreview(false)">✨ Apply Changes &amp; Preview</button>
+          <a id="docxDownloadLink" class="btn btn-outline" style="display:none;text-decoration:none;" download>⬇ .docx</a>
+          <button class="btn" style="background:#16a34a;" onclick="docxSaveAndPreview(true)">🖨 Save &amp; Direct Print</button>
+          <button class="btn btn-outline" onclick="closeStudioModal('docxStudioModal')">✕ Close</button>
+        </div>
+      </div>
+      <div class="studio-body">
+        <div class="studio-side wide">
+          <div class="studio-card">
+            <h4>🔍 Find &amp; Replace (Headers + Body + Tables) <button class="mini-btn" onclick="docxAddFrRow()">+ Pair</button></h4>
+            <p style="font-size:11px;color:var(--muted);">Preserves Word bold/fonts/tables even across split runs — ideal for Name, Roll No., Section.</p>
+            <div id="docxFrPairs" style="display:flex;flex-direction:column;gap:6px;"></div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:2px;">
+              <select id="docxFrScope" class="field-input" style="flex:1;font-size:12px;">
+                <option value="all">Replace Everywhere (Headers + Footers + Body)</option>
+                <option value="headers">Headers &amp; Footers Only</option>
+                <option value="body">Document Body &amp; Tables Only</option>
+              </select>
+              <label style="font-size:11px;display:flex;align-items:center;gap:4px;white-space:nowrap;"><input type="checkbox" id="docxFrCase"> Case</label>
+            </div>
+          </div>
+
+          <div class="studio-card">
+            <h4>🎓 Headers &amp; Footers <span class="badge badge-amber" id="docxHdrBadge">0</span></h4>
+            <div id="docxHeadersList" style="display:flex;flex-direction:column;gap:7px;max-height:190px;overflow-y:auto;"></div>
+          </div>
+
+          <div class="studio-card">
+            <h4>🖼️ Embedded Images Resize <span class="badge badge-blue" id="docxImgBadge">0</span></h4>
+            <div id="docxImagesList" style="display:flex;flex-direction:column;gap:7px;max-height:160px;overflow-y:auto;"></div>
+          </div>
+
+          <div class="studio-card">
+            <h4>📄 Body &amp; Cover Page Text <input id="docxBodyFilter" class="field-input" placeholder="Filter paragraphs..." style="width:150px;padding:4px 8px;font-size:11px;" oninput="renderDocxBodyList()"></h4>
+            <div id="docxBodyList" style="display:flex;flex-direction:column;gap:7px;max-height:260px;overflow-y:auto;"></div>
+          </div>
+        </div>
+
+        <div class="studio-stage" style="padding:12px;">
+          <div id="docxPreviewBanner" style="width:100%;margin-bottom:8px;font-size:12px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;">
+            <span id="docxPreviewStatus">Edit headers, text, or image sizes on the left, then click "Apply Changes &amp; Preview".</span>
+          </div>
+          <div id="docxPreviewFrameWrap" style="width:100%;flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+            <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">Live PDF Preview will appear here after clicking <strong>Apply Changes &amp; Preview</strong>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. IMAGE PRINT CANVAS STUDIO MODAL -->
+  <div id="imageStudioModal" class="studio-overlay">
+    <div class="studio-shell">
+      <div class="studio-topbar">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <strong style="font-size:15px;">🖼️ Image Print Canvas Studio</strong>
+          <span id="imgCanvasStatus" class="badge badge-blue">A4 Portrait</span>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <button class="btn" onclick="imgCanvasExport(false)">💾 Save as PDF (Ready to Merge)</button>
+          <button class="btn" style="background:#16a34a;" onclick="imgCanvasExport(true)">🖨 Direct Print Canvas</button>
+          <button class="btn btn-outline" onclick="closeStudioModal('imageStudioModal')">✕ Close</button>
+        </div>
+      </div>
+      <div class="studio-body">
+        <div class="studio-side">
+          <div class="studio-card">
+            <h4>📐 Paper &amp; Orientation</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div>
+                <label class="studio-lbl">Paper Size</label>
+                <select id="icPaperSize" class="field-input" onchange="imgCanvasRenderPaper()">
+                  <option value="A4">A4 (21 × 29.7 cm)</option>
+                  <option value="Letter">Letter (21.6 × 27.9 cm)</option>
+                  <option value="A5">A5 (14.8 × 21 cm)</option>
+                  <option value="Photo4x6">4×6 Photo (10.2 × 15.2 cm)</option>
+                </select>
+              </div>
+              <div>
+                <label class="studio-lbl">Orientation</label>
+                <select id="icOrientation" class="field-input" onchange="imgCanvasRenderPaper()">
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="studio-card">
+            <h4>⚡ Quick Print Layouts</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <button class="btn btn-outline" style="font-size:11px;padding:7px;" onclick="icPreset('fit')">Fit Full Page</button>
+              <button class="btn btn-outline" style="font-size:11px;padding:7px;" onclick="icPreset('half')">Half Page Top</button>
+              <button class="btn btn-outline" style="font-size:11px;padding:7px;" onclick="icPreset('idcard')">ID Card (8.6×5.4cm)</button>
+              <button class="btn btn-outline" style="font-size:11px;padding:7px;" onclick="icPreset('2up')">2-Up Duplicate</button>
+              <button class="btn btn-outline" style="font-size:11px;padding:7px;grid-column:1/-1;" onclick="icPreset('passport8')">🪪 8× Passport Photo Sheet (3.5×4.5cm)</button>
+            </div>
+          </div>
+
+          <div class="studio-card">
+            <h4>➕ Add More Images to This Sheet</h4>
+            <div style="display:flex;gap:6px;">
+              <select id="icSubImgSelect" class="field-input" style="flex:1;font-size:11.5px;" onchange="if(this.value){icAddImageUrl(this.value,this.options[this.selectedIndex].text);this.value='';}">
+                <option value="">+ Add from Submission...</option>
+              </select>
+              <input type="file" id="icLocalImgInput" accept="image/*" style="display:none;" onchange="icAddLocalFile(this)">
+              <button class="btn btn-outline" style="font-size:11px;" onclick="document.getElementById('icLocalImgInput').click()">📁 PC</button>
+            </div>
+          </div>
+
+          <div class="studio-card" id="icSelectedControls">
+            <h4>🎛️ Selected Image Adjustments</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div><label class="studio-lbl">Width (cm)</label><input id="icWidthCm" type="number" step="0.1" min="1" max="30" class="field-input" onchange="icApplyDimInput('w')"></div>
+              <div><label class="studio-lbl">Height (cm)</label><input id="icHeightCm" type="number" step="0.1" min="1" max="30" class="field-input" onchange="icApplyDimInput('h')"></div>
+            </div>
+            <div>
+              <label class="studio-lbl">Rotate: <span id="icRotVal">0°</span></label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button class="mini-btn" onclick="icRotateStep(-90)">↺ -90°</button>
+                <input id="icRotSlider" type="range" min="-180" max="180" value="0" style="flex:1;" oninput="icSetRotation(Number(this.value))">
+                <button class="mini-btn" onclick="icRotateStep(90)">↻ +90°</button>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div><label class="studio-lbl">Brightness</label><input id="icBright" type="range" min="60" max="160" value="100" oninput="icSetFilter()"></div>
+              <div><label class="studio-lbl">Contrast</label><input id="icContrast" type="range" min="60" max="180" value="100" oninput="icSetFilter()"></div>
+            </div>
+            <label style="font-size:11.5px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="icGrayscale" onchange="icSetFilter()"> Black &amp; White (B&amp;W Print Mode)</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+              <button class="mini-btn" onclick="icCenterSelected()">⊕ Center</button>
+              <button class="mini-btn" onclick="icDuplicateSelected()">⧉ Duplicate</button>
+              <button class="mini-btn" style="color:var(--danger);" onclick="icDeleteSelected()">🗑 Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="studio-stage" style="justify-content:center;">
+          <div id="icPaperEl" class="canvas-paper">
+            <div class="canvas-margin-guide"></div>
+            <div id="icItemsLayer" style="position:absolute;inset:0;"></div>
+          </div>
+          <div style="margin-top:10px;font-size:11.5px;color:var(--muted);">Drag images to move • Drag blue bottom-right corner handle to resize cleanly</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. MERGE & PRINT ALL MODAL -->
+  <div id="mergePrintModal" class="studio-overlay">
+    <div class="studio-shell" style="max-width:780px;height:auto;max-height:88vh;">
+      <div class="studio-topbar">
+        <div>
+          <strong style="font-size:16px;">📑 Merge &amp; Print All Files (1 Print Job)</strong>
+          <div id="mergeSubTitle" style="font-size:12px;color:var(--muted);"></div>
+        </div>
+        <button class="btn btn-outline" onclick="closeStudioModal('mergePrintModal')">✕ Close</button>
+      </div>
+      <div style="padding:18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
+        <p style="font-size:12.5px;color:var(--text-secondary);">
+          Reorder or uncheck files below. Any file you edited in PDF Studio, DOCX Studio, or Image Canvas automatically uses your <strong>Edited Version</strong>; untouched Word docs &amp; images convert to PDF automatically during merge.
+        </p>
+        <div id="mergeQueueList" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div id="mergeProgressMsg" style="font-size:12.5px;font-weight:700;color:var(--primary);display:none;"></div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;">
+          <button class="btn btn-outline" id="mergeSaveOnlyBtn" onclick="executeMergeAndPrint(false)">💾 Merge &amp; Preview PDF</button>
+          <button class="btn" id="mergeDirectPrintBtn" style="background:#16a34a;" onclick="executeMergeAndPrint(true)">🖨 Merge All &amp; Direct Print (1 Job)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+
+const studioJs = `
+    // ========================================================================
+    // DOCUMENT, PDF, IMAGE CANVAS & MERGE-PRINT STUDIO
+    // ========================================================================
+    function closeStudioModal(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('open');
+    }
+
+    function openSmartEditorById(fileId, submissionId) {
+      let targetFile = null;
+      let resolvedSubId = submissionId || null;
+      for (const s of (cloudState && cloudState.submissions) || []) {
+        const hit = (s.files || []).find(f => f.id === fileId);
+        if (hit) { targetFile = hit; if (!resolvedSubId) resolvedSubId = s.id; break; }
+      }
+      if (!targetFile) { alert('File record not found. Click Sync and try again.'); return; }
+      openSmartEditor(targetFile.id, targetFile.originalName, targetFile.fileExtension, targetFile.convertedUrl || '', resolvedSubId, targetFile.conversionStatus || '');
+    }
+
+    function openSmartEditor(fileId, fileName, ext, convertedUrl, submissionId, conversionStatus) {
+      const e = (ext || '').toLowerCase();
+      if (e === '.pdf') {
+        const origUrl = '/api/file?id=' + encodeURIComponent(fileId);
+        const activeUrl = (conversionStatus === 'edited' && convertedUrl) ? convertedUrl : origUrl;
+        openPdfStudio(fileId, fileName, activeUrl, submissionId, origUrl);
+      } else if (e === '.docx' || e === '.doc') {
+        openDocxStudio(fileId, fileName);
+      } else if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(e)) {
+        openImageCanvas(fileId, fileName, submissionId);
+      } else {
+        alert('Direct editing supports PDF, DOCX/DOC, and Images. Use "Open" for ' + e + ' files.');
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 1. PDF STUDIO (pdf.js text extraction + pdf-lib editing & image overlay)
+    // ------------------------------------------------------------------------
+    let pdfStudio = {
+      fileId: null,
+      fileName: '',
+      submissionId: null,
+      originalUrl: null,
+      originalBytes: null,
+      currentBytes: null,
+      undoStack: [],
+      pdfJsDoc: null,
+      pageNum: 1,
+      numPages: 1,
+      scale: 1.35,
+      toolMode: 'edit', // edit | addText | whiteout
+      pageTextItems: [],
+      allHeaders: [],
+      selectedInlineTarget: null,
+      overlays: [] // { id, pageNum, imgUrl, bytes, mime, xPct, yPct, wPct, hPct }
+    };
+
+    function ensurePdfJsWorker() {
+      if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+        if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+        return true;
+      }
+      return false;
+    }
+
+    async function openPdfStudio(fileId, fileName, pdfUrl, submissionId, originalUrl) {
+      if (!ensurePdfJsWorker() || !window.PDFLib) {
+        alert('PDF Studio libraries are still loading. Check internet access or refresh the page.');
+        return;
+      }
+      pdfStudio.fileId = fileId;
+      pdfStudio.fileName = fileName;
+      pdfStudio.submissionId = submissionId;
+      pdfStudio.originalUrl = originalUrl || pdfUrl;
+      pdfStudio.undoStack = [];
+      pdfStudio.overlays = [];
+      pdfStudio.pageNum = 1;
+      pdfStudio.toolMode = 'edit';
+      document.getElementById('pdfStudioFileName').textContent = fileName;
+      document.getElementById('pdfStudioStatus').textContent = 'Loading PDF...';
+      document.getElementById('pdfInlineEditor').style.display = 'none';
+      document.getElementById('pdfStudioModal').classList.add('open');
+
+      // Populate submission image picker for PDF overlays
+      const picker = document.getElementById('pdfSubImgPicker');
+      picker.innerHTML = '<option value="">+ From Submission...</option>';
+      const sub = (cloudState.submissions || []).find(s => s.id === submissionId || s.receiptCode === submissionId);
+      if (sub) {
+        (sub.files || []).filter(f => ['.jpg','.jpeg','.png','.webp','.bmp'].includes((f.fileExtension || '').toLowerCase())).forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = '/api/file?id=' + encodeURIComponent(f.id);
+          opt.textContent = f.originalName;
+          picker.appendChild(opt);
+        });
+      }
+
+      try {
+        const res = await fetch(pdfUrl + (pdfUrl.includes('?') ? '&' : '?') + 't=' + Date.now());
+        if (!res.ok) throw new Error('Could not load PDF file.');
+        const buf = new Uint8Array(await res.arrayBuffer());
+        pdfStudio.currentBytes = buf.slice();
+        if (pdfStudio.originalUrl && pdfStudio.originalUrl !== pdfUrl) {
+          try {
+            const origRes = await fetch(pdfStudio.originalUrl);
+            pdfStudio.originalBytes = origRes.ok ? new Uint8Array(await origRes.arrayBuffer()) : buf.slice();
+          } catch { pdfStudio.originalBytes = buf.slice(); }
+        } else {
+          pdfStudio.originalBytes = buf.slice();
+        }
+        await pdfStudioReloadDoc();
+        setPdfToolMode('edit');
+      } catch (err) {
+        alert('PDF Studio failed to load: ' + err.message);
+        closeStudioModal('pdfStudioModal');
+      }
+    }
+
+    async function pdfStudioReloadDoc() {
+      const loadingTask = window.pdfjsLib.getDocument({ data: pdfStudio.currentBytes.slice() });
+      pdfStudio.pdfJsDoc = await loadingTask.promise;
+      pdfStudio.numPages = pdfStudio.pdfJsDoc.numPages;
+      if (pdfStudio.pageNum > pdfStudio.numPages) pdfStudio.pageNum = pdfStudio.numPages;
+      await pdfScanHeaders();
+      await pdfRenderCurrentPage();
+      document.getElementById('pdfStudioStatus').textContent = pdfStudio.numPages + ' page(s) ready';
+    }
+
+    async function pdfScanHeaders() {
+      const seen = new Map();
+      for (let p = 1; p <= pdfStudio.numPages; p++) {
+        const page = await pdfStudio.pdfJsDoc.getPage(p);
+        const vp = page.getViewport({ scale: 1 });
+        const tc = await page.getTextContent();
+        const headerThresholdY = vp.height * 0.82; // top 18% in PDF bottom-left coords
+        for (const item of tc.items) {
+          const txt = (item.str || '').trim();
+          if (txt.length < 2) continue;
+          const ty = item.transform[5];
+          if (ty >= headerThresholdY) {
+            if (!seen.has(txt)) seen.set(txt, { text: txt, pages: [p] });
+            else if (!seen.get(txt).pages.includes(p)) seen.get(txt).pages.push(p);
+          }
+        }
+      }
+      pdfStudio.allHeaders = Array.from(seen.values()).slice(0, 30);
+      document.getElementById('pdfHeaderCount').textContent = pdfStudio.allHeaders.length;
+      const box = document.getElementById('pdfDetectedHeaders');
+      if (pdfStudio.allHeaders.length === 0) {
+        box.innerHTML = '<div style="font-size:11px;color:var(--muted);">No selectable header text detected (may be a scanned PDF — use Cover Box + Add Text).</div>';
+      } else {
+        box.innerHTML = pdfStudio.allHeaders.map(h =>
+          '<button type="button" class="mini-btn" style="text-align:left;display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 8px;" onclick="pdfSelectHeaderToReplace(' + JSON.stringify(h.text).replace(/"/g, '&quot;') + ')">' +
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(h.text) + '</span>' +
+          '<span style="color:var(--muted);font-size:10px;white-space:nowrap;">' + h.pages.length + 'p</span></button>'
+        ).join('');
+      }
+    }
+
+    function pdfSelectHeaderToReplace(txt) {
+      document.getElementById('pdfFindInput').value = txt;
+      document.getElementById('pdfReplaceScope').value = 'headers';
+      const rep = document.getElementById('pdfReplaceInput');
+      rep.focus();
+      rep.select();
+    }
+
+    function setPdfToolMode(mode) {
+      pdfStudio.toolMode = mode;
+      document.getElementById('pdfModeSelectBtn').className = mode === 'edit' ? 'btn' : 'btn btn-outline';
+      document.getElementById('pdfModeAddTextBtn').className = mode === 'addText' ? 'btn' : 'btn btn-outline';
+      document.getElementById('pdfModeWhiteoutBtn').className = mode === 'whiteout' ? 'btn' : 'btn btn-outline';
+      const hints = {
+        edit: 'Click any text on the page to edit it in place',
+        addText: 'Click anywhere on the page to place new text (e.g. Name / Roll No.)',
+        whiteout: 'Click and drag on the page to cover an old image, logo, or text'
+      };
+      document.getElementById('pdfToolHint').textContent = hints[mode] || '';
+      const layer = document.getElementById('pdfTextLayer');
+      if (layer) layer.style.cursor = mode === 'edit' ? 'default' : 'crosshair';
+    }
+
+    function pdfChangePage(delta) {
+      const next = pdfStudio.pageNum + delta;
+      if (next < 1 || next > pdfStudio.numPages) return;
+      pdfStudio.pageNum = next;
+      pdfRenderCurrentPage();
+    }
+
+    async function pdfRenderCurrentPage() {
+      if (!pdfStudio.pdfJsDoc) return;
+      pdfStudio.scale = Number(document.getElementById('pdfZoomSelect').value || 1.35);
+      const page = await pdfStudio.pdfJsDoc.getPage(pdfStudio.pageNum);
+      const vp = page.getViewport({ scale: pdfStudio.scale });
+      const vp1 = page.getViewport({ scale: 1 });
+      const canvas = document.getElementById('pdfRenderCanvas');
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+
+      const wrap = document.getElementById('pdfPageContainer');
+      wrap.style.width = vp.width + 'px';
+      wrap.style.height = vp.height + 'px';
+      document.getElementById('pdfPageLabel').textContent = 'Page ' + pdfStudio.pageNum + ' / ' + pdfStudio.numPages;
+
+      // Render clickable text boxes
+      const tc = await page.getTextContent();
+      const textLayer = document.getElementById('pdfTextLayer');
+      textLayer.innerHTML = '';
+      pdfStudio.pageTextItems = [];
+
+      tc.items.forEach((item, idx) => {
+        const str = (item.str || '');
+        if (!str.trim()) return;
+        const tx = item.transform[4];
+        const ty = item.transform[5];
+        const fontSize = Math.max(7, Math.hypot(item.transform[0], item.transform[1]) || item.height || 11);
+        const wPdf = Math.max(item.width || (str.length * fontSize * 0.52), fontSize);
+        const hPdf = Math.max(item.height || fontSize * 1.15, fontSize);
+
+        const rec = { idx, str, xPdf: tx, yPdf: ty, wPdf, hPdf, fontSize, pageW: vp1.width, pageH: vp1.height };
+        pdfStudio.pageTextItems.push(rec);
+
+        const div = document.createElement('div');
+        div.className = 'pdf-text-hit' + (ty >= vp1.height * 0.82 ? ' header-hit' : '');
+        div.style.left = (tx * pdfStudio.scale) + 'px';
+        div.style.top = ((vp1.height - ty - hPdf * 0.88) * pdfStudio.scale) + 'px';
+        div.style.width = (wPdf * pdfStudio.scale) + 'px';
+        div.style.height = (hPdf * 1.12 * pdfStudio.scale) + 'px';
+        div.title = 'Click to edit: ' + str;
+        div.onclick = (ev) => {
+          if (pdfStudio.toolMode !== 'edit') return;
+          ev.stopPropagation();
+          pdfStudio.selectedInlineTarget = { kind: 'replaceItem', rec };
+          document.getElementById('pdfInlineLabel').textContent = 'Edit Text on Page ' + pdfStudio.pageNum;
+          document.getElementById('pdfInlineText').value = str;
+          document.getElementById('pdfInlineSize').value = Math.round(fontSize);
+          document.getElementById('pdfInlineEditor').style.display = 'block';
+          document.getElementById('pdfInlineText').focus();
+        };
+        textLayer.appendChild(div);
+      });
+
+      // Handle Add Text click & Whiteout drag on textLayer
+      textLayer.onmousedown = (ev) => {
+        if (pdfStudio.toolMode === 'addText') {
+          const rect = textLayer.getBoundingClientRect();
+          const xPdf = (ev.clientX - rect.left) / pdfStudio.scale;
+          const yPdf = vp1.height - ((ev.clientY - rect.top) / pdfStudio.scale);
+          pdfStudio.selectedInlineTarget = { kind: 'addText', xPdf, yPdf, pageW: vp1.width, pageH: vp1.height };
+          document.getElementById('pdfInlineLabel').textContent = 'Place New Text on Page ' + pdfStudio.pageNum;
+          document.getElementById('pdfInlineText').value = '';
+          document.getElementById('pdfInlineSize').value = 12;
+          document.getElementById('pdfInlineEditor').style.display = 'block';
+          document.getElementById('pdfInlineText').focus();
+        } else if (pdfStudio.toolMode === 'whiteout') {
+          const rect = textLayer.getBoundingClientRect();
+          const startX = ev.clientX - rect.left;
+          const startY = ev.clientY - rect.top;
+          const box = document.createElement('div');
+          box.style.cssText = 'position:absolute;background:rgba(255,255,255,0.85);border:2px dashed #2563eb;pointer-events:none;';
+          box.style.left = startX + 'px'; box.style.top = startY + 'px';
+          textLayer.appendChild(box);
+          const onMove = (mv) => {
+            const curX = mv.clientX - rect.left;
+            const curY = mv.clientY - rect.top;
+            box.style.left = Math.min(startX, curX) + 'px';
+            box.style.top = Math.min(startY, curY) + 'px';
+            box.style.width = Math.abs(curX - startX) + 'px';
+            box.style.height = Math.abs(curY - startY) + 'px';
+          };
+          const onUp = async (up) => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            const endX = up.clientX - rect.left;
+            const endY = up.clientY - rect.top;
+            box.remove();
+            const wPx = Math.abs(endX - startX);
+            const hPx = Math.abs(endY - startY);
+            if (wPx < 6 || hPx < 6) return;
+            const xPdf = Math.min(startX, endX) / pdfStudio.scale;
+            const yTopPdf = Math.min(startY, endY) / pdfStudio.scale;
+            const wPdf = wPx / pdfStudio.scale;
+            const hPdf = hPx / pdfStudio.scale;
+            await pdfApplyWhiteoutBox(pdfStudio.pageNum, xPdf, vp1.height - yTopPdf - hPdf, wPdf, hPdf);
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        }
+      };
+
+      pdfRenderOverlayLayer(vp.width, vp.height);
+    }
+
+    async function pdfApplyWhiteoutBox(pageNum, x, y, w, h) {
+      pdfStudio.undoStack.push(pdfStudio.currentBytes.slice());
+      const doc = await window.PDFLib.PDFDocument.load(pdfStudio.currentBytes, { ignoreEncryption: true });
+      const page = doc.getPage(pageNum - 1);
+      page.drawRectangle({ x, y, width: w, height: h, color: window.PDFLib.rgb(1, 1, 1) });
+      pdfStudio.currentBytes = await doc.save();
+      await pdfStudioReloadDoc();
+    }
+
+    async function pdfCommitInlineEdit() {
+      const target = pdfStudio.selectedInlineTarget;
+      if (!target) return;
+      const newText = document.getElementById('pdfInlineText').value;
+      const size = Math.max(6, Math.min(48, Number(document.getElementById('pdfInlineSize').value || 11)));
+      const bold = document.getElementById('pdfInlineBold').checked;
+
+      pdfStudio.undoStack.push(pdfStudio.currentBytes.slice());
+      const doc = await window.PDFLib.PDFDocument.load(pdfStudio.currentBytes, { ignoreEncryption: true });
+      const font = await doc.embedFont(bold ? window.PDFLib.StandardFonts.HelveticaBold : window.PDFLib.StandardFonts.Helvetica);
+      const page = doc.getPage(pdfStudio.pageNum - 1);
+
+      if (target.kind === 'replaceItem') {
+        const r = target.rec;
+        page.drawRectangle({
+          x: r.xPdf - 1.5,
+          y: r.yPdf - r.fontSize * 0.28,
+          width: Math.max(r.wPdf + 4, font.widthOfTextAtSize(newText || ' ', size) + 2),
+          height: r.hPdf * 1.25,
+          color: window.PDFLib.rgb(1, 1, 1)
+        });
+        if (newText) {
+          page.drawText(newText, { x: r.xPdf, y: r.yPdf, size, font, color: window.PDFLib.rgb(0.06, 0.09, 0.16) });
+        }
+      } else if (target.kind === 'addText' && newText) {
+        page.drawText(newText, { x: target.xPdf, y: target.yPdf, size, font, color: window.PDFLib.rgb(0.06, 0.09, 0.16) });
+      }
+
+      pdfStudio.currentBytes = await doc.save();
+      document.getElementById('pdfInlineEditor').style.display = 'none';
+      pdfStudio.selectedInlineTarget = null;
+      await pdfStudioReloadDoc();
+    }
+
+    async function pdfApplyFindReplace() {
+      const findStr = (document.getElementById('pdfFindInput').value || '').trim();
+      const replStr = document.getElementById('pdfReplaceInput').value || '';
+      const scope = document.getElementById('pdfReplaceScope').value;
+      const fontChoice = document.getElementById('pdfReplaceFontSize').value;
+      const bold = document.getElementById('pdfReplaceBold').checked;
+      if (!findStr) { alert('Enter text to find in the PDF.'); return; }
+
+      const findLower = findStr.toLowerCase();
+      const escapedFind = findStr.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&');
+      const findRe = new RegExp(escapedFind, 'gi');
+      const hits = [];
+      const startPage = scope === 'current' ? pdfStudio.pageNum : 1;
+      const endPage = scope === 'current' ? pdfStudio.pageNum : pdfStudio.numPages;
+
+      for (let p = startPage; p <= endPage; p++) {
+        const page = await pdfStudio.pdfJsDoc.getPage(p);
+        const vp1 = page.getViewport({ scale: 1 });
+        const tc = await page.getTextContent();
+        const pageDirectHits = [];
+        const lineBuckets = [];
+
+        for (const item of tc.items) {
+          const s = item.str || '';
+          if (!s.trim()) continue;
+          const ty = item.transform[5];
+          if (scope === 'headers' && ty < vp1.height * 0.82) continue;
+          const fontSize = Math.max(7, Math.hypot(item.transform[0], item.transform[1]) || item.height || 11);
+          const tx = item.transform[4];
+          const w = Math.max(item.width || (s.length * fontSize * 0.55), fontSize);
+          const h = Math.max(item.height || fontSize * 1.15, fontSize);
+
+          if (s.toLowerCase().includes(findLower)) {
+            pageDirectHits.push({
+              pageNum: p, x: tx, y: ty, w, h, fontSize,
+              newText: s.replace(findRe, replStr)
+            });
+          }
+
+          let bucket = lineBuckets.find(b => Math.abs(b.y - ty) <= Math.max(3, fontSize * 0.45));
+          if (!bucket) { bucket = { y: ty, fontSize, items: [] }; lineBuckets.push(bucket); }
+          bucket.items.push({ x: tx, y: ty, w, h, fontSize, str: s });
+        }
+
+        if (pageDirectHits.length > 0) {
+          pageDirectHits.forEach(h => hits.push(h));
+        } else {
+          for (const b of lineBuckets) {
+            b.items.sort((a, c) => a.x - c.x);
+            let joined = '';
+            let prevRight = null;
+            for (const it of b.items) {
+              if (prevRight !== null && (it.x - prevRight) > it.fontSize * 0.2 && !joined.endsWith(' ') && !it.str.startsWith(' ')) joined += ' ';
+              joined += it.str;
+              prevRight = it.x + it.w;
+            }
+            if (joined.toLowerCase().includes(findLower)) {
+              const first = b.items[0];
+              const last = b.items[b.items.length - 1];
+              const maxH = Math.max(...b.items.map(it => it.h));
+              hits.push({
+                pageNum: p,
+                x: first.x,
+                y: first.y,
+                w: Math.max((last.x + last.w) - first.x, first.w),
+                h: maxH,
+                fontSize: first.fontSize,
+                newText: joined.replace(findRe, replStr)
+              });
+            }
+          }
+        }
+      }
+
+      if (hits.length === 0) {
+        alert('No matching selectable text found for "' + findStr + '". If this PDF is a photo/scan, use Cover Box + Add Text.');
+        return;
+      }
+
+      pdfStudio.undoStack.push(pdfStudio.currentBytes.slice());
+      const doc = await window.PDFLib.PDFDocument.load(pdfStudio.currentBytes, { ignoreEncryption: true });
+      const font = await doc.embedFont(bold ? window.PDFLib.StandardFonts.HelveticaBold : window.PDFLib.StandardFonts.Helvetica);
+
+      for (const h of hits) {
+        const page = doc.getPage(h.pageNum - 1);
+        const drawSize = fontChoice === 'auto' ? Math.max(7, Math.min(28, h.fontSize * 0.96)) : Number(fontChoice);
+        const newW = h.newText ? font.widthOfTextAtSize(h.newText, drawSize) : 0;
+        page.drawRectangle({
+          x: h.x - 1.5,
+          y: h.y - h.fontSize * 0.28,
+          width: Math.max(h.w + 3, newW + 2),
+          height: h.h * 1.25,
+          color: window.PDFLib.rgb(1, 1, 1)
+        });
+        if (h.newText) {
+          page.drawText(h.newText, { x: h.x, y: h.y, size: drawSize, font, color: window.PDFLib.rgb(0.06, 0.09, 0.16) });
+        }
+      }
+
+      pdfStudio.currentBytes = await doc.save();
+      await pdfStudioReloadDoc();
+      document.getElementById('pdfStudioStatus').textContent = 'Replaced ' + hits.length + ' match(es)!';
+    }
+
+    async function pdfAddOverlayFromFile(input) {
+      if (!input.files || !input.files[0]) return;
+      const f = input.files[0];
+      const url = URL.createObjectURL(f);
+      await pdfAddOverlayFromUrl(url, f.name);
+      input.value = '';
+    }
+
+    async function pdfAddOverlayFromUrl(url, label) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      const aspect = img.naturalHeight / Math.max(1, img.naturalWidth);
+      const wPct = 32;
+      const hPct = Math.min(45, wPct * aspect * 0.72);
+      pdfStudio.overlays.push({
+        id: 'ov_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+        pageNum: pdfStudio.pageNum,
+        imgUrl: url,
+        label: label || 'Overlay Image',
+        xPct: 30, yPct: 22, wPct, hPct
+      });
+      pdfRenderCurrentPage();
+    }
+
+    function pdfRenderOverlayLayer(vpW, vpH) {
+      const layer = document.getElementById('pdfOverlayLayer');
+      const list = document.getElementById('pdfOverlayList');
+      layer.innerHTML = '';
+      const pageOvs = pdfStudio.overlays.filter(o => o.pageNum === pdfStudio.pageNum);
+      list.innerHTML = pdfStudio.overlays.map(o =>
+        '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:4px 7px;background:var(--surface-alt);border-radius:6px;">' +
+        '<span>Page ' + o.pageNum + ': ' + esc(o.label) + '</span>' +
+        '<button class="mini-btn" style="color:var(--danger);" onclick="pdfRemoveOverlay(\\'' + o.id + '\\')">✕</button></div>'
+      ).join('');
+
+      pageOvs.forEach(o => {
+        const el = document.createElement('div');
+        el.className = 'pdf-overlay-img';
+        el.style.pointerEvents = 'auto';
+        el.style.left = (o.xPct / 100 * vpW) + 'px';
+        el.style.top = (o.yPct / 100 * vpH) + 'px';
+        el.style.width = (o.wPct / 100 * vpW) + 'px';
+        el.style.height = (o.hPct / 100 * vpH) + 'px';
+        el.innerHTML = '<img src="' + o.imgUrl + '" style="width:100%;height:100%;object-fit:contain;pointer-events:none;"><div class="resize-handle"></div>';
+
+        el.onmousedown = (ev) => {
+          ev.stopPropagation();
+          const isResize = ev.target.classList.contains('resize-handle');
+          const sx = ev.clientX, sy = ev.clientY;
+          const ox = o.xPct, oy = o.yPct, ow = o.wPct, oh = o.hPct;
+          const onMove = (mv) => {
+            const dxPct = ((mv.clientX - sx) / vpW) * 100;
+            const dyPct = ((mv.clientY - sy) / vpH) * 100;
+            if (isResize) {
+              o.wPct = Math.max(4, Math.min(98 - ox, ow + dxPct));
+              o.hPct = Math.max(4, Math.min(98 - oy, oh + dyPct));
+              el.style.width = (o.wPct / 100 * vpW) + 'px';
+              el.style.height = (o.hPct / 100 * vpH) + 'px';
+            } else {
+              o.xPct = Math.max(0, Math.min(100 - o.wPct, ox + dxPct));
+              o.yPct = Math.max(0, Math.min(100 - o.hPct, oy + dyPct));
+              el.style.left = (o.xPct / 100 * vpW) + 'px';
+              el.style.top = (o.yPct / 100 * vpH) + 'px';
+            }
+          };
+          const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        };
+        layer.appendChild(el);
+      });
+    }
+
+    function pdfRemoveOverlay(id) {
+      pdfStudio.overlays = pdfStudio.overlays.filter(o => o.id !== id);
+      pdfRenderCurrentPage();
+    }
+
+    async function pdfBakeOverlaysIntoBytes() {
+      if (pdfStudio.overlays.length === 0) return pdfStudio.currentBytes;
+      const doc = await window.PDFLib.PDFDocument.load(pdfStudio.currentBytes, { ignoreEncryption: true });
+      for (const o of pdfStudio.overlays) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = o.imgUrl; });
+        const tmp = document.createElement('canvas');
+        tmp.width = img.naturalWidth; tmp.height = img.naturalHeight;
+        tmp.getContext('2d').drawImage(img, 0, 0);
+        const pngDataUrl = tmp.toDataURL('image/png');
+        const pngBytes = Uint8Array.from(atob(pngDataUrl.split(',')[1]), c => c.charCodeAt(0));
+        const embedded = await doc.embedPng(pngBytes);
+        const page = doc.getPage(o.pageNum - 1);
+        const sz = page.getSize();
+        const w = (o.wPct / 100) * sz.width;
+        const h = (o.hPct / 100) * sz.height;
+        const x = (o.xPct / 100) * sz.width;
+        const y = sz.height - ((o.yPct / 100) * sz.height) - h;
+        page.drawImage(embedded, { x, y, width: w, height: h });
+      }
+      return await doc.save();
+    }
+
+    async function pdfStudioUndo() {
+      if (pdfStudio.undoStack.length === 0) return;
+      pdfStudio.currentBytes = pdfStudio.undoStack.pop();
+      await pdfStudioReloadDoc();
+    }
+
+    async function pdfStudioReset() {
+      if (!pdfStudio.originalBytes) return;
+      pdfStudio.undoStack = [];
+      pdfStudio.overlays = [];
+      pdfStudio.currentBytes = pdfStudio.originalBytes.slice();
+      await pdfStudioReloadDoc();
+    }
+
+    async function pdfStudioSave(andPrint) {
+      document.getElementById('pdfStudioStatus').textContent = 'Saving edited PDF...';
+      try {
+        const finalBytes = await pdfBakeOverlaysIntoBytes();
+        const baseName = (pdfStudio.fileName || 'document').replace(/\\.pdf$/i, '') + '_edited_' + Date.now().toString().slice(-4) + '.pdf';
+        const res = await fetch('/api/file/save-edited-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            'X-File-Id': pdfStudio.fileId || '',
+            'X-Output-Name': baseName
+          },
+          body: finalBytes
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+        await fetchCloudState(true);
+        document.getElementById('pdfStudioStatus').textContent = '✓ Saved (' + data.filename + ')';
+        if (andPrint) {
+          directPrint(data.url, data.filename);
+        } else {
+          alert('Edited PDF saved! It is now marked ✓ Edited and will be used automatically in Merge & Print.');
+        }
+      } catch (err) {
+        alert('Could not save PDF: ' + err.message);
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. DOCX STUDIO (Native C# OpenXML Header/Body/Image Editor + Word/LO PDF)
+    // ------------------------------------------------------------------------
+    let docxStudio = {
+      fileId: null,
+      fileName: '',
+      headers: [],
+      footers: [],
+      bodyBlocks: [],
+      images: [],
+      editedTexts: {}, // key "partPath|pIdx" -> newText
+      imageResizes: {}, // key "partPath|dIdx" -> { partPath, drawingIndex, scalePercent, widthCm, heightCm }
+      lastPdfUrl: null
+    };
+
+    async function openDocxStudio(fileId, fileName) {
+      docxStudio.fileId = fileId;
+      docxStudio.fileName = fileName;
+      docxStudio.editedTexts = {};
+      docxStudio.imageResizes = {};
+      docxStudio.lastPdfUrl = null;
+      document.getElementById('docxStudioFileName').textContent = fileName;
+      document.getElementById('docxFrPairs').innerHTML = '';
+      docxAddFrRow();
+      docxAddFrRow();
+      document.getElementById('docxStudioModal').classList.add('open');
+      await docxInspectLoad(false);
+    }
+
+    function docxAddFrRow() {
+      const box = document.getElementById('docxFrPairs');
+      const row = document.createElement('div');
+      row.className = 'fr-pair-row';
+      row.innerHTML = '<input class="field-input docx-find" placeholder="Find (e.g. Old Name / Roll)" style="font-size:12px;padding:6px 8px;">' +
+        '<input class="field-input docx-repl" placeholder="Replace with..." style="font-size:12px;padding:6px 8px;">' +
+        '<button type="button" class="mini-btn" onclick="this.parentElement.remove()">✕</button>';
+      box.appendChild(row);
+    }
+
+    async function docxInspectLoad(useOriginal) {
+      document.getElementById('docxPreviewStatus').textContent = 'Reading DOCX headers, text & images...';
+      const res = await fetch('/api/docx/inspect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId: docxStudio.fileId, useOriginal: !!useOriginal })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert('Could not open DOCX Studio: ' + (data.error || 'Error'));
+        closeStudioModal('docxStudioModal');
+        return;
+      }
+
+      docxStudio.headers = (data.headers || []).concat(data.footers || []);
+      docxStudio.bodyBlocks = data.bodyBlocks || [];
+      docxStudio.images = data.images || [];
+      docxStudio.editedTexts = {};
+      docxStudio.imageResizes = {};
+      document.getElementById('docxStudioEngine').textContent = data.officeEngine || 'DOCX Ready';
+      document.getElementById('docxHdrBadge').textContent = docxStudio.headers.length;
+      document.getElementById('docxImgBadge').textContent = docxStudio.images.length;
+
+      const hdrEl = document.getElementById('docxHeadersList');
+      hdrEl.innerHTML = docxStudio.headers.length === 0
+        ? '<div style="font-size:11.5px;color:var(--muted);">No headers/footers in this document. Check Body &amp; Cover Page Text below!</div>'
+        : docxStudio.headers.map(b => {
+            const k = b.partPath + '|' + b.paragraphIndex;
+            return '<div class="docx-block-row">' +
+              '<div style="font-size:10px;color:var(--muted);display:flex;justify-content:space-between;"><span>' + esc(b.partType.toUpperCase()) + (b.inTable ? ' • Table' : '') + '</span><span>#' + b.paragraphIndex + '</span></div>' +
+              '<input class="field-input" style="font-size:12px;padding:6px 8px;" value="' + esc(b.text) + '" oninput="docxStudio.editedTexts[' + JSON.stringify(k).replace(/"/g, '&quot;') + ']=this.value">' +
+              '</div>';
+          }).join('');
+
+      const imgEl = document.getElementById('docxImagesList');
+      imgEl.innerHTML = docxStudio.images.length === 0
+        ? '<div style="font-size:11.5px;color:var(--muted);">No embedded images found in this document.</div>'
+        : docxStudio.images.map((im, idx) => {
+            const k = im.partPath + '|' + im.drawingIndex;
+            return '<div class="docx-block-row">' +
+              '<div style="font-size:11.5px;font-weight:700;">' + esc(im.name) + ' <span style="font-weight:400;color:var(--muted);">(' + im.widthCm + ' × ' + im.heightCm + ' cm)</span></div>' +
+              '<div style="display:flex;gap:6px;align-items:center;">' +
+              '<span style="font-size:11px;color:var(--muted);">Scale:</span>' +
+              '<input type="range" min="25" max="200" value="100" style="flex:1;" oninput="document.getElementById(\\'dimg_lbl_' + idx + '\\').textContent=this.value+\\'%\\';docxSetImgScale(' + JSON.stringify(k).replace(/"/g, '&quot;') + ',' + JSON.stringify(im.partPath).replace(/"/g, '&quot;') + ',' + im.drawingIndex + ',Number(this.value))">' +
+              '<span id="dimg_lbl_' + idx + '" style="font-size:11px;font-weight:700;min-width:36px;">100%</span>' +
+              '</div></div>';
+          }).join('');
+
+      renderDocxBodyList();
+
+      if (data.convertedUrl) {
+        docxStudio.lastPdfUrl = data.convertedUrl;
+        document.getElementById('docxPreviewFrameWrap').innerHTML = '<iframe id="docxPdfIframe" src="' + data.convertedUrl + '?t=' + Date.now() + '" style="width:100%;height:100%;border:none;"></iframe>';
+        document.getElementById('docxPreviewStatus').textContent = 'Showing saved PDF preview.';
+      } else {
+        document.getElementById('docxPreviewFrameWrap').innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">Make your edits on the left and click <strong>✨ Apply Changes &amp; Preview</strong> to render live PDF.</div>';
+      }
+    }
+
+    function docxSetImgScale(key, partPath, drawingIndex, scalePercent) {
+      docxStudio.imageResizes[key] = { partPath, drawingIndex, scalePercent };
+    }
+
+    function renderDocxBodyList() {
+      const q = (document.getElementById('docxBodyFilter').value || '').toLowerCase();
+      const box = document.getElementById('docxBodyList');
+      const items = docxStudio.bodyBlocks.filter(b => !q || (b.text || '').toLowerCase().includes(q)).slice(0, 60);
+      box.innerHTML = items.length === 0
+        ? '<div style="font-size:11.5px;color:var(--muted);">No matching paragraphs.</div>'
+        : items.map(b => {
+            const k = b.partPath + '|' + b.paragraphIndex;
+            const val = docxStudio.editedTexts[k] !== undefined ? docxStudio.editedTexts[k] : b.text;
+            return '<div class="docx-block-row">' +
+              '<div style="font-size:10px;color:var(--muted);">Paragraph #' + b.paragraphIndex + (b.inTable ? ' • Table Cell' : '') + '</div>' +
+              '<input class="field-input" style="font-size:12px;padding:6px 8px;" value="' + esc(val) + '" oninput="docxStudio.editedTexts[' + JSON.stringify(k).replace(/"/g, '&quot;') + ']=this.value">' +
+              '</div>';
+          }).join('');
+    }
+
+    async function docxSaveAndPreview(andPrint) {
+      const btn = document.getElementById('docxApplyBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Applying & Rendering PDF...'; }
+      document.getElementById('docxPreviewStatus').textContent = 'Updating DOCX XML and rendering live PDF...';
+      try {
+        const findReplaces = [];
+        const scope = document.getElementById('docxFrScope').value;
+        const caseSensitive = document.getElementById('docxFrCase').checked;
+        document.querySelectorAll('#docxFrPairs .fr-pair-row').forEach(r => {
+          const f = (r.querySelector('.docx-find').value || '');
+          const rep = (r.querySelector('.docx-repl').value || '');
+          if (f) findReplaces.push({ find: f, replace: rep, caseSensitive, scope });
+        });
+
+        const paragraphEdits = Object.entries(docxStudio.editedTexts).map(([k, newText]) => {
+          const idx = k.lastIndexOf('|');
+          return { partPath: k.slice(0, idx), paragraphIndex: Number(k.slice(idx + 1)), newText };
+        });
+        const imageResizes = Object.values(docxStudio.imageResizes);
+
+        const res = await fetch('/api/docx/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId: docxStudio.fileId,
+            findReplaces,
+            paragraphEdits,
+            imageResizes,
+            convertToPdf: true
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'DOCX edit failed');
+
+        await fetchCloudState(true);
+        const dl = document.getElementById('docxDownloadLink');
+        if (data.editedDocxUrl) { dl.href = data.editedDocxUrl; dl.style.display = 'inline-flex'; }
+
+        const summary = '✓ Saved (' + data.replacementsCount + ' find/replace, ' + data.paragraphEditsCount + ' text edit, ' + data.imagesResizedCount + ' image resize)';
+        document.getElementById('docxPreviewStatus').textContent = summary + (data.pdfEngine ? ' • PDF via ' + data.pdfEngine : '');
+
+        if (data.pdfUrl) {
+          docxStudio.lastPdfUrl = data.pdfUrl;
+          document.getElementById('docxPreviewFrameWrap').innerHTML = '<iframe id="docxPdfIframe" src="' + data.pdfUrl + '?t=' + Date.now() + '" style="width:100%;height:100%;border:none;"></iframe>';
+          if (andPrint) directPrint(data.pdfUrl, data.pdfFilename || docxStudio.fileName);
+        } else if (data.pdfError) {
+          document.getElementById('docxPreviewFrameWrap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--warning);font-size:13px;"><strong>DOCX edits saved!</strong><br>' + esc(data.pdfError) + '</div>';
+          if (andPrint) alert('DOCX saved, but PDF conversion needs Microsoft Word or LibreOffice to direct-print.');
+        }
+      } catch (err) {
+        alert('DOCX Studio error: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '✨ Apply Changes & Preview'; }
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. IMAGE PRINT CANVAS STUDIO (A4/4x6 Drag, Resize, Rotate, Multi-Image)
+    // ------------------------------------------------------------------------
+    const PAPER_CM = {
+      A4: { w: 21.0, h: 29.7 },
+      Letter: { w: 21.59, h: 27.94 },
+      A5: { w: 14.8, h: 21.0 },
+      Photo4x6: { w: 10.16, h: 15.24 }
+    };
+
+    let icState = {
+      primaryFileId: null,
+      primaryFileName: '',
+      submissionId: null,
+      items: [], // { id, url, name, natW, natH, xCm, yCm, wCm, hCm, rot, bright, contrast, gray }
+      selectedId: null,
+      pxPerCm: 22
+    };
+
+    function icGetPaperCm() {
+      const sz = PAPER_CM[document.getElementById('icPaperSize').value] || PAPER_CM.A4;
+      const land = document.getElementById('icOrientation').value === 'landscape';
+      return land ? { w: sz.h, h: sz.w } : { w: sz.w, h: sz.h };
+    }
+
+    async function openImageCanvas(fileId, fileName, submissionId) {
+      icState.primaryFileId = fileId;
+      icState.primaryFileName = fileName;
+      icState.submissionId = submissionId;
+      icState.items = [];
+      icState.selectedId = null;
+
+      const sel = document.getElementById('icSubImgSelect');
+      sel.innerHTML = '<option value="">+ Add from Submission...</option>';
+      const sub = (cloudState.submissions || []).find(s => s.id === submissionId || s.receiptCode === submissionId);
+      if (sub) {
+        (sub.files || []).filter(f => ['.jpg','.jpeg','.png','.webp','.bmp','.gif'].includes((f.fileExtension || '').toLowerCase())).forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = '/api/file?id=' + encodeURIComponent(f.id);
+          opt.textContent = f.originalName;
+          sel.appendChild(opt);
+        });
+      }
+
+      document.getElementById('imageStudioModal').classList.add('open');
+      imgCanvasRenderPaper();
+      await icAddImageUrl('/api/file?id=' + encodeURIComponent(fileId), fileName);
+      icPreset('fit');
+    }
+
+    async function icAddLocalFile(input) {
+      if (!input.files || !input.files[0]) return;
+      const f = input.files[0];
+      await icAddImageUrl(URL.createObjectURL(f), f.name);
+      input.value = '';
+    }
+
+    async function icAddImageUrl(url, name) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      const paper = icGetPaperCm();
+      const aspect = img.naturalHeight / Math.max(1, img.naturalWidth);
+      let wCm = Math.min(paper.w - 2.4, 14);
+      let hCm = wCm * aspect;
+      if (hCm > paper.h - 2.4) { hCm = paper.h - 2.4; wCm = hCm / aspect; }
+      const item = {
+        id: 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+        url, name: name || 'Image',
+        natW: img.naturalWidth, natH: img.naturalHeight,
+        xCm: Math.max(0.8, (paper.w - wCm) / 2),
+        yCm: Math.max(0.8, (paper.h - hCm) / 2),
+        wCm, hCm, rot: 0, bright: 100, contrast: 100, gray: false
+      };
+      icState.items.push(item);
+      icState.selectedId = item.id;
+      imgCanvasRenderPaper();
+    }
+
+    function imgCanvasRenderPaper() {
+      const paper = icGetPaperCm();
+      const maxH = Math.max(460, window.innerHeight * 0.72);
+      const maxW = Math.max(460, window.innerWidth - 460);
+      icState.pxPerCm = Math.min(maxW / paper.w, maxH / paper.h);
+
+      const paperEl = document.getElementById('icPaperEl');
+      paperEl.style.width = Math.round(paper.w * icState.pxPerCm) + 'px';
+      paperEl.style.height = Math.round(paper.h * icState.pxPerCm) + 'px';
+      document.getElementById('imgCanvasStatus').textContent =
+        document.getElementById('icPaperSize').value + ' ' + document.getElementById('icOrientation').value + ' • ' + icState.items.length + ' image(s)';
+
+      const layer = document.getElementById('icItemsLayer');
+      layer.innerHTML = '';
+      icState.items.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'canvas-item' + (item.id === icState.selectedId ? ' selected' : '');
+        div.style.left = (item.xCm * icState.pxPerCm) + 'px';
+        div.style.top = (item.yCm * icState.pxPerCm) + 'px';
+        div.style.width = (item.wCm * icState.pxPerCm) + 'px';
+        div.style.height = (item.hCm * icState.pxPerCm) + 'px';
+        div.style.transform = 'rotate(' + item.rot + 'deg)';
+        const filter = 'brightness(' + item.bright + '%) contrast(' + item.contrast + '%)' + (item.gray ? ' grayscale(100%)' : '');
+        div.innerHTML = '<img src="' + item.url + '" style="filter:' + filter + ';">' +
+          '<div class="canvas-dim-tag">' + item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm</div>' +
+          '<div class="canvas-handle"></div>';
+
+        div.onmousedown = (ev) => {
+          ev.stopPropagation();
+          icState.selectedId = item.id;
+          icSyncControls();
+          document.querySelectorAll('#icItemsLayer .canvas-item').forEach(n => n.classList.remove('selected'));
+          div.classList.add('selected');
+
+          const isResize = ev.target.classList.contains('canvas-handle');
+          const sx = ev.clientX, sy = ev.clientY;
+          const ox = item.xCm, oy = item.yCm, ow = item.wCm, oh = item.hCm;
+          const aspect = oh / Math.max(0.1, ow);
+
+          const onMove = (mv) => {
+            const dxCm = (mv.clientX - sx) / icState.pxPerCm;
+            const dyCm = (mv.clientY - sy) / icState.pxPerCm;
+            if (isResize) {
+              item.wCm = Math.max(1.5, Math.min(paper.w, ow + dxCm));
+              item.hCm = mv.shiftKey ? Math.max(1.5, Math.min(paper.h, oh + dyCm)) : (item.wCm * aspect);
+              div.style.width = (item.wCm * icState.pxPerCm) + 'px';
+              div.style.height = (item.hCm * icState.pxPerCm) + 'px';
+              const tag = div.querySelector('.canvas-dim-tag');
+              if (tag) tag.textContent = item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm';
+            } else {
+              item.xCm = Math.max(-item.wCm * 0.4, Math.min(paper.w - item.wCm * 0.4, ox + dxCm));
+              item.yCm = Math.max(-item.hCm * 0.4, Math.min(paper.h - item.hCm * 0.4, oy + dyCm));
+              div.style.left = (item.xCm * icState.pxPerCm) + 'px';
+              div.style.top = (item.yCm * icState.pxPerCm) + 'px';
+            }
+            icSyncControls();
+          };
+          const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        };
+        layer.appendChild(div);
+      });
+      icSyncControls();
+    }
+
+    function icGetSelected() { return icState.items.find(i => i.id === icState.selectedId) || icState.items[0] || null; }
+
+    function icSyncControls() {
+      const it = icGetSelected();
+      if (!it) return;
+      document.getElementById('icWidthCm').value = it.wCm.toFixed(1);
+      document.getElementById('icHeightCm').value = it.hCm.toFixed(1);
+      document.getElementById('icRotSlider').value = it.rot;
+      document.getElementById('icRotVal').textContent = it.rot + '°';
+      document.getElementById('icBright').value = it.bright;
+      document.getElementById('icContrast').value = it.contrast;
+      document.getElementById('icGrayscale').checked = !!it.gray;
+    }
+
+    function icApplyDimInput(axis) {
+      const it = icGetSelected();
+      if (!it) return;
+      const ratio = it.natH / Math.max(1, it.natW);
+      if (axis === 'w') {
+        it.wCm = Math.max(1, Number(document.getElementById('icWidthCm').value || it.wCm));
+        it.hCm = it.wCm * ratio;
+      } else {
+        it.hCm = Math.max(1, Number(document.getElementById('icHeightCm').value || it.hCm));
+        it.wCm = it.hCm / ratio;
+      }
+      imgCanvasRenderPaper();
+    }
+
+    function icSetRotation(deg) { const it = icGetSelected(); if (!it) return; it.rot = deg; imgCanvasRenderPaper(); }
+    function icRotateStep(delta) { const it = icGetSelected(); if (!it) return; it.rot = ((it.rot + delta + 540) % 360) - 180; imgCanvasRenderPaper(); }
+    function icSetFilter() {
+      const it = icGetSelected(); if (!it) return;
+      it.bright = Number(document.getElementById('icBright').value || 100);
+      it.contrast = Number(document.getElementById('icContrast').value || 100);
+      it.gray = document.getElementById('icGrayscale').checked;
+      imgCanvasRenderPaper();
+    }
+    function icCenterSelected() {
+      const it = icGetSelected(); if (!it) return;
+      const paper = icGetPaperCm();
+      it.xCm = (paper.w - it.wCm) / 2;
+      it.yCm = (paper.h - it.hCm) / 2;
+      imgCanvasRenderPaper();
+    }
+    function icDuplicateSelected() {
+      const it = icGetSelected(); if (!it) return;
+      const copy = { ...it, id: 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5), xCm: it.xCm + 1.0, yCm: it.yCm + 1.0 };
+      icState.items.push(copy);
+      icState.selectedId = copy.id;
+      imgCanvasRenderPaper();
+    }
+    function icDeleteSelected() {
+      if (!icState.selectedId) return;
+      icState.items = icState.items.filter(i => i.id !== icState.selectedId);
+      icState.selectedId = icState.items[0] ? icState.items[0].id : null;
+      imgCanvasRenderPaper();
+    }
+
+    function icPreset(kind) {
+      const it = icGetSelected(); if (!it) return;
+      const paper = icGetPaperCm();
+      const aspect = it.natH / Math.max(1, it.natW);
+      if (kind === 'fit') {
+        let w = paper.w - 1.6, h = w * aspect;
+        if (h > paper.h - 1.6) { h = paper.h - 1.6; w = h / aspect; }
+        it.wCm = w; it.hCm = h; it.xCm = (paper.w - w) / 2; it.yCm = (paper.h - h) / 2; it.rot = 0;
+      } else if (kind === 'half') {
+        let w = paper.w - 2.0, h = w * aspect;
+        if (h > (paper.h / 2) - 1.5) { h = (paper.h / 2) - 1.5; w = h / aspect; }
+        it.wCm = w; it.hCm = h; it.xCm = (paper.w - w) / 2; it.yCm = 1.0;
+      } else if (kind === 'idcard') {
+        it.wCm = 8.56; it.hCm = 5.4; it.xCm = (paper.w - it.wCm) / 2; it.yCm = 1.6; it.rot = 0;
+      } else if (kind === '2up') {
+        let w = paper.w - 2.4, h = w * aspect;
+        if (h > (paper.h / 2) - 1.6) { h = (paper.h / 2) - 1.6; w = h / aspect; }
+        it.wCm = w; it.hCm = h; it.xCm = (paper.w - w) / 2; it.yCm = 1.0; it.rot = 0;
+        const copy = { ...it, id: 'ic_' + Date.now() + '_2', yCm: (paper.h / 2) + 0.5 };
+        icState.items = [it, copy];
+        icState.selectedId = it.id;
+      } else if (kind === 'passport8') {
+        const pw = 3.5, ph = 4.5, gap = 0.6;
+        const cols = 4, rows = 2;
+        const startX = (paper.w - (cols * pw + (cols - 1) * gap)) / 2;
+        const startY = 1.5;
+        const grid = [];
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            grid.push({
+              ...it,
+              id: 'ic_pp_' + r + '_' + c + '_' + Date.now(),
+              wCm: pw, hCm: ph, rot: 0,
+              xCm: startX + c * (pw + gap),
+              yCm: startY + r * (ph + gap)
+            });
+          }
+        }
+        icState.items = grid;
+        icState.selectedId = grid[0].id;
+      }
+      imgCanvasRenderPaper();
+    }
+
+    async function imgCanvasExport(andPrint) {
+      if (icState.items.length === 0) { alert('Add at least one image to the canvas.'); return; }
+      const paper = icGetPaperCm();
+      const dpi = 200; // crisp high-DPI print render
+      const pxPerCmExport = dpi / 2.54;
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = Math.round(paper.w * pxPerCmExport);
+      outCanvas.height = Math.round(paper.h * pxPerCmExport);
+      const ctx = outCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+      for (const it of icState.items) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = it.url; });
+        const cx = (it.xCm + it.wCm / 2) * pxPerCmExport;
+        const cy = (it.yCm + it.hCm / 2) * pxPerCmExport;
+        const w = it.wCm * pxPerCmExport;
+        const h = it.hCm * pxPerCmExport;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((it.rot * Math.PI) / 180);
+        ctx.filter = 'brightness(' + it.bright + '%) contrast(' + it.contrast + '%)' + (it.gray ? ' grayscale(100%)' : '');
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+
+      const jpegUrl = outCanvas.toDataURL('image/jpeg', 0.93);
+      const jpegBytes = Uint8Array.from(atob(jpegUrl.split(',')[1]), c => c.charCodeAt(0));
+      const doc = await window.PDFLib.PDFDocument.create();
+      const ptPerCm = 72 / 2.54;
+      const page = doc.addPage([paper.w * ptPerCm, paper.h * ptPerCm]);
+      const embedded = await doc.embedJpg(jpegBytes);
+      page.drawImage(embedded, { x: 0, y: 0, width: paper.w * ptPerCm, height: paper.h * ptPerCm });
+      const pdfBytes = await doc.save();
+
+      const base = (icState.primaryFileName || 'canvas').replace(/\\.[^.]+$/, '') + '_canvas_' + Date.now().toString().slice(-4) + '.pdf';
+      const res = await fetch('/api/file/save-edited-pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/pdf',
+          'X-File-Id': icState.primaryFileId || '',
+          'X-Output-Name': base
+        },
+        body: pdfBytes
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Save failed: ' + (data.error || 'Error')); return; }
+      await fetchCloudState(true);
+      if (andPrint) {
+        directPrint(data.url, data.filename);
+      } else {
+        alert('Canvas saved as PDF (' + data.filename + ')! Marked ✓ Edited for Merge & Print.');
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. MERGE & PRINT ALL QUEUE (Mixed Edited/Original DOCX + PDF + Images)
+    // ------------------------------------------------------------------------
+    let mergeQueue = { submissionId: null, receiptCode: '', items: [] };
+
+    function openMergeModal(submissionId) {
+      const sub = (cloudState.submissions || []).find(s => s.id === submissionId || s.receiptCode === submissionId);
+      if (!sub) return;
+      const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
+      mergeQueue.submissionId = sub.id;
+      mergeQueue.receiptCode = sub.receiptCode || sub.id;
+      mergeQueue.items = (sub.files || [])
+        .filter(f => printableExts.includes((f.fileExtension || '').toLowerCase()))
+        .map(f => ({ file: f, checked: true }));
+
+      document.getElementById('mergeSubTitle').textContent =
+        (sub.receiptCode || sub.id) + ' • ' + (sub.customerName || 'Customer') + ' • ' + mergeQueue.items.length + ' printable file(s)';
+      document.getElementById('mergeProgressMsg').style.display = 'none';
+      renderMergeQueue();
+      document.getElementById('mergePrintModal').classList.add('open');
+    }
+
+    function renderMergeQueue() {
+      const box = document.getElementById('mergeQueueList');
+      if (mergeQueue.items.length === 0) {
+        box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);">No printable PDF, Word, or Image files in this submission.</div>';
+        return;
+      }
+      box.innerHTML = mergeQueue.items.map((entry, idx) => {
+        const f = entry.file;
+        const isEdited = f.conversionStatus === 'edited' && f.convertedUrl;
+        const [cls, lbl] = getFileBadge(f.fileExtension);
+        return '<div class="merge-row">' +
+          '<input type="checkbox" ' + (entry.checked ? 'checked' : '') + ' onchange="mergeQueue.items[' + idx + '].checked=this.checked" style="width:16px;height:16px;cursor:pointer;">' +
+          '<div class="file-type-box ' + cls + '">' + lbl + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(f.originalName) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);">' + formatSize(f.sizeBytes) + ' • ' +
+              (isEdited ? '<span style="color:var(--success);font-weight:700;">✓ Using Edited PDF Version</span>' : 'Original (auto-converted if needed)') +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:4px;">' +
+            '<button class="mini-btn" onclick="mergeMove(' + idx + ',-1)" title="Move Up">↑</button>' +
+            '<button class="mini-btn" onclick="mergeMove(' + idx + ',1)" title="Move Down">↓</button>' +
+            '<button class="mini-btn" onclick="closeStudioModal(\\'mergePrintModal\\');openSmartEditorById(\\'' + esc(f.id) + '\\',\\'' + esc(mergeQueue.submissionId) + '\\')">✏️ Edit</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function mergeMove(idx, delta) {
+      const target = idx + delta;
+      if (target < 0 || target >= mergeQueue.items.length) return;
+      const tmp = mergeQueue.items[idx];
+      mergeQueue.items[idx] = mergeQueue.items[target];
+      mergeQueue.items[target] = tmp;
+      renderMergeQueue();
+    }
+
+    async function executeMergeAndPrint(andPrint) {
+      const selected = mergeQueue.items.filter(i => i.checked);
+      if (selected.length === 0) { alert('Select at least one file to merge.'); return; }
+      const msg = document.getElementById('mergeProgressMsg');
+      const b1 = document.getElementById('mergeSaveOnlyBtn');
+      const b2 = document.getElementById('mergeDirectPrintBtn');
+      msg.style.display = 'block';
+      b1.disabled = true; b2.disabled = true;
+
+      try {
+        const mergedPdf = await window.PDFLib.PDFDocument.create();
+        let totalPages = 0;
+
+        for (let i = 0; i < selected.length; i++) {
+          const f = selected[i].file;
+          msg.textContent = 'Preparing (' + (i + 1) + '/' + selected.length + '): ' + f.originalName + '...';
+          const prepRes = await fetch('/api/file/prepare-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: f.id })
+          });
+          const prepData = await prepRes.json();
+          if (!prepRes.ok || !prepData.success) {
+            throw new Error(f.originalName + ': ' + (prepData.error || 'Could not prepare PDF'));
+          }
+
+          const pdfRes = await fetch(prepData.url + (prepData.url.includes('?') ? '&' : '?') + 't=' + Date.now());
+          if (!pdfRes.ok) throw new Error('Could not read prepared PDF for ' + f.originalName);
+          const bytes = await pdfRes.arrayBuffer();
+          const srcDoc = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+          const copiedPages = await mergedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
+          copiedPages.forEach(p => mergedPdf.addPage(p));
+          totalPages += copiedPages.length;
+        }
+
+        msg.textContent = 'Saving merged ' + totalPages + '-page PDF...';
+        const mergedBytes = await mergedPdf.save();
+        const outName = 'Merged_' + mergeQueue.receiptCode + '_' + selected.length + 'files.pdf';
+        const saveRes = await fetch('/api/file/save-edited-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/pdf', 'X-Output-Name': outName },
+          body: mergedBytes
+        });
+        const saveData = await saveRes.json();
+        if (!saveRes.ok || !saveData.success) throw new Error(saveData.error || 'Could not save merged PDF');
+
+        await fetchCloudState(true);
+        msg.textContent = '✓ Merged ' + selected.length + ' file(s) (' + totalPages + ' pages) into ' + saveData.filename;
+        closeStudioModal('mergePrintModal');
+
+        if (andPrint) {
+          directPrint(saveData.url, saveData.filename);
+        } else {
+          previewUrl(saveData.url, saveData.filename, '.pdf', null);
+        }
+      } catch (err) {
+        msg.textContent = 'Merge failed: ' + err.message;
+        alert('Merge & Print failed: ' + err.message);
+      } finally {
+        b1.disabled = false; b2.disabled = false;
+      }
+    }
+`;
+
+module.exports = { studioCss, studioHtml, studioJs };

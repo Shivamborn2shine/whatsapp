@@ -185,6 +185,8 @@ namespace ScanDrop.Native.Api
                         { "receiverPort", _publicReceiver != null ? _publicReceiver.Port : 0 },
                         { "acceptingUploads", !settings.PauseReceiving },
                         { "libreOfficeInstalled", ConversionEngine.IsLibreOfficeInstalled() },
+                        { "officeConversionReady", ConversionEngine.IsOfficeConversionAvailable() },
+                        { "officeEngine", ConversionEngine.GetOfficeEngineLabel() },
                         { "tunnelUrl", snap != null ? snap.PublicUrl : null },
                         { "tunnelOnline", snap != null && snap.IsOnline },
                         { "tunnelState", snap != null ? snap.StateName : "STOPPED" },
@@ -394,6 +396,30 @@ namespace ScanDrop.Native.Api
                 if (path == "/api/file/convert-pdf" && req.HttpMethod == "POST")
                 {
                     HandleConvertToPdf(req, res);
+                    return;
+                }
+
+                if (path == "/api/docx/inspect" && req.HttpMethod == "POST")
+                {
+                    HandleDocxInspect(req, res);
+                    return;
+                }
+
+                if (path == "/api/docx/edit" && req.HttpMethod == "POST")
+                {
+                    HandleDocxEdit(req, res);
+                    return;
+                }
+
+                if (path == "/api/file/save-edited-pdf" && req.HttpMethod == "POST")
+                {
+                    HandleSaveEditedPdf(req, res);
+                    return;
+                }
+
+                if (path == "/api/file/prepare-pdf" && req.HttpMethod == "POST")
+                {
+                    HandlePreparePdf(req, res);
                     return;
                 }
 
@@ -743,6 +769,8 @@ namespace ScanDrop.Native.Api
                 { "acceptingUploads", !settings.PauseReceiving },
                 { "dailyCount", todayCount },
                 { "libreOfficeInstalled", ConversionEngine.IsLibreOfficeInstalled() },
+                { "officeConversionReady", ConversionEngine.IsOfficeConversionAvailable() },
+                { "officeEngine", ConversionEngine.GetOfficeEngineLabel() },
                 { "tunnelUrl", snap != null ? snap.PublicUrl : null },
                 { "tunnelOnline", snap != null && snap.IsOnline },
                 { "tunnelState", snap != null ? snap.StateName : "STOPPED" },
@@ -785,7 +813,341 @@ namespace ScanDrop.Native.Api
                 HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "error", "Converted file not found" } });
                 return;
             }
-            StreamDiskFile(res, full, "application/pdf", name, download);
+            string ct = full.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)
+                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                : "application/pdf";
+            StreamDiskFile(res, full, ct, name, download);
+        }
+
+        private string ResolveEditableDocxPath(FileRecord file, bool preferOriginal, out string error)
+        {
+            error = null;
+            if (file == null || string.IsNullOrEmpty(file.StoragePath) || !File.Exists(file.StoragePath))
+            {
+                error = "File not found on disk.";
+                return null;
+            }
+            string editedDocx = Path.Combine(_storage.Paths.ConvertedDir, "edited_" + StorageManager.SanitizeDisplayName(file.FileId) + ".docx");
+            if (!preferOriginal && File.Exists(editedDocx)) return editedDocx;
+
+            string ext = (file.FileExtension ?? Path.GetExtension(file.StoragePath)).ToLowerInvariant();
+            if (ext == ".docx") return file.StoragePath;
+            if (ext == ".doc")
+            {
+                string convertedDocx = Path.Combine(_storage.Paths.ConvertedDir, "src_" + StorageManager.SanitizeDisplayName(file.FileId) + ".docx");
+                if (!File.Exists(convertedDocx))
+                {
+                    if (!_converter.ConvertDocToDocx(file.StoragePath, convertedDocx, out error))
+                        return null;
+                }
+                return convertedDocx;
+            }
+            error = "Only .docx and .doc files are supported by DOCX Studio.";
+            return null;
+        }
+
+        private void HandleDocxInspect(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string fileId = HttpHelpers.GetStr(body, "fileId");
+            bool useOriginal = HttpHelpers.GetBool(body, "useOriginal", false);
+            var file = _db.GetFileById(fileId);
+            string err;
+            string docxPath = ResolveEditableDocxPath(file, useOriginal, out err);
+            if (string.IsNullOrEmpty(docxPath))
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", err ?? "Cannot inspect file." } });
+                return;
+            }
+
+            var insp = DocxEditor.Inspect(docxPath);
+            if (!insp.Success)
+            {
+                HttpHelpers.WriteJson(res, 500, new Dictionary<string, object> { { "success", false }, { "error", insp.Error } });
+                return;
+            }
+
+            string editedDocx = Path.Combine(_storage.Paths.ConvertedDir, "edited_" + StorageManager.SanitizeDisplayName(file.FileId) + ".docx");
+            bool hasEdited = File.Exists(editedDocx);
+
+            var headersList = new List<object>();
+            foreach (var b in insp.Headers)
+                headersList.Add(new Dictionary<string, object> { { "partPath", b.PartPath }, { "partType", b.PartType }, { "paragraphIndex", b.ParagraphIndex }, { "text", b.Text }, { "inTable", b.InTable } });
+            var footersList = new List<object>();
+            foreach (var b in insp.Footers)
+                footersList.Add(new Dictionary<string, object> { { "partPath", b.PartPath }, { "partType", b.PartType }, { "paragraphIndex", b.ParagraphIndex }, { "text", b.Text }, { "inTable", b.InTable } });
+            var bodyList = new List<object>();
+            foreach (var b in insp.BodyBlocks)
+                bodyList.Add(new Dictionary<string, object> { { "partPath", b.PartPath }, { "partType", b.PartType }, { "paragraphIndex", b.ParagraphIndex }, { "text", b.Text }, { "inTable", b.InTable } });
+            var imgList = new List<object>();
+            foreach (var im in insp.Images)
+                imgList.Add(new Dictionary<string, object> { { "partPath", im.PartPath }, { "drawingIndex", im.DrawingIndex }, { "name", im.Name }, { "widthCm", im.WidthCm }, { "heightCm", im.HeightCm } });
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "fileId", file.FileId },
+                { "originalName", file.OriginalFilename },
+                { "hasEditedCopy", hasEdited },
+                { "convertedUrl", !string.IsNullOrEmpty(file.ConvertedPath) && File.Exists(file.ConvertedPath) ? ("/api/converted?name=" + Uri.EscapeDataString(Path.GetFileName(file.ConvertedPath))) : null },
+                { "officeConversionReady", ConversionEngine.IsOfficeConversionAvailable() },
+                { "officeEngine", ConversionEngine.GetOfficeEngineLabel() },
+                { "headers", headersList },
+                { "footers", footersList },
+                { "bodyBlocks", bodyList },
+                { "images", imgList }
+            });
+        }
+
+        private void HandleDocxEdit(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string fileId = HttpHelpers.GetStr(body, "fileId");
+            bool useOriginal = HttpHelpers.GetBool(body, "useOriginal", false);
+            bool convertToPdf = HttpHelpers.GetBool(body, "convertToPdf", true);
+            var file = _db.GetFileById(fileId);
+            string err;
+            string sourcePath = ResolveEditableDocxPath(file, useOriginal, out err);
+            if (string.IsNullOrEmpty(sourcePath))
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", err ?? "Cannot edit file." } });
+                return;
+            }
+
+            var findReplaces = new List<DocxFindReplaceRule>();
+            object rawFr;
+            if (body.TryGetValue("findReplaces", out rawFr) && rawFr is System.Collections.IEnumerable)
+            {
+                foreach (var item in (System.Collections.IEnumerable)rawFr)
+                {
+                    var d = item as Dictionary<string, object>;
+                    if (d == null) continue;
+                    string f = HttpHelpers.GetStr(d, "find");
+                    if (string.IsNullOrEmpty(f)) continue;
+                    findReplaces.Add(new DocxFindReplaceRule
+                    {
+                        Find = f,
+                        Replace = HttpHelpers.GetStr(d, "replace") ?? "",
+                        CaseSensitive = HttpHelpers.GetBool(d, "caseSensitive", false),
+                        Scope = HttpHelpers.GetStr(d, "scope") ?? "all"
+                    });
+                }
+            }
+
+            var paraEdits = new List<DocxParagraphEdit>();
+            object rawPe;
+            if (body.TryGetValue("paragraphEdits", out rawPe) && rawPe is System.Collections.IEnumerable)
+            {
+                foreach (var item in (System.Collections.IEnumerable)rawPe)
+                {
+                    var d = item as Dictionary<string, object>;
+                    if (d == null) continue;
+                    paraEdits.Add(new DocxParagraphEdit
+                    {
+                        PartPath = HttpHelpers.GetStr(d, "partPath"),
+                        ParagraphIndex = (int)HttpHelpers.GetLong(d, "paragraphIndex", -1),
+                        NewText = HttpHelpers.GetStr(d, "newText") ?? ""
+                    });
+                }
+            }
+
+            var imgResizes = new List<DocxImageResize>();
+            object rawIr;
+            if (body.TryGetValue("imageResizes", out rawIr) && rawIr is System.Collections.IEnumerable)
+            {
+                foreach (var item in (System.Collections.IEnumerable)rawIr)
+                {
+                    var d = item as Dictionary<string, object>;
+                    if (d == null) continue;
+                    double scale = 100, wcm = 0, hcm = 0;
+                    if (d.ContainsKey("scalePercent") && d["scalePercent"] != null) double.TryParse(Convert.ToString(d["scalePercent"], CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out scale);
+                    if (d.ContainsKey("widthCm") && d["widthCm"] != null) double.TryParse(Convert.ToString(d["widthCm"], CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out wcm);
+                    if (d.ContainsKey("heightCm") && d["heightCm"] != null) double.TryParse(Convert.ToString(d["heightCm"], CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out hcm);
+                    imgResizes.Add(new DocxImageResize
+                    {
+                        PartPath = HttpHelpers.GetStr(d, "partPath"),
+                        DrawingIndex = (int)HttpHelpers.GetLong(d, "drawingIndex", -1),
+                        ScalePercent = scale,
+                        WidthCm = wcm,
+                        HeightCm = hcm
+                    });
+                }
+            }
+
+            string outDocx = Path.Combine(_storage.Paths.ConvertedDir, "edited_" + StorageManager.SanitizeDisplayName(file.FileId) + ".docx");
+            string tmpDocx = Path.Combine(_storage.Paths.TempDir, "edit_" + Guid.NewGuid().ToString("N") + ".docx");
+            var editRes = DocxEditor.ApplyEdits(sourcePath, tmpDocx, findReplaces, paraEdits, imgResizes);
+            if (!editRes.Success)
+            {
+                try { if (File.Exists(tmpDocx)) File.Delete(tmpDocx); } catch { }
+                HttpHelpers.WriteJson(res, 500, new Dictionary<string, object> { { "success", false }, { "error", editRes.Error } });
+                return;
+            }
+            File.Copy(tmpDocx, outDocx, true);
+            try { File.Delete(tmpDocx); } catch { }
+
+            string pdfUrl = null;
+            string pdfFilename = null;
+            string pdfEngine = null;
+            string pdfError = null;
+
+            if (convertToPdf)
+            {
+                string baseName = Path.GetFileNameWithoutExtension(StorageManager.SanitizeDisplayName(file.OriginalFilename)) + "_edited";
+                var conv = _converter.ConvertPathToPdf(outDocx, baseName, ".docx");
+                if (conv.Success)
+                {
+                    _db.UpdateFileConversion(file.FileId, "edited", conv.OutputPath);
+                    pdfUrl = "/api/converted?name=" + Uri.EscapeDataString(conv.OutputFilename);
+                    pdfFilename = conv.OutputFilename;
+                    pdfEngine = conv.EngineUsed;
+                }
+                else
+                {
+                    _db.UpdateFileConversion(file.FileId, "edited", outDocx);
+                    pdfError = conv.ErrorMessage;
+                }
+            }
+            else
+            {
+                _db.UpdateFileConversion(file.FileId, "edited", outDocx);
+            }
+
+            _db.AddActivity("DOCX_EDITED", "shopkeeper", file.SubmissionId,
+                string.Format(CultureInfo.InvariantCulture, "Edited {0} ({1} replace, {2} paragraph, {3} image resize)",
+                    file.OriginalFilename, editRes.ReplacementsCount, editRes.ParagraphEditsCount, editRes.ImagesResizedCount));
+            FireStateChanged();
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "replacementsCount", editRes.ReplacementsCount },
+                { "paragraphEditsCount", editRes.ParagraphEditsCount },
+                { "imagesResizedCount", editRes.ImagesResizedCount },
+                { "editedDocxUrl", "/api/converted?name=" + Uri.EscapeDataString(Path.GetFileName(outDocx)) + "&download=1" },
+                { "pdfUrl", pdfUrl },
+                { "pdfFilename", pdfFilename },
+                { "pdfEngine", pdfEngine },
+                { "pdfError", pdfError }
+            });
+        }
+
+        private void HandleSaveEditedPdf(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string fileId = req.Headers["X-File-Id"];
+            string outNameRaw = req.Headers["X-Output-Name"];
+            if (!Directory.Exists(_storage.Paths.ConvertedDir)) Directory.CreateDirectory(_storage.Paths.ConvertedDir);
+
+            string safeName = StorageManager.SanitizeDisplayName(string.IsNullOrWhiteSpace(outNameRaw)
+                ? ("Edited_" + DateTime.UtcNow.ToString("HHmmss", CultureInfo.InvariantCulture) + ".pdf")
+                : outNameRaw);
+            if (!safeName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) safeName += ".pdf";
+
+            string fullPath = StoragePaths.EnsureSafeSubPath(_storage.Paths.ConvertedDir, Path.Combine(_storage.Paths.ConvertedDir, safeName));
+            long written = 0;
+            using (var fs = File.Create(fullPath))
+            {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = req.InputStream.Read(buf, 0, buf.Length)) > 0)
+                {
+                    fs.Write(buf, 0, n);
+                    written += n;
+                }
+            }
+
+            if (written < 32)
+            {
+                try { File.Delete(fullPath); } catch { }
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Empty or invalid PDF payload." } });
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fileId))
+            {
+                var f = _db.GetFileById(fileId);
+                if (f != null)
+                {
+                    _db.UpdateFileConversion(f.FileId, "edited", fullPath);
+                    _db.AddActivity("FILE_EDITED", "shopkeeper", f.SubmissionId, "Saved edited PDF for " + f.OriginalFilename + " -> " + safeName);
+                }
+            }
+            else
+            {
+                _db.AddActivity("PDF_MERGED", "shopkeeper", null, "Saved merged/canvas PDF -> " + safeName);
+            }
+            FireStateChanged();
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "filename", safeName },
+                { "sizeBytes", written },
+                { "url", "/api/converted?name=" + Uri.EscapeDataString(safeName) }
+            });
+        }
+
+        private void HandlePreparePdf(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string fileId = HttpHelpers.GetStr(body, "fileId");
+            var file = _db.GetFileById(fileId);
+            if (file == null)
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "File not found." } });
+                return;
+            }
+
+            // 1. Prefer already edited/converted PDF on disk so edits flow automatically into Merge & Print!
+            if (!string.IsNullOrEmpty(file.ConvertedPath) && File.Exists(file.ConvertedPath) &&
+                file.ConvertedPath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                string fn = Path.GetFileName(file.ConvertedPath);
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "source", file.ConversionStatus == "edited" ? "edited" : "converted" },
+                    { "filename", fn },
+                    { "url", "/api/converted?name=" + Uri.EscapeDataString(fn) }
+                });
+                return;
+            }
+
+            string ext = (file.FileExtension ?? Path.GetExtension(file.StoragePath)).ToLowerInvariant();
+            if (ext == ".pdf")
+            {
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "source", "original" },
+                    { "filename", file.OriginalFilename },
+                    { "url", "/api/file?id=" + Uri.EscapeDataString(file.FileId) }
+                });
+                return;
+            }
+
+            // 2. If an edited .docx exists (saved without PDF earlier), convert that edited .docx; else convert original file
+            string editedDocx = Path.Combine(_storage.Paths.ConvertedDir, "edited_" + StorageManager.SanitizeDisplayName(file.FileId) + ".docx");
+            ConversionResult conv = File.Exists(editedDocx)
+                ? _converter.ConvertPathToPdf(editedDocx, Path.GetFileNameWithoutExtension(file.OriginalFilename) + "_edited", ".docx")
+                : _converter.ConvertFileToPdf(file);
+
+            if (!conv.Success)
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", conv.ErrorMessage } });
+                return;
+            }
+
+            _db.UpdateFileConversion(file.FileId, File.Exists(editedDocx) ? "edited" : "converted", conv.OutputPath);
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "source", File.Exists(editedDocx) ? "edited" : "converted" },
+                { "filename", conv.OutputFilename },
+                { "engine", conv.EngineUsed },
+                { "url", "/api/converted?name=" + Uri.EscapeDataString(conv.OutputFilename) }
+            });
         }
 
         private static void StreamDiskFile(HttpListenerResponse res, string path, string contentType, string displayName, bool download)

@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Threading;
@@ -440,10 +441,45 @@ namespace ScanDrop.Native
                             if (sup.GetStatusSnapshot().Generation != lockedGen || sup.GetStatusSnapshot().ProcessId != 7777)
                                 throw new Exception("Simultaneous Start() calls disturbed an already-connected tunnel!");
                             Console.WriteLine("  [PASS] 14. Exponential backoff with jitter & simultaneous Start() single-flight guard verified");
+
+                            // Test 15: Native DOCX OpenXML Studio (split-run header & body Find/Replace + image extent resize)
+                            string sampleDocx = Path.Combine(testRoot, "student_assignment.docx");
+                            string editedDocx = Path.Combine(testRoot, "student_assignment_edited.docx");
+                            CreateSampleDocxWithSplitHeaderAndImage(sampleDocx);
+                            var insp = DocxEditor.Inspect(sampleDocx);
+                            if (!insp.Success || insp.Headers.Count < 1 || insp.BodyBlocks.Count < 1 || insp.Images.Count < 1)
+                                throw new Exception("DocxEditor.Inspect failed to read sample DOCX: " + insp.Error);
+                            if (!insp.Headers[0].Text.Contains("21CS045"))
+                                throw new Exception("DocxEditor.Inspect did not reconstruct split header run: " + insp.Headers[0].Text);
+
+                            var editRes = DocxEditor.ApplyEdits(
+                                sampleDocx,
+                                editedDocx,
+                                new List<DocxFindReplaceRule>
+                                {
+                                    new DocxFindReplaceRule { Find = "21CS045", Replace = "21CS099", CaseSensitive = false, Scope = "all" },
+                                    new DocxFindReplaceRule { Find = "Rahul Sharma", Replace = "Amit Verma", CaseSensitive = false, Scope = "headers" }
+                                },
+                                new List<DocxParagraphEdit>(),
+                                new List<DocxImageResize>
+                                {
+                                    new DocxImageResize { PartPath = insp.Images[0].PartPath, DrawingIndex = insp.Images[0].DrawingIndex, ScalePercent = 150.0 }
+                                });
+                            if (!editRes.Success || editRes.ReplacementsCount < 2 || editRes.ImagesResizedCount != 1)
+                                throw new Exception("DocxEditor.ApplyEdits failed: " + editRes.Error);
+
+                            var inspAfter = DocxEditor.Inspect(editedDocx);
+                            if (!inspAfter.Success || !inspAfter.Headers[0].Text.Contains("Amit Verma") || !inspAfter.Headers[0].Text.Contains("21CS099"))
+                                throw new Exception("Edited DOCX header did not reflect replacements: " + (inspAfter.Headers.Count > 0 ? inspAfter.Headers[0].Text : "none"));
+                            if (!inspAfter.BodyBlocks[0].Text.Contains("21CS099"))
+                                throw new Exception("Edited DOCX body did not reflect roll replacement: " + inspAfter.BodyBlocks[0].Text);
+                            if (Math.Abs(inspAfter.Images[0].WidthCm - 15.0) > 0.2 || Math.Abs(inspAfter.Images[0].HeightCm - 7.5) > 0.2)
+                                throw new Exception("Edited DOCX image resize mismatch: " + inspAfter.Images[0].WidthCm + "x" + inspAfter.Images[0].HeightCm);
+                            Console.WriteLine("  [PASS] 15. DOCX OpenXML Studio split-run header/body replace & image scaling verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 14 PRD v2.0 + CLOUDFLARE-ONLY SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 15 PRD v2.0 + CLOUDFLARE + STUDIO SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)
@@ -467,6 +503,45 @@ namespace ScanDrop.Native
                 bmp.Save(ms, ImageFormat.Png);
                 return ms.ToArray();
             }
+        }
+
+        private static void CreateSampleDocxWithSplitHeaderAndImage(string outPath)
+        {
+            using (var fs = new FileStream(outPath, FileMode.Create, FileAccess.Write))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                WriteZipText(zip, "[Content_Types].xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                    "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+                    "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>" +
+                    "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>" +
+                    "</Types>");
+
+                WriteZipText(zip, "word/header1.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<w:hdr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">Name: Rahul </w:t></w:r><w:r><w:t xml:space=\"preserve\">Sharma | Roll No: 21CS</w:t></w:r><w:r><w:t>045</w:t></w:r></w:p>" +
+                    "</w:hdr>");
+
+                WriteZipText(zip, "word/document.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" " +
+                    "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
+                    "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" +
+                    "<w:body>" +
+                    "<w:p><w:r><w:t>Assignment submitted by Roll 21CS</w:t></w:r><w:r><w:t>045</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"3600000\" cy=\"1800000\"/><wp:docPr id=\"1\" name=\"Diagram 1\"/><a:graphic><a:graphicData><a:xfrm><a:ext cx=\"3600000\" cy=\"1800000\"/></a:xfrm></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>" +
+                    "</w:body></w:document>");
+            }
+        }
+
+        private static void WriteZipText(ZipArchive zip, string entryName, string content)
+        {
+            var entry = zip.CreateEntry(entryName);
+            using (var sw = new StreamWriter(entry.Open(), new UTF8Encoding(false)))
+                sw.Write(content);
         }
 
         private static string HttpGet(string url)

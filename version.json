@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.2.3",
+    "version":  "4.3.0",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Clicking ScanDrop on the Windows taskbar or shortcut while already running now immediately restores and focuses the Station window instead of showing an \u0027already running\u0027 popup.",
-    "sha256":  "3199f907343c42fd70d058f0809b830f48f257d458a065cb5a9beadae943249e",
+    "releaseNotes":  "Built-in PDF Studio (Find \u0026 Replace headers/text, click-to-edit, whiteout \u0026 image overlay), Word DOCX Studio (split-run header/body/table Find \u0026 Replace, image resize \u0026 Microsoft Word/LibreOffice PDF preview), Image Print Canvas (A4/4x6 drag, resize, rotate, ID/Passport presets), and Merge \u0026 Print All (combine edited/original PDFs, Docs \u0026 Images into 1 single print command).",
+    "sha256":  "02990b1ffab3cafaf3add856e08d21f496d7052f83fed7a95de7afc9619c939d",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
