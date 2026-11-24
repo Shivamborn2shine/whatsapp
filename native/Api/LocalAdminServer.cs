@@ -165,6 +165,7 @@ namespace ScanDrop.Native.Api
                 if (path == "/api/health" && req.HttpMethod == "GET")
                 {
                     var settings = _db.LoadSettings(_storage.Paths.DataRootDir);
+                    var snap = _tunnel != null ? _tunnel.GetStatusSnapshot() : null;
                     HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
                     {
                         { "success", true },
@@ -177,11 +178,41 @@ namespace ScanDrop.Native.Api
                         { "receiverPort", _publicReceiver != null ? _publicReceiver.Port : 0 },
                         { "acceptingUploads", !settings.PauseReceiving },
                         { "libreOfficeInstalled", ConversionEngine.IsLibreOfficeInstalled() },
-                        { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
-                        { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) },
-                        { "tunnelProvider", _tunnel != null ? _tunnel.ActiveProviderName : null },
-                        { "tunnelHealth", _tunnel != null ? _tunnel.CurrentHealthStatus : null },
-                        { "tunnelLastOkUtc", _tunnel != null && _tunnel.LastHealthOkUtc.HasValue ? _tunnel.LastHealthOkUtc.Value.ToString("o") : null }
+                        { "tunnelUrl", snap != null ? snap.PublicUrl : null },
+                        { "tunnelOnline", snap != null && snap.IsOnline },
+                        { "tunnelState", snap != null ? snap.StateName : "STOPPED" },
+                        { "tunnelMode", snap != null ? snap.Mode : "development_quick" },
+                        { "tunnelProvider", snap != null ? snap.ModeLabel : "Cloudflare Tunnel" },
+                        { "tunnelHealth", snap != null ? snap.DisplayStatus : "Stopped" },
+                        { "tunnelPid", snap != null ? (object)snap.ProcessId : null },
+                        { "tunnelLastOkUtc", snap != null && snap.LastSuccessfulHealthCheckUtc.HasValue ? snap.LastSuccessfulHealthCheckUtc.Value.ToString("o") : null },
+                        { "tunnelLastFailure", snap != null ? snap.LastFailureReason : null },
+                        { "tunnelRetryCount", snap != null ? snap.RetryCount : 0 },
+                        { "tunnelNextRetryUtc", snap != null && snap.NextRetryUtc.HasValue ? snap.NextRetryUtc.Value.ToString("o") : null }
+                    });
+                    return;
+                }
+
+                if (path == "/api/tunnel/status" && req.HttpMethod == "GET")
+                {
+                    var snap = _tunnel != null ? _tunnel.GetStatusSnapshot() : new TunnelStatusSnapshot { State = TunnelState.STOPPED, StateName = "STOPPED", DisplayStatus = "Stopped", Mode = "development_quick", ModeLabel = "Cloudflare Quick Tunnel (Development)" };
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "provider", "cloudflare" },
+                        { "state", snap.StateName },
+                        { "displayStatus", snap.DisplayStatus },
+                        { "mode", snap.Mode },
+                        { "modeLabel", snap.ModeLabel },
+                        { "processId", snap.ProcessId },
+                        { "publicUrl", snap.PublicUrl },
+                        { "isOnline", snap.IsOnline },
+                        { "lastSuccessfulHealthCheckUtc", snap.LastSuccessfulHealthCheckUtc.HasValue ? snap.LastSuccessfulHealthCheckUtc.Value.ToString("o") : null },
+                        { "lastFailureReason", snap.LastFailureReason },
+                        { "retryCount", snap.RetryCount },
+                        { "nextRetryUtc", snap.NextRetryUtc.HasValue ? snap.NextRetryUtc.Value.ToString("o") : null },
+                        { "generation", snap.Generation },
+                        { "activeUploadsCount", snap.ActiveUploadsCount }
                     });
                     return;
                 }
@@ -663,6 +694,7 @@ namespace ScanDrop.Native.Api
                 }
             }
 
+            var snap = _tunnel != null ? _tunnel.GetStatusSnapshot() : null;
             var shopObj = new Dictionary<string, object>
             {
                 { "id", settings.ShopId },
@@ -673,8 +705,8 @@ namespace ScanDrop.Native.Api
                 { "subscriptionStatus", settings.PauseReceiving ? "paused" : "active" },
                 { "pairingCode", settings.PairingCode },
                 { "expiryDate", DateTime.UtcNow.AddYears(10).ToString("o") },
-                { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
-                { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) }
+                { "tunnelUrl", snap != null ? snap.PublicUrl : null },
+                { "tunnelOnline", snap != null && snap.IsOnline }
             };
 
             var stateObj = new Dictionary<string, object>
@@ -696,11 +728,17 @@ namespace ScanDrop.Native.Api
                 { "acceptingUploads", !settings.PauseReceiving },
                 { "dailyCount", todayCount },
                 { "libreOfficeInstalled", ConversionEngine.IsLibreOfficeInstalled() },
-                { "tunnelUrl", _tunnel != null ? _tunnel.LiveTunnelUrl : null },
-                { "tunnelOnline", _tunnel != null && !string.IsNullOrEmpty(_tunnel.LiveTunnelUrl) },
-                { "tunnelProvider", _tunnel != null ? _tunnel.ActiveProviderName : null },
-                { "tunnelHealth", _tunnel != null ? _tunnel.CurrentHealthStatus : null },
-                { "tunnelLastOkUtc", _tunnel != null && _tunnel.LastHealthOkUtc.HasValue ? _tunnel.LastHealthOkUtc.Value.ToString("o") : null },
+                { "tunnelUrl", snap != null ? snap.PublicUrl : null },
+                { "tunnelOnline", snap != null && snap.IsOnline },
+                { "tunnelState", snap != null ? snap.StateName : "STOPPED" },
+                { "tunnelMode", snap != null ? snap.Mode : "development_quick" },
+                { "tunnelProvider", snap != null ? snap.ModeLabel : "Cloudflare Tunnel" },
+                { "tunnelHealth", snap != null ? snap.DisplayStatus : "Stopped" },
+                { "tunnelPid", snap != null ? (object)snap.ProcessId : null },
+                { "tunnelLastOkUtc", snap != null && snap.LastSuccessfulHealthCheckUtc.HasValue ? snap.LastSuccessfulHealthCheckUtc.Value.ToString("o") : null },
+                { "tunnelLastFailure", snap != null ? snap.LastFailureReason : null },
+                { "tunnelRetryCount", snap != null ? snap.RetryCount : 0 },
+                { "tunnelNextRetryUtc", snap != null && snap.NextRetryUtc.HasValue ? snap.NextRetryUtc.Value.ToString("o") : null },
                 { "settings", SettingsToDict(settings) },
                 { "storage", StorageSummaryToDict(storage) },
                 { "plans", new List<object> { new Dictionary<string, object> { { "id", "plan_local_first" }, { "name", "Local-First PC Edition" }, { "priceText", "Free / Local PC" }, { "maxDevices", 1 }, { "maxMonthlySubmissions", 999999 }, { "batchConversion", true }, { "pdfAdvanced", true } } } },

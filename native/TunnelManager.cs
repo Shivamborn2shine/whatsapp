@@ -14,18 +14,53 @@ using ScanDrop.Native.Storage;
 
 namespace ScanDrop.Native
 {
+    public enum TunnelState
+    {
+        STOPPED,
+        CONNECTING,
+        CONNECTED,
+        DEGRADED,
+        COOLDOWN,
+        RECONNECTING,
+        OFFLINE
+    }
+
+    public sealed class TunnelStatusSnapshot
+    {
+        public TunnelState State;
+        public string StateName;
+        public string DisplayStatus;
+        public string Mode;
+        public string ModeLabel;
+        public int? ProcessId;
+        public string PublicUrl;
+        public bool IsOnline;
+        public DateTime? LastSuccessfulHealthCheckUtc;
+        public string LastFailureReason;
+        public int RetryCount;
+        public DateTime? NextRetryUtc;
+        public int Generation;
+        public int ActiveUploadsCount;
+    }
+
+    /// <summary>
+    /// Single Cloudflare-only tunnel supervisor for Scan Drop.
+    /// Exclusively manages Cloudflare Named Tunnels (Production, including Windows Service mode)
+    /// and Cloudflare Quick Tunnels (Development). Never launches OpenSSH, localhost.run,
+    /// ngrok, Serveo, Pinggy, or any other third-party tunneling provider.
+    /// </summary>
     public sealed class TunnelManager : IDisposable
     {
-        private static readonly Regex CloudflareUrlRegex = new Regex(
+        private static readonly Regex CloudflareQuickUrlRegex = new Regex(
             @"https://(?!api\.|pkg\.|update\.|staging\.|www\.)([a-zA-Z0-9-]{5,}\.trycloudflare\.com)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        private static readonly Regex SshUrlRegex = new Regex(
-            @"https://[a-zA-Z0-9.-]+\.lhr\.(?:life|rocks|pro)",
+        private static readonly Regex RetryAfterSecondsRegex = new Regex(
+            @"retry[-\s]?after[\s:=]+(\d{1,5})",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        private static readonly Regex PinggyUrlRegex = new Regex(
-            @"https://[a-zA-Z0-9.-]+\.(?:free\.pinggy\.link|pinggy\.link|pinggy\.io)",
+        private static readonly Regex ServicePidRegex = new Regex(
+            @"PID\s*:\s*(\d+)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private readonly string _rootDir;
@@ -33,37 +68,52 @@ namespace ScanDrop.Native
         private readonly string _cloudUrl;
         private readonly SqliteDatabase _db;
         private readonly string _logsDir;
+        private readonly object _lock = new object();
+        private readonly Random _rng = new Random();
+
         private string _shopId;
         private string _pairingCode;
         private string _deviceId;
         private string _deviceSecret;
-        private readonly object _lock = new object();
 
+        // Supervisor state (strictly guarded by _lock)
+        private TunnelState _state = TunnelState.STOPPED;
+        private string _currentMode = "development_quick";
+        private string _modeLabel = "Cloudflare Quick Tunnel (Development)";
         private Process _tunnelProcess;
+        private int? _processId;
+        private bool _usingWindowsService;
+        private string _publicUrl;
+        private string _pendingCandidateUrl;
+        private int _edgeRegisteredGen;
+        private int _verificationStartedGen;
+        private DateTime? _lastSuccessfulHealthCheckUtc;
+        private string _lastFailureReason;
+        private int _retryCount;
+        private int _rateLimitHits;
+        private int _consecutiveHealthFailures;
+        private DateTime? _nextRetryUtc;
+        private DateTime _cooldownUntilUtc = DateTime.MinValue;
+        private int _generation;
+        private bool _disposed;
+        private bool _probeInFlight;
+        private bool _eventsHooked;
+
         private Timer _heartbeatTimer;
         private Timer _watchdogTimer;
-        private string _liveTunnelUrl;
-        private string _activeProviderName = "Initializing";
-        private string _healthStatus = "Connecting";
-        private DateTime? _lastHealthOkUtc;
-        private DateTime _cloudflareCooldownUntilUtc = DateTime.MinValue;
-        private DateTime _localhostRunCooldownUntilUtc = DateTime.MinValue;
-        private DateTime _pinggyCooldownUntilUtc = DateTime.MinValue;
-        private int _generation;
-        private int _reconnectAttempt;
-        private int _consecutiveHealthFailures;
-        private bool _disposed;
-        private bool _isSwitchingToFallback;
-        private volatile bool _probeInFlight;
-        private bool _eventsHooked;
+        private Timer _retryTimer;
+        private Timer _startupGuardTimer;
 
         public event Action<string> OnTunnelUrlCaptured;
         public event Action<string> OnStatusMessage;
+        public event Action<TunnelStatusSnapshot> OnStateChanged;
 
-        public string LiveTunnelUrl { get { return _liveTunnelUrl; } }
-        public string ActiveProviderName { get { return _activeProviderName; } }
-        public string CurrentHealthStatus { get { return _healthStatus; } }
-        public DateTime? LastHealthOkUtc { get { return _lastHealthOkUtc; } }
+        // Backward-compatible accessors backed by thread-safe snapshot
+        public string LiveTunnelUrl { get { return GetStatusSnapshot().PublicUrl; } }
+        public string ActiveProviderName { get { return GetStatusSnapshot().ModeLabel; } }
+        public string CurrentHealthStatus { get { return GetStatusSnapshot().DisplayStatus; } }
+        public DateTime? LastHealthOkUtc { get { return GetStatusSnapshot().LastSuccessfulHealthCheckUtc; } }
+        public TunnelState State { get { return GetStatusSnapshot().State; } }
 
         public TunnelManager(string rootDir, int localPort, string cloudUrl, string shopId, string pairingCode, SqliteDatabase db = null, string logsDir = null)
         {
@@ -89,6 +139,138 @@ namespace ScanDrop.Native
             HookSystemRecoveryEvents();
         }
 
+        public TunnelStatusSnapshot GetStatusSnapshot()
+        {
+            int activeUploads = 0;
+            if (_db != null)
+            {
+                try { activeUploads = _db.CountActiveUploadSessions(); } catch { }
+            }
+
+            lock (_lock)
+            {
+                bool online = (_state == TunnelState.CONNECTED || _state == TunnelState.DEGRADED) &&
+                              IsValidPublicTunnelUrl(_publicUrl);
+                return new TunnelStatusSnapshot
+                {
+                    State = _state,
+                    StateName = _state.ToString(),
+                    DisplayStatus = FormatDisplayStatus(_state),
+                    Mode = _currentMode,
+                    ModeLabel = _modeLabel,
+                    ProcessId = _processId,
+                    PublicUrl = _publicUrl,
+                    IsOnline = online,
+                    LastSuccessfulHealthCheckUtc = _lastSuccessfulHealthCheckUtc,
+                    LastFailureReason = _lastFailureReason,
+                    RetryCount = _retryCount,
+                    NextRetryUtc = _nextRetryUtc,
+                    Generation = _generation,
+                    ActiveUploadsCount = activeUploads
+                };
+            }
+        }
+
+        public static string FormatDisplayStatus(TunnelState state)
+        {
+            switch (state)
+            {
+                case TunnelState.CONNECTED:
+                    return "Cloudflare Connected";
+                case TunnelState.DEGRADED:
+                    return "Cloudflare Degraded — Verifying";
+                case TunnelState.CONNECTING:
+                    return "Connecting Cloudflare...";
+                case TunnelState.COOLDOWN:
+                case TunnelState.RECONNECTING:
+                case TunnelState.OFFLINE:
+                    return "Cloudflare Offline — Reconnecting";
+                default:
+                    return "Stopped";
+            }
+        }
+
+        public static bool IsValidPublicTunnelUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            string clean = url.Trim().TrimEnd('/');
+            if (!clean.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
+            if (clean.Length < 12) return false;
+
+            string lower = clean.ToLowerInvariant();
+            // Reject Cloudflare utility/API hostnames and ALL third-party tunnel providers
+            string[] forbidden = new[]
+            {
+                "api.trycloudflare.com",
+                "pkg.trycloudflare.com",
+                "update.trycloudflare.com",
+                "staging.trycloudflare.com",
+                "www.trycloudflare.com",
+                "localhost.run",
+                ".lhr.life",
+                ".lhr.rocks",
+                ".lhr.pro",
+                "pinggy.link",
+                "pinggy.io",
+                "serveo.net",
+                "ngrok.io",
+                "ngrok-free.app",
+                "ngrok-free.dev",
+                "loca.lt"
+            };
+            for (int i = 0; i < forbidden.Length; i++)
+            {
+                if (lower.IndexOf(forbidden[i], StringComparison.Ordinal) >= 0) return false;
+            }
+
+            Uri parsed;
+            if (!Uri.TryCreate(clean, UriKind.Absolute, out parsed)) return false;
+            return !string.IsNullOrEmpty(parsed.Host) && parsed.Host.IndexOf('.') >= 0;
+        }
+
+        public static bool IsCloudflareRateLimit(string line, out int retryAfterSeconds)
+        {
+            retryAfterSeconds = 0;
+            if (string.IsNullOrWhiteSpace(line)) return false;
+
+            bool isRateLimited =
+                line.IndexOf("status 429", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("429 Too Many Requests", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("too many requests", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("rate limit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("quick tunnel provisioning failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("failed to unmarshal quick Tunnel", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("failed to request quick Tunnel", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!isRateLimited) return false;
+
+            var m = RetryAfterSecondsRegex.Match(line);
+            if (m.Success)
+            {
+                int parsed;
+                if (int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed))
+                {
+                    retryAfterSeconds = Math.Max(60, Math.Min(1800, parsed));
+                }
+            }
+            return true;
+        }
+
+        public int ComputeBackoffWithJitterMs(int retryCount, int baseDelayMs = 3000, int maxDelayMs = 120000)
+        {
+            int attempt = Math.Max(1, retryCount);
+            int shift = Math.Min(attempt - 1, 6);
+            long raw = (long)baseDelayMs << shift;
+            int capped = (int)Math.Min(maxDelayMs, raw);
+            double jitterFactor;
+            lock (_lock)
+            {
+                // Uniform jitter in [0.80, 1.25]
+                jitterFactor = 0.80 + (_rng.NextDouble() * 0.45);
+            }
+            return Math.Max(1000, (int)Math.Round(capped * jitterFactor));
+        }
+
         private void HookSystemRecoveryEvents()
         {
             if (_eventsHooked) return;
@@ -106,60 +288,81 @@ namespace ScanDrop.Native
             if (_disposed) return;
             if (e.Mode == PowerModes.Resume)
             {
-                Log("PC resumed from sleep. Verifying tunnel connectivity...");
+                Log("Windows resumed from sleep. Verifying Cloudflare Tunnel...");
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
                     Thread.Sleep(2500);
                     if (_disposed) return;
-                    if (string.IsNullOrEmpty(_liveTunnelUrl)) Start();
-                    else RunWatchdogCheck();
+                    TunnelState st;
+                    bool inCooldown;
+                    lock (_lock)
+                    {
+                        st = _state;
+                        inCooldown = _state == TunnelState.COOLDOWN && DateTime.UtcNow < _cooldownUntilUtc;
+                    }
+                    if (inCooldown) return;
+                    if (st == TunnelState.CONNECTED || st == TunnelState.DEGRADED) RunWatchdogCheck();
+                    else Start();
                 });
             }
         }
 
         private void OnNetworkAvailabilityChanged(object sender, NetworkAvailabilityEventArgs e)
         {
-            if (_disposed || !e.IsAvailable) return;
-            Log("Network connection restored. Verifying tunnel link...");
+            if (_disposed) return;
+            if (!e.IsAvailable)
+            {
+                lock (_lock)
+                {
+                    if (_state == TunnelState.CONNECTED)
+                    {
+                        _lastFailureReason = "Network interface disconnected";
+                        TransitionStateLocked(TunnelState.DEGRADED);
+                        Log("Network connection lost. Marking Cloudflare Tunnel DEGRADED until confirmed...");
+                    }
+                }
+                return;
+            }
+
+            Log("Network connection restored. Verifying Cloudflare Tunnel...");
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Thread.Sleep(2500);
+                Thread.Sleep(2000);
                 if (_disposed) return;
-                if (string.IsNullOrEmpty(_liveTunnelUrl)) Start();
-                else RunWatchdogCheck();
+                lock (_lock)
+                {
+                    if (_state == TunnelState.COOLDOWN && DateTime.UtcNow < _cooldownUntilUtc)
+                    {
+                        Log("Cloudflare rate-limit cooldown still active until " + _cooldownUntilUtc.ToLocalTime().ToString("HH:mm:ss") + ". Respecting retry interval.");
+                        return;
+                    }
+                    if (_state == TunnelState.OFFLINE || _state == TunnelState.RECONNECTING || _state == TunnelState.STOPPED)
+                    {
+                        _retryCount = 0;
+                        _nextRetryUtc = null;
+                        CancelRetryTimerLocked();
+                        BeginConnectLocked(TunnelState.RECONNECTING);
+                        return;
+                    }
+                }
+                RunWatchdogCheck();
             });
-        }
-
-        public static bool IsValidPublicTunnelUrl(string url)
-        {
-            if (string.IsNullOrWhiteSpace(url)) return false;
-            string clean = url.Trim().TrimEnd('/');
-            if (!clean.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
-            if (clean.Length < 12) return false;
-            if (clean.IndexOf("api.trycloudflare.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                clean.IndexOf("pkg.trycloudflare.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                clean.IndexOf("update.trycloudflare.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                clean.IndexOf("staging.trycloudflare.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                clean.IndexOf("www.trycloudflare.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                clean.IndexOf("localhost.run", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return false;
-            }
-            Uri parsed;
-            if (!Uri.TryCreate(clean, UriKind.Absolute, out parsed)) return false;
-            return !string.IsNullOrEmpty(parsed.Host) && parsed.Host.IndexOf('.') >= 0;
         }
 
         public void UpdateIdentity(string shopId, string pairingCode, string deviceId = null, string deviceSecret = null)
         {
-            if (!string.IsNullOrWhiteSpace(shopId)) _shopId = shopId.Trim();
-            if (!string.IsNullOrWhiteSpace(pairingCode)) _pairingCode = pairingCode.Trim();
-            if (deviceId != null) _deviceId = deviceId.Trim();
-            if (deviceSecret != null) _deviceSecret = deviceSecret.Trim();
-            string url = _liveTunnelUrl;
+            string url;
+            lock (_lock)
+            {
+                if (!string.IsNullOrWhiteSpace(shopId)) _shopId = shopId.Trim();
+                if (!string.IsNullOrWhiteSpace(pairingCode)) _pairingCode = pairingCode.Trim();
+                if (deviceId != null) _deviceId = deviceId.Trim();
+                if (deviceSecret != null) _deviceSecret = deviceSecret.Trim();
+                url = (_state == TunnelState.CONNECTED || _state == TunnelState.DEGRADED) ? _publicUrl : null;
+            }
             if (IsValidPublicTunnelUrl(url))
             {
-                RegisterWithCloud(url);
+                ThreadPool.QueueUserWorkItem(_ => RegisterWithCloud(url));
             }
         }
 
@@ -169,7 +372,6 @@ namespace ScanDrop.Native
             customUrl = null;
             providerMode = "auto";
 
-            // 1. Read DPAPI-encrypted tunnel config from local SQLite database first (PRD Sec 10)
             if (_db != null)
             {
                 try
@@ -177,12 +379,11 @@ namespace ScanDrop.Native
                     token = _db.GetSetting("cloudflare_tunnel_token", "");
                     customUrl = _db.GetSetting("custom_tunnel_url", "");
                     string m = _db.GetSetting("tunnel_provider", "auto");
-                    if (!string.IsNullOrWhiteSpace(m)) providerMode = m.Trim().ToLowerInvariant();
+                    if (!string.IsNullOrWhiteSpace(m)) providerMode = NormalizeCloudflareMode(m);
                 }
                 catch { }
             }
 
-            // 2. Fallback / one-time migration from legacy scandrop.json
             if (string.IsNullOrWhiteSpace(token) && string.IsNullOrWhiteSpace(customUrl))
             {
                 try
@@ -200,9 +401,8 @@ namespace ScanDrop.Native
                             if (dict.ContainsKey("customTunnelUrl") && dict["customTunnelUrl"] != null)
                                 customUrl = Convert.ToString(dict["customTunnelUrl"]).Trim().TrimEnd('/');
                             if (dict.ContainsKey("tunnelProvider") && dict["tunnelProvider"] != null)
-                                providerMode = Convert.ToString(dict["tunnelProvider"]).Trim().ToLowerInvariant();
+                                providerMode = NormalizeCloudflareMode(Convert.ToString(dict["tunnelProvider"]));
                         }
-                        // Migrate token securely into DPAPI SQLite and scrub plaintext from json
                         if (_db != null && !string.IsNullOrWhiteSpace(token))
                         {
                             _db.SetSetting("cloudflare_tunnel_token", token, true);
@@ -220,17 +420,27 @@ namespace ScanDrop.Native
                 token = Environment.GetEnvironmentVariable("CLOUDFLARE_TUNNEL_TOKEN");
             if (string.IsNullOrWhiteSpace(customUrl))
                 customUrl = Environment.GetEnvironmentVariable("CUSTOM_TUNNEL_URL");
+
+            providerMode = NormalizeCloudflareMode(providerMode);
+        }
+
+        public static string NormalizeCloudflareMode(string raw)
+        {
+            string m = (raw ?? "auto").Trim().ToLowerInvariant();
+            if (m == "named" || m == "production" || m == "production_named" || m == "service") return "named";
+            if (m == "quick" || m == "development" || m == "development_quick") return "quick";
+            // Legacy openssh / pinggy / cloudflare values all normalize strictly to Cloudflare auto (prefers Named)
+            return "auto";
         }
 
         public void SaveConfig(string token, string customUrl, string providerMode)
         {
             string cleanToken = (token ?? "").Trim();
             string cleanUrl = (customUrl ?? "").Trim().TrimEnd('/');
-            string cleanMode = string.IsNullOrWhiteSpace(providerMode) ? "auto" : providerMode.Trim().ToLowerInvariant();
+            string cleanMode = NormalizeCloudflareMode(providerMode);
 
             if (_db != null)
             {
-                // Encrypted with Windows DPAPI — never stored in plaintext (PRD Sec 10)
                 _db.SetSetting("cloudflare_tunnel_token", cleanToken, true);
                 _db.SetSetting("custom_tunnel_url", cleanUrl, false);
                 _db.SetSetting("tunnel_provider", cleanMode, false);
@@ -252,101 +462,153 @@ namespace ScanDrop.Native
             Restart();
         }
 
+        /// <summary>
+        /// Idempotent single-flight Start(). Multiple simultaneous calls will NEVER launch
+        /// duplicate cloudflared processes or interrupt an active connection/cooldown.
+        /// </summary>
         public void Start()
         {
             lock (_lock)
             {
                 if (_disposed) return;
 
-                int gen = Interlocked.Increment(ref _generation);
-                StopProcessOnly();
-                KillOrphanCloudflaredProcesses();
-
-                _liveTunnelUrl = null;
-                _consecutiveHealthFailures = 0;
-                _isSwitchingToFallback = false;
-                _healthStatus = "Connecting";
-
-                string token, customUrl, providerMode;
-                ReadConfig(out token, out customUrl, out providerMode);
-
-                StartHeartbeatTimer();
-                StartWatchdogTimer();
-
-                if (!string.IsNullOrWhiteSpace(customUrl) && (providerMode == "custom" || string.IsNullOrWhiteSpace(token)))
+                // Single-flight guard: never start concurrently if already connecting, connected, or degraded
+                if (_state == TunnelState.CONNECTING || _state == TunnelState.CONNECTED || _state == TunnelState.DEGRADED)
                 {
-                    _activeProviderName = "Custom Domain";
-                    _liveTunnelUrl = customUrl;
-                    _healthStatus = "Live";
-                    Log("Custom static tunnel configured: " + customUrl);
-                    RegisterWithCloud(customUrl);
-                    FireCaptured(customUrl);
                     return;
                 }
 
-                if (!string.IsNullOrWhiteSpace(token))
+                // Respect active Cloudflare rate-limit cooldown — never bypass by spawning new Quick Tunnels
+                if (_state == TunnelState.COOLDOWN && DateTime.UtcNow < _cooldownUntilUtc)
                 {
-                    StartCloudflareNamedTunnel(token, customUrl, gen);
+                    Log("Start() ignored during Cloudflare rate-limit cooldown until " + _cooldownUntilUtc.ToLocalTime().ToString("HH:mm:ss"));
                     return;
                 }
 
-                if (providerMode == "openssh")
-                {
-                    _localhostRunCooldownUntilUtc = DateTime.MinValue;
-                    StartOpenSshTunnel(gen);
-                    return;
-                }
-
-                if (providerMode == "pinggy")
-                {
-                    _pinggyCooldownUntilUtc = DateTime.MinValue;
-                    StartPinggySshTunnel(gen);
-                    return;
-                }
-
-                if (providerMode == "cloudflare")
-                {
-                    _cloudflareCooldownUntilUtc = DateTime.MinValue;
-                    StartCloudflareQuickTunnel(gen);
-                    return;
-                }
-
-                // Auto resilient cascade: Cloudflare Quick -> OpenSSH (localhost.run) -> Pinggy SSH
-                if (DateTime.UtcNow < _cloudflareCooldownUntilUtc)
-                {
-                    Log("Cloudflare Quick Tunnel in rate-limit cooldown. Launching resilient SSH tunnel...");
-                    if (DateTime.UtcNow < _localhostRunCooldownUntilUtc)
-                    {
-                        StartPinggySshTunnel(gen);
-                    }
-                    else
-                    {
-                        StartOpenSshTunnel(gen);
-                    }
-                }
-                else
-                {
-                    StartCloudflareQuickTunnel(gen);
-                }
+                StartHeartbeatTimerLocked();
+                StartWatchdogTimerLocked();
+                BeginConnectLocked(TunnelState.CONNECTING);
             }
         }
 
-        private void StartCloudflareNamedTunnel(string token, string staticUrl, int gen)
+        /// <summary>
+        /// Explicit manual restart requested by user or config change.
+        /// Cancels pending retry/cooldown timers, stops the current owned cloudflared process,
+        /// and initiates one fresh Cloudflare connection attempt.
+        /// </summary>
+        public void Restart()
         {
-            if (_disposed || Volatile.Read(ref _generation) != gen) return;
+            lock (_lock)
+            {
+                if (_disposed) return;
+                Log("Manual Cloudflare Tunnel restart requested.");
+                _retryCount = 0;
+                _rateLimitHits = 0;
+                _consecutiveHealthFailures = 0;
+                _cooldownUntilUtc = DateTime.MinValue;
+                _nextRetryUtc = null;
+                _lastFailureReason = null;
+                CancelRetryTimerLocked();
+                StartHeartbeatTimerLocked();
+                StartWatchdogTimerLocked();
+                BeginConnectLocked(TunnelState.CONNECTING);
+            }
+        }
+
+        public void Stop()
+        {
+            lock (_lock)
+            {
+                if (_disposed) return;
+                Interlocked.Increment(ref _generation);
+                CancelRetryTimerLocked();
+                CancelStartupGuardLocked();
+                StopOwnedProcessOnlyLocked();
+                _publicUrl = null;
+                _pendingCandidateUrl = null;
+                _processId = null;
+                _usingWindowsService = false;
+                _nextRetryUtc = null;
+                TransitionStateLocked(TunnelState.STOPPED);
+            }
+            FireCaptured("");
+        }
+
+        private void BeginConnectLocked(TunnelState initialState)
+        {
+            int gen = Interlocked.Increment(ref _generation);
+            CancelRetryTimerLocked();
+            CancelStartupGuardLocked();
+            StopOwnedProcessOnlyLocked();
+
+            _publicUrl = null;
+            _pendingCandidateUrl = null;
+            _edgeRegisteredGen = 0;
+            _verificationStartedGen = 0;
+            _processId = null;
+            _usingWindowsService = false;
+            _consecutiveHealthFailures = 0;
+            _nextRetryUtc = null;
+            TransitionStateLocked(initialState);
+
+            string token, customUrl, mode;
+            ReadConfig(out token, out customUrl, out mode);
+
+            // Prefer Production Named Tunnel whenever configured (token or running cloudflared Windows service + hostname)
+            bool hasToken = !string.IsNullOrWhiteSpace(token);
+            bool hasHostname = IsValidPublicTunnelUrl(customUrl);
+            int? servicePid;
+            bool serviceRunning = TryDetectRunningCloudflaredService(out servicePid);
+
+            if (mode != "quick" && hasHostname && serviceRunning)
+            {
+                _currentMode = "production_named";
+                _modeLabel = "Cloudflare Named Tunnel (Windows Service)";
+                _usingWindowsService = true;
+                _processId = servicePid;
+                Log("Detected running Cloudflare Windows Service (PID " + (servicePid.HasValue ? servicePid.Value.ToString(CultureInfo.InvariantCulture) : "service") + ") -> verifying " + customUrl + "...");
+                _verificationStartedGen = gen;
+                StartEndpointVerificationAsync(customUrl, gen, 500);
+                return;
+            }
+
+            if (mode != "quick" && hasToken)
+            {
+                _currentMode = "production_named";
+                _modeLabel = "Cloudflare Named Tunnel (Production)";
+                StartCloudflareNamedTunnelLocked(token, customUrl, gen);
+                return;
+            }
+
+            if (mode == "named" && !hasToken && !serviceRunning)
+            {
+                ScheduleCloudflareRetryLocked(gen, "Production Named Tunnel selected, but no Cloudflare Tunnel Token or running cloudflared Windows Service is configured.", false, 0);
+                return;
+            }
+
+            // Development Mode: Cloudflare Quick Tunnel (trycloudflare.com)
+            _currentMode = "development_quick";
+            _modeLabel = "Cloudflare Quick Tunnel (Development)";
+            StartCloudflareQuickTunnelLocked(gen);
+        }
+
+        private void StartCloudflareNamedTunnelLocked(string token, string staticUrl, int gen)
+        {
+            if (_disposed || _generation != gen) return;
+
+            // Kill only orphan cloudflared.exe if not running as Windows service
+            KillOrphanCloudflaredProcesses();
 
             string exePath = EnsureCloudflared();
             if (string.IsNullOrEmpty(exePath))
             {
-                Log("cloudflared unavailable. Falling back to OpenSSH tunnel...");
-                StartOpenSshTunnel(gen);
+                ScheduleCloudflareRetryLocked(gen, "cloudflared.exe could not be found or downloaded.", false, 0);
                 return;
             }
 
             try
             {
-                _activeProviderName = "Cloudflare Named Tunnel";
-                Log("Starting authenticated Cloudflare Named Tunnel (Zero Rate-Limit)...");
+                Log("Starting Cloudflare Named Tunnel (Production) -> 127.0.0.1:" + _localPort + "...");
                 var psi = new ProcessStartInfo
                 {
                     FileName = exePath,
@@ -358,89 +620,98 @@ namespace ScanDrop.Native
                     WorkingDirectory = Path.GetDirectoryName(exePath)
                 };
 
-                _tunnelProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-                _tunnelProcess.OutputDataReceived += (s, e) => HandleNamedTunnelOutput(e.Data, staticUrl, gen);
-                _tunnelProcess.ErrorDataReceived += (s, e) => HandleNamedTunnelOutput(e.Data, staticUrl, gen);
-                _tunnelProcess.Exited += (s, e) =>
-                {
-                    if (_disposed || Volatile.Read(ref _generation) != gen) return;
-                    _liveTunnelUrl = null;
-                    _healthStatus = "Reconnecting";
-                    FireCaptured("");
-                    Log("Cloudflare Named Tunnel exited. Reconnecting in 5s...");
-                    ScheduleRestart(5000, gen);
-                };
+                var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+                proc.OutputDataReceived += (s, e) => HandleNamedTunnelOutput(e.Data, staticUrl, gen);
+                proc.ErrorDataReceived += (s, e) => HandleNamedTunnelOutput(e.Data, staticUrl, gen);
+                proc.Exited += (s, e) => HandleProcessExited(gen, "Cloudflare Named Tunnel process exited unexpectedly");
 
-                _tunnelProcess.Start();
-                _tunnelProcess.BeginOutputReadLine();
-                _tunnelProcess.BeginErrorReadLine();
+                proc.Start();
+                _tunnelProcess = proc;
+                try { _processId = proc.Id; } catch { _processId = null; }
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
 
-                if (IsValidPublicTunnelUrl(staticUrl))
-                {
-                    _liveTunnelUrl = staticUrl;
-                    _healthStatus = "Live";
-                    _consecutiveHealthFailures = 0;
-                    RegisterWithCloud(staticUrl);
-                    FireCaptured(staticUrl);
-                }
+                StartStartupGuardLocked(gen, 45000, "Cloudflare Named Tunnel timed out waiting for edge registration");
+                FireStateChangedLocked();
             }
             catch (Exception ex)
             {
-                Log("Named tunnel error: " + ex.Message + ". Falling back to OpenSSH...");
-                StartOpenSshTunnel(gen);
+                ScheduleCloudflareRetryLocked(gen, "Failed to start Cloudflare Named Tunnel: " + ex.Message, false, 0);
             }
         }
 
         private void HandleNamedTunnelOutput(string line, string staticUrl, int gen)
         {
-            if (string.IsNullOrEmpty(line) || Volatile.Read(ref _generation) != gen) return;
+            if (string.IsNullOrEmpty(line)) return;
             AppendTunnelLog("[CF-Named] " + line);
 
-            if (line.IndexOf("Registered tunnel connection", StringComparison.OrdinalIgnoreCase) >= 0)
+            bool shouldVerify = false;
+            lock (_lock)
             {
-                if (IsValidPublicTunnelUrl(staticUrl))
+                if (_disposed || _generation != gen) return;
+
+                if (line.IndexOf("Provided Tunnel token is not valid", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    line.IndexOf("Unauthorized", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    _liveTunnelUrl = staticUrl;
-                    _healthStatus = "Live";
-                    _consecutiveHealthFailures = 0;
-                    _lastHealthOkUtc = DateTime.UtcNow;
-                    RegisterWithCloud(staticUrl);
-                    FireCaptured(staticUrl);
+                    ScheduleCloudflareRetryLocked(gen, "Cloudflare Named Tunnel token is invalid or unauthorized.", false, 0);
+                    return;
+                }
+
+                int retryAfterSec;
+                if (IsCloudflareRateLimit(line, out retryAfterSec))
+                {
+                    ScheduleCloudflareRetryLocked(gen, "Cloudflare rate limit (HTTP 429)", true, retryAfterSec);
+                    return;
+                }
+
+                if (line.IndexOf("Registered tunnel connection", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    if (IsValidPublicTunnelUrl(staticUrl))
+                    {
+                        if (_state != TunnelState.CONNECTED && !string.Equals(_pendingCandidateUrl, staticUrl, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _pendingCandidateUrl = staticUrl;
+                            shouldVerify = true;
+                        }
+                    }
+                    else
+                    {
+                        // Token connected cleanly even without static hostname entered locally
+                        CancelStartupGuardLocked();
+                        _lastSuccessfulHealthCheckUtc = DateTime.UtcNow;
+                        _lastFailureReason = null;
+                        _retryCount = 0;
+                        _rateLimitHits = 0;
+                        _consecutiveHealthFailures = 0;
+                        _nextRetryUtc = null;
+                        TransitionStateLocked(TunnelState.CONNECTED);
+                        Log("Cloudflare Named Tunnel edge registered (configure Static Hostname URL in Settings to enable public health probe).");
+                    }
                 }
             }
-            else if (line.IndexOf("Provided Tunnel token is not valid", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     line.IndexOf("Unauthorized", StringComparison.OrdinalIgnoreCase) >= 0)
+
+            if (shouldVerify)
             {
-                Log("Cloudflare Named Tunnel token invalid. Falling back to OpenSSH...");
-                ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    lock (_lock)
-                    {
-                        if (_disposed || Volatile.Read(ref _generation) != gen) return;
-                        SwitchToFallbackLocked(gen, true);
-                    }
-                });
+                StartEndpointVerificationAsync(staticUrl, gen, 2000);
             }
         }
 
-        private void StartCloudflareQuickTunnel(int gen)
+        private void StartCloudflareQuickTunnelLocked(int gen)
         {
-            if (_disposed || Volatile.Read(ref _generation) != gen) return;
+            if (_disposed || _generation != gen) return;
+
+            KillOrphanCloudflaredProcesses();
 
             string exePath = EnsureCloudflared();
             if (string.IsNullOrEmpty(exePath))
             {
-                Log("cloudflared not found. Activating built-in OpenSSH tunnel...");
-                StartOpenSshTunnel(gen);
+                ScheduleCloudflareRetryLocked(gen, "cloudflared.exe unavailable (download failed or offline).", false, 0);
                 return;
             }
 
             try
             {
-                _activeProviderName = "Cloudflare Quick Tunnel";
-                _isSwitchingToFallback = false;
-                Log("Connecting Cloudflare HTTP/2 Quick Tunnel (IPv4) -> 127.0.0.1:" + _localPort + "...");
-
+                Log("Starting Cloudflare Quick Tunnel (Development) -> http://127.0.0.1:" + _localPort + "...");
                 var psi = new ProcessStartInfo
                 {
                     FileName = exePath,
@@ -452,354 +723,540 @@ namespace ScanDrop.Native
                     WorkingDirectory = Path.GetDirectoryName(exePath)
                 };
 
-                _tunnelProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-                _tunnelProcess.OutputDataReceived += (s, e) => HandleCloudflareOutput(e.Data, gen);
-                _tunnelProcess.ErrorDataReceived += (s, e) => HandleCloudflareOutput(e.Data, gen);
-                _tunnelProcess.Exited += (s, e) =>
-                {
-                    if (_disposed || _isSwitchingToFallback || Volatile.Read(ref _generation) != gen) return;
+                var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+                proc.OutputDataReceived += (s, e) => HandleQuickTunnelOutput(e.Data, gen);
+                proc.ErrorDataReceived += (s, e) => HandleQuickTunnelOutput(e.Data, gen);
+                proc.Exited += (s, e) => HandleProcessExited(gen, "Cloudflare Quick Tunnel process crashed or exited");
 
-                    bool hadUrl = !string.IsNullOrEmpty(_liveTunnelUrl);
-                    _liveTunnelUrl = null;
-                    _healthStatus = "Reconnecting";
-                    FireCaptured("");
+                proc.Start();
+                _tunnelProcess = proc;
+                try { _processId = proc.Id; } catch { _processId = null; }
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
 
-                    if (!hadUrl)
-                    {
-                        Log("Cloudflare Quick Tunnel unavailable/rate-limited. Switching immediately to OpenSSH fallback...");
-                        _cloudflareCooldownUntilUtc = DateTime.UtcNow.AddMinutes(5);
-                        ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            lock (_lock)
-                            {
-                                SwitchToFallbackLocked(gen, true);
-                            }
-                        });
-                    }
-                    else
-                    {
-                        Log("Cloudflare Tunnel disconnected. Reconnecting automatically...");
-                        ScheduleRestart(3000, gen);
-                    }
-                };
-
-                _tunnelProcess.Start();
-                _tunnelProcess.BeginOutputReadLine();
-                _tunnelProcess.BeginErrorReadLine();
-
-                // 18s startup guard: if Cloudflare stalls before issuing URL, fail over cleanly without hanging
-                ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    Thread.Sleep(18000);
-                    lock (_lock)
-                    {
-                        if (_disposed || _isSwitchingToFallback || Volatile.Read(ref _generation) != gen) return;
-                        if (string.IsNullOrEmpty(_liveTunnelUrl))
-                        {
-                            Log("Cloudflare Quick Tunnel timed out after 18s. Switching to OpenSSH fallback...");
-                            _cloudflareCooldownUntilUtc = DateTime.UtcNow.AddMinutes(5);
-                            SwitchToFallbackLocked(gen, true);
-                        }
-                    }
-                });
+                StartStartupGuardLocked(gen, 45000, "Cloudflare Quick Tunnel timed out before verifying public URL");
+                FireStateChangedLocked();
             }
             catch (Exception ex)
             {
-                Log("Cloudflare start error: " + ex.Message + ". Switching to OpenSSH...");
-                _cloudflareCooldownUntilUtc = DateTime.UtcNow.AddMinutes(5);
-                StartOpenSshTunnel(gen);
+                ScheduleCloudflareRetryLocked(gen, "Failed to launch cloudflared.exe: " + ex.Message, false, 0);
             }
         }
 
-        private void HandleCloudflareOutput(string line, int gen)
+        private void HandleQuickTunnelOutput(string line, int gen)
         {
-            if (string.IsNullOrEmpty(line) || Volatile.Read(ref _generation) != gen) return;
+            if (string.IsNullOrEmpty(line)) return;
             AppendTunnelLog("[CF-Quick] " + line);
 
-            if (line.IndexOf("status 429", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("too many requests", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("quick tunnel provisioning failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("failed to unmarshal quick Tunnel", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("failed to request quick Tunnel", StringComparison.OrdinalIgnoreCase) >= 0)
+            string candidateToVerify = null;
+            lock (_lock)
             {
-                _cloudflareCooldownUntilUtc = DateTime.UtcNow.AddMinutes(5);
-                if (!_isSwitchingToFallback)
+                if (_disposed || _generation != gen) return;
+
+                int retryAfterSec;
+                if (IsCloudflareRateLimit(line, out retryAfterSec))
                 {
-                    Log("Cloudflare Quick Tunnel rate-limited (HTTP 429). Cooling down 5m & activating OpenSSH fallback...");
-                    ThreadPool.QueueUserWorkItem(_ =>
-                    {
-                        lock (_lock)
-                        {
-                            SwitchToFallbackLocked(gen, true);
-                        }
-                    });
+                    ScheduleCloudflareRetryLocked(gen, "Cloudflare Quick Tunnel rate-limited (HTTP 429)", true, retryAfterSec);
+                    return;
                 }
-                return;
+
+                var match = CloudflareQuickUrlRegex.Match(line);
+                if (match.Success)
+                {
+                    string captured = match.Value.Trim().TrimEnd('/');
+                    if (!IsValidPublicTunnelUrl(captured)) return;
+
+                    if (!string.Equals(_publicUrl, captured, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(_pendingCandidateUrl, captured, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _pendingCandidateUrl = captured;
+                        Log("Cloudflare issued URL " + captured + " — waiting for edge registration before endpoint verification...");
+                        if (_edgeRegisteredGen == gen && _verificationStartedGen != gen)
+                        {
+                            _verificationStartedGen = gen;
+                            candidateToVerify = captured;
+                        }
+                    }
+                }
+
+                if (line.IndexOf("Registered tunnel connection", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _edgeRegisteredGen = gen;
+                    if (!string.IsNullOrEmpty(_pendingCandidateUrl) && _verificationStartedGen != gen)
+                    {
+                        _verificationStartedGen = gen;
+                        candidateToVerify = _pendingCandidateUrl;
+                        Log("Cloudflare edge registered — verifying actual endpoint availability (" + candidateToVerify + ")...");
+                    }
+                }
             }
 
-            var match = CloudflareUrlRegex.Match(line);
-            if (match.Success)
+            if (!string.IsNullOrEmpty(candidateToVerify))
             {
-                string captured = match.Value.Trim().TrimEnd('/');
-                if (!IsValidPublicTunnelUrl(captured)) return;
-
-                if (!string.Equals(_liveTunnelUrl, captured, StringComparison.OrdinalIgnoreCase))
-                {
-                    _liveTunnelUrl = captured;
-                    _activeProviderName = "Cloudflare Quick Tunnel";
-                    _healthStatus = "Live";
-                    _consecutiveHealthFailures = 0;
-                    _lastHealthOkUtc = DateTime.UtcNow;
-                    Log("⚡ Tunnel Live (Cloudflare): " + captured);
-                    RegisterWithCloud(captured);
-                    FireCaptured(captured);
-                }
+                // Initial delay avoids querying Windows DNS before Cloudflare propagates the new trycloudflare.com record
+                StartEndpointVerificationAsync(candidateToVerify, gen, 3500);
             }
         }
 
-        private void SwitchToFallbackLocked(int expectedGen, bool useOpenSshFirst)
+        private void StartEndpointVerificationAsync(string url, int gen, int initialDelayMs)
         {
-            if (_disposed || Volatile.Read(ref _generation) != expectedGen) return;
-            _isSwitchingToFallback = true;
-            _liveTunnelUrl = null;
-            _healthStatus = "Reconnecting";
-            int newGen = Interlocked.Increment(ref _generation);
-            StopProcessOnly();
-            _isSwitchingToFallback = false;
-
-            if (useOpenSshFirst && DateTime.UtcNow >= _localhostRunCooldownUntilUtc)
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                StartOpenSshTunnel(newGen);
+                if (initialDelayMs > 0) Thread.Sleep(initialDelayMs);
+
+                // Wait for Cloudflare's authoritative DNS to publish the new hostname BEFORE querying Windows DNS
+                // (prevents Windows DNS Client from negatively caching NXDOMAIN for 30-60s).
+                WaitForCloudflareDnsReady(url, gen, 12000);
+
+                string lastErr = "Endpoint verification failed";
+                bool verified = false;
+
+                // Patiently verify across Cloudflare edge & local ISP DNS propagation
+                for (int attempt = 1; attempt <= 7; attempt++)
+                {
+                    lock (_lock)
+                    {
+                        if (_disposed || _generation != gen) return;
+                    }
+                    if (ProbePublicTunnel(url, out lastErr))
+                    {
+                        verified = true;
+                        break;
+                    }
+                    if (attempt < 7) Thread.Sleep(3500);
+                }
+
+                bool notifyCaptured = false;
+                lock (_lock)
+                {
+                    if (_disposed || _generation != gen) return;
+
+                    if (verified)
+                    {
+                        CancelStartupGuardLocked();
+                        _publicUrl = url;
+                        _pendingCandidateUrl = null;
+                        _lastSuccessfulHealthCheckUtc = DateTime.UtcNow;
+                        _lastFailureReason = null;
+                        _retryCount = 0;
+                        _rateLimitHits = 0;
+                        _consecutiveHealthFailures = 0;
+                        _nextRetryUtc = null;
+                        TransitionStateLocked(TunnelState.CONNECTED);
+                        Log("⚡ Cloudflare Tunnel verified & CONNECTED: " + url + " (PID " + (_processId.HasValue ? _processId.Value.ToString(CultureInfo.InvariantCulture) : "n/a") + ")");
+                        notifyCaptured = true;
+                    }
+                    else
+                    {
+                        _pendingCandidateUrl = null;
+                        ScheduleCloudflareRetryLocked(gen, "Cloudflare URL unreachable during endpoint verification: " + lastErr, false, 0);
+                    }
+                }
+
+                if (notifyCaptured)
+                {
+                    RegisterWithCloud(url);
+                    FireCaptured(url);
+                }
+            });
+        }
+
+        private void HandleProcessExited(int gen, string reason)
+        {
+            bool shouldNotifyClear = false;
+            lock (_lock)
+            {
+                if (_disposed || _generation != gen) return;
+                int? oldPid = _processId;
+                _tunnelProcess = null;
+                _processId = null;
+                bool hadUrl = !string.IsNullOrEmpty(_publicUrl);
+                _publicUrl = null;
+                _pendingCandidateUrl = null;
+                shouldNotifyClear = hadUrl;
+                ScheduleCloudflareRetryLocked(gen, reason + (oldPid.HasValue ? " (PID " + oldPid.Value + ")" : ""), false, 0);
+            }
+
+            if (shouldNotifyClear)
+            {
+                DisconnectFromCloud();
+                FireCaptured("");
+            }
+        }
+
+        private void StartStartupGuardLocked(int gen, int timeoutMs, string timeoutReason)
+        {
+            CancelStartupGuardLocked();
+            _startupGuardTimer = new Timer(_ =>
+            {
+                lock (_lock)
+                {
+                    if (_disposed || _generation != gen) return;
+                    if (_state == TunnelState.CONNECTING || _state == TunnelState.RECONNECTING)
+                    {
+                        if (string.IsNullOrEmpty(_publicUrl))
+                        {
+                            ScheduleCloudflareRetryLocked(gen, timeoutReason, false, 0);
+                        }
+                    }
+                }
+            }, null, timeoutMs, Timeout.Infinite);
+        }
+
+        private void CancelStartupGuardLocked()
+        {
+            if (_startupGuardTimer != null)
+            {
+                try { _startupGuardTimer.Dispose(); } catch { }
+                _startupGuardTimer = null;
+            }
+        }
+
+        private void CancelRetryTimerLocked()
+        {
+            if (_retryTimer != null)
+            {
+                try { _retryTimer.Dispose(); } catch { }
+                _retryTimer = null;
+            }
+        }
+
+        private void ScheduleCloudflareRetryLocked(int expectedGen, string failureReason, bool isRateLimit, int retryAfterSeconds)
+        {
+            if (_disposed || _generation != expectedGen) return;
+
+            CancelStartupGuardLocked();
+            CancelRetryTimerLocked();
+            StopOwnedProcessOnlyLocked();
+
+            // Advance generation so any remaining async stdout/probe events from the dead process are strictly ignored
+            int scheduledGen = Interlocked.Increment(ref _generation);
+            _publicUrl = null;
+            _pendingCandidateUrl = null;
+            _edgeRegisteredGen = 0;
+            _verificationStartedGen = 0;
+            _processId = null;
+            _usingWindowsService = false;
+            _lastFailureReason = failureReason;
+            _retryCount++;
+
+            int delayMs;
+            TunnelState nextState;
+            if (isRateLimit)
+            {
+                _rateLimitHits++;
+                int cooldownSec = retryAfterSeconds > 0
+                    ? retryAfterSeconds
+                    : Math.Min(900, 300 * _rateLimitHits); // 5m -> 10m -> 15m cap
+                delayMs = cooldownSec * 1000;
+                _cooldownUntilUtc = DateTime.UtcNow.AddMilliseconds(delayMs);
+                nextState = TunnelState.COOLDOWN;
             }
             else
             {
-                StartPinggySshTunnel(newGen);
+                delayMs = ComputeBackoffWithJitterMs(_retryCount, 3000, 120000);
+                bool netUp = true;
+                try { netUp = NetworkInterface.GetIsNetworkAvailable(); } catch { }
+                nextState = (!netUp || _retryCount >= 3) ? TunnelState.OFFLINE : TunnelState.RECONNECTING;
+            }
+
+            _nextRetryUtc = DateTime.UtcNow.AddMilliseconds(delayMs);
+            TransitionStateLocked(nextState);
+
+            Log(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} | Reason: {1} | Retry #{2} scheduled in {3:F1}s (Cloudflare-only, no fallback).",
+                FormatDisplayStatus(nextState),
+                failureReason,
+                _retryCount,
+                delayMs / 1000.0));
+
+            _retryTimer = new Timer(_ =>
+            {
+                lock (_lock)
+                {
+                    if (_disposed || _generation != scheduledGen) return;
+                    if (_state == TunnelState.COOLDOWN && DateTime.UtcNow < _cooldownUntilUtc)
+                    {
+                        int remMs = (int)Math.Max(1000, (_cooldownUntilUtc - DateTime.UtcNow).TotalMilliseconds);
+                        _retryTimer.Change(remMs, Timeout.Infinite);
+                        return;
+                    }
+                    BeginConnectLocked(TunnelState.RECONNECTING);
+                }
+            }, null, delayMs, Timeout.Infinite);
+        }
+
+        private void StartHeartbeatTimerLocked()
+        {
+            if (_heartbeatTimer != null) return;
+            _heartbeatTimer = new Timer(_ =>
+            {
+                string url = null;
+                lock (_lock)
+                {
+                    if (!_disposed && (_state == TunnelState.CONNECTED || _state == TunnelState.DEGRADED))
+                    {
+                        url = _publicUrl;
+                    }
+                }
+                if (IsValidPublicTunnelUrl(url))
+                {
+                    RegisterWithCloud(url);
+                }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+
+        private void StartWatchdogTimerLocked()
+        {
+            if (_watchdogTimer != null) return;
+            _watchdogTimer = new Timer(_ => RunWatchdogCheck(), null, TimeSpan.FromSeconds(25), TimeSpan.FromSeconds(25));
+        }
+
+        public void RunWatchdogCheck()
+        {
+            int probeGen;
+            string probeUrl;
+            bool usingService;
+            Process procRef;
+
+            lock (_lock)
+            {
+                if (_disposed || _probeInFlight) return;
+                if (_state != TunnelState.CONNECTED && _state != TunnelState.DEGRADED) return;
+                if (!IsValidPublicTunnelUrl(_publicUrl)) return;
+
+                _probeInFlight = true;
+                probeGen = _generation;
+                probeUrl = _publicUrl;
+                usingService = _usingWindowsService;
+                procRef = _tunnelProcess;
+            }
+
+            try
+            {
+                if (!ProbeLocalServer()) return;
+
+                // If managed process vanished silently, let supervisor recover immediately
+                if (!usingService && procRef != null)
+                {
+                    bool exited = false;
+                    try { exited = procRef.HasExited; } catch { exited = true; }
+                    if (exited)
+                    {
+                        HandleProcessExited(probeGen, "Watchdog detected terminated cloudflared.exe process");
+                        return;
+                    }
+                }
+
+                string err;
+                if (ProbePublicTunnel(probeUrl, out err))
+                {
+                    ApplyHealthCheckResult(probeGen, probeUrl, true, null);
+                    return;
+                }
+
+                // Mark DEGRADED first — do NOT tear down a working tunnel on a single transient blip
+                ApplyHealthCheckResult(probeGen, probeUrl, false, err);
+
+                // Short debounce re-check so temporary jitter recovers cleanly without breaking uploads
+                Thread.Sleep(4000);
+                lock (_lock)
+                {
+                    if (_disposed || _generation != probeGen || !string.Equals(_publicUrl, probeUrl, StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+
+                if (ProbePublicTunnel(probeUrl, out err))
+                {
+                    ApplyHealthCheckResult(probeGen, probeUrl, true, null);
+                    return;
+                }
+
+                ApplyHealthCheckResult(probeGen, probeUrl, false, err);
+            }
+            catch { }
+            finally
+            {
+                lock (_lock) { _probeInFlight = false; }
             }
         }
 
-        private void StartOpenSshTunnel(int gen)
+        /// <summary>
+        /// Applies a health-check result strictly guarded by (probeGen, probeUrl).
+        /// Any stale event from an older generation or previous URL is completely discarded.
+        /// Preserves active customer uploads by requiring extra consecutive failures before teardown.
+        /// </summary>
+        public bool ApplyHealthCheckResult(int probeGen, string probeUrl, bool healthy, string failureReason)
+        {
+            bool shouldDisconnectAndClear = false;
+            lock (_lock)
+            {
+                if (_disposed) return false;
+                if (probeGen != _generation) return false;
+                if (!string.Equals(probeUrl ?? "", _publicUrl ?? "", StringComparison.OrdinalIgnoreCase)) return false;
+                if (_state != TunnelState.CONNECTED && _state != TunnelState.DEGRADED) return false;
+
+                if (healthy)
+                {
+                    bool wasDegraded = _state == TunnelState.DEGRADED;
+                    _consecutiveHealthFailures = 0;
+                    _lastSuccessfulHealthCheckUtc = DateTime.UtcNow;
+                    _lastFailureReason = null;
+                    if (wasDegraded)
+                    {
+                        TransitionStateLocked(TunnelState.CONNECTED);
+                        Log("Cloudflare Tunnel recovered cleanly without restart (" + probeUrl + ").");
+                    }
+                    else
+                    {
+                        FireStateChangedLocked();
+                    }
+                    return true;
+                }
+
+                _consecutiveHealthFailures++;
+                _lastFailureReason = string.IsNullOrWhiteSpace(failureReason) ? "Public health check failed" : failureReason;
+
+                int activeUploads = 0;
+                if (_db != null)
+                {
+                    try { activeUploads = _db.CountActiveUploadSessions(); } catch { }
+                }
+                int failureThreshold = activeUploads > 0 ? 3 : 2;
+
+                if (_consecutiveHealthFailures < failureThreshold)
+                {
+                    TransitionStateLocked(TunnelState.DEGRADED);
+                    Log(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Cloudflare health probe warning ({0}/{1}, active uploads: {2}): {3}. Keeping tunnel alive while verifying...",
+                        _consecutiveHealthFailures, failureThreshold, activeUploads, _lastFailureReason));
+                    return true;
+                }
+
+                Log("Cloudflare endpoint confirmed unreachable (" + _lastFailureReason + "). Reconnecting via Cloudflare...");
+                shouldDisconnectAndClear = true;
+                ScheduleCloudflareRetryLocked(probeGen, "Health check failed: " + _lastFailureReason, false, 0);
+            }
+
+            if (shouldDisconnectAndClear)
+            {
+                DisconnectFromCloud();
+                FireCaptured("");
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Deterministic test hooks used by --self-test to verify rate-limit COOLDOWN,
+        /// stale health-check rejection, and temporary degradation recovery without mutating production config.
+        /// </summary>
+        public void InjectStateForSelfTest(TunnelState state, string publicUrl, int? fakePid)
         {
             lock (_lock)
             {
-                if (_disposed || Volatile.Read(ref _generation) != gen) return;
-                StopProcessOnly();
-                _isSwitchingToFallback = false;
-                _liveTunnelUrl = null;
-
-                string sshExe = FindOpenSsh();
-                _activeProviderName = "OpenSSH (localhost.run)";
-                Log("Starting OpenSSH Tunnel (" + Path.GetFileName(sshExe) + " -> localhost.run)...");
-
-                try
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = sshExe,
-                        Arguments = string.Format(
-                            CultureInfo.InvariantCulture,
-                            "-T -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -o TCPKeepAlive=yes -R 80:127.0.0.1:{0} nokey@localhost.run",
-                            _localPort),
-                        CreateNoWindow = true,
-                        UseShellExecute = false,
-                        RedirectStandardInput = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-
-                    _tunnelProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-                    _tunnelProcess.OutputDataReceived += (s, e) => HandleSshOutput(e.Data, gen);
-                    _tunnelProcess.ErrorDataReceived += (s, e) => HandleSshOutput(e.Data, gen);
-                    _tunnelProcess.Exited += (s, e) =>
-                    {
-                        if (_disposed || _isSwitchingToFallback || Volatile.Read(ref _generation) != gen) return;
-
-                        bool hadUrl = !string.IsNullOrEmpty(_liveTunnelUrl);
-                        _liveTunnelUrl = null;
-                        _healthStatus = "Reconnecting";
-                        FireCaptured("");
-
-                        if (!hadUrl)
-                        {
-                            Log("localhost.run SSH did not establish tunnel. Activating Pinggy SSH backup...");
-                            _localhostRunCooldownUntilUtc = DateTime.UtcNow.AddMinutes(3);
-                            ThreadPool.QueueUserWorkItem(_ =>
-                            {
-                                lock (_lock)
-                                {
-                                    if (_disposed || Volatile.Read(ref _generation) != gen) return;
-                                    int nextGen = Interlocked.Increment(ref _generation);
-                                    StopProcessOnly();
-                                    StartPinggySshTunnel(nextGen);
-                                }
-                            });
-                        }
-                        else
-                        {
-                            Log("OpenSSH Tunnel disconnected. Reconnecting in 3s...");
-                            ScheduleRestart(3000, gen);
-                        }
-                    };
-
-                    _tunnelProcess.Start();
-                    try { _tunnelProcess.StandardInput.Close(); } catch { }
-                    _tunnelProcess.BeginOutputReadLine();
-                    _tunnelProcess.BeginErrorReadLine();
-
-                    ThreadPool.QueueUserWorkItem(_ =>
-                    {
-                        Thread.Sleep(18000);
-                        lock (_lock)
-                        {
-                            if (_disposed || _isSwitchingToFallback || Volatile.Read(ref _generation) != gen) return;
-                            if (string.IsNullOrEmpty(_liveTunnelUrl))
-                            {
-                                Log("localhost.run timed out after 18s. Switching to Pinggy SSH backup...");
-                                _localhostRunCooldownUntilUtc = DateTime.UtcNow.AddMinutes(3);
-                                int nextGen = Interlocked.Increment(ref _generation);
-                                StopProcessOnly();
-                                StartPinggySshTunnel(nextGen);
-                            }
-                        }
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Log("OpenSSH Tunnel error: " + ex.Message + ". Switching to Pinggy SSH...");
-                    StartPinggySshTunnel(gen);
-                }
+                CancelRetryTimerLocked();
+                CancelStartupGuardLocked();
+                Interlocked.Increment(ref _generation);
+                _publicUrl = publicUrl;
+                _processId = fakePid;
+                _consecutiveHealthFailures = 0;
+                _lastFailureReason = null;
+                _retryCount = 0;
+                _nextRetryUtc = null;
+                _cooldownUntilUtc = DateTime.MinValue;
+                if (state == TunnelState.CONNECTED) _lastSuccessfulHealthCheckUtc = DateTime.UtcNow;
+                TransitionStateLocked(state);
             }
         }
 
-        private void HandleSshOutput(string line, int gen)
+        public void SimulateRateLimitForSelfTest(string cloudflareLogLine)
         {
-            if (string.IsNullOrEmpty(line) || Volatile.Read(ref _generation) != gen) return;
-            AppendTunnelLog("[SSH-LHR] " + line);
+            int gen;
+            lock (_lock) { gen = _generation; }
+            HandleQuickTunnelOutput(cloudflareLogLine, gen);
+        }
 
-            var match = SshUrlRegex.Match(line);
-            if (match.Success)
+        public static bool TryDetectRunningCloudflaredService(out int? servicePid)
+        {
+            servicePid = null;
+            try
             {
-                string captured = match.Value.Trim().TrimEnd('/');
-                if (!IsValidPublicTunnelUrl(captured)) return;
-
-                if (!string.Equals(_liveTunnelUrl, captured, StringComparison.OrdinalIgnoreCase))
+                var psi = new ProcessStartInfo
                 {
-                    _liveTunnelUrl = captured;
-                    _activeProviderName = "OpenSSH (localhost.run)";
-                    _healthStatus = "Live";
-                    _consecutiveHealthFailures = 0;
-                    _lastHealthOkUtc = DateTime.UtcNow;
-                    Log("⚡ Tunnel Live (OpenSSH): " + captured);
-                    RegisterWithCloud(captured);
-                    FireCaptured(captured);
-                }
-            }
-        }
-
-        private void StartPinggySshTunnel(int gen)
-        {
-            lock (_lock)
-            {
-                if (_disposed || Volatile.Read(ref _generation) != gen) return;
-                StopProcessOnly();
-                _isSwitchingToFallback = false;
-                _liveTunnelUrl = null;
-
-                string sshExe = FindOpenSsh();
-                _activeProviderName = "Pinggy SSH (Port 443)";
-                Log("Starting backup Pinggy SSH Tunnel over Port 443...");
-
-                try
+                    FileName = "sc.exe",
+                    Arguments = "queryex cloudflared",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var p = Process.Start(psi))
                 {
-                    var psi = new ProcessStartInfo
+                    string output = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(3000);
+                    if (p.ExitCode == 0 && output.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        FileName = sshExe,
-                        Arguments = string.Format(
-                            CultureInfo.InvariantCulture,
-                            "-T -p 443 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -R0:127.0.0.1:{0} qr@a.pinggy.io",
-                            _localPort),
-                        CreateNoWindow = true,
-                        UseShellExecute = false,
-                        RedirectStandardInput = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-
-                    _tunnelProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-                    _tunnelProcess.OutputDataReceived += (s, e) => HandlePinggyOutput(e.Data, gen);
-                    _tunnelProcess.ErrorDataReceived += (s, e) => HandlePinggyOutput(e.Data, gen);
-                    _tunnelProcess.Exited += (s, e) =>
-                    {
-                        if (_disposed || _isSwitchingToFallback || Volatile.Read(ref _generation) != gen) return;
-                        _liveTunnelUrl = null;
-                        _healthStatus = "Reconnecting";
-                        _pinggyCooldownUntilUtc = DateTime.UtcNow.AddMinutes(2);
-                        FireCaptured("");
-                        Log("Pinggy SSH Tunnel disconnected. Reconnecting in 5s...");
-                        ScheduleRestart(5000, gen);
-                    };
-
-                    _tunnelProcess.Start();
-                    try { _tunnelProcess.StandardInput.Close(); } catch { }
-                    _tunnelProcess.BeginOutputReadLine();
-                    _tunnelProcess.BeginErrorReadLine();
-
-                    ThreadPool.QueueUserWorkItem(_ =>
-                    {
-                        Thread.Sleep(18000);
-                        lock (_lock)
+                        var m = ServicePidRegex.Match(output);
+                        int pidVal;
+                        if (m.Success && int.TryParse(m.Groups[1].Value, out pidVal) && pidVal > 0)
                         {
-                            if (_disposed || _isSwitchingToFallback || Volatile.Read(ref _generation) != gen) return;
-                            if (string.IsNullOrEmpty(_liveTunnelUrl))
-                            {
-                                Log("All public tunnel providers busy right now. Retrying in 8s...");
-                                ScheduleRestart(8000, gen);
-                            }
+                            servicePid = pidVal;
                         }
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Log("Pinggy SSH backup failed: " + ex.Message + ". Retrying in 10s...");
-                    ScheduleRestart(10000, gen);
+                        return true;
+                    }
                 }
             }
+            catch { }
+            return false;
         }
 
-        private void HandlePinggyOutput(string line, int gen)
+        public bool InstallCloudflareWindowsService(string token, out string message)
         {
-            if (string.IsNullOrEmpty(line) || Volatile.Read(ref _generation) != gen) return;
-            AppendTunnelLog("[SSH-Pinggy] " + line);
-
-            var match = PinggyUrlRegex.Match(line);
-            if (match.Success)
+            message = null;
+            string cleanToken = (token ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(cleanToken))
             {
-                string captured = match.Value.Trim().TrimEnd('/');
-                if (!IsValidPublicTunnelUrl(captured)) return;
-
-                if (!string.Equals(_liveTunnelUrl, captured, StringComparison.OrdinalIgnoreCase))
+                message = "A Cloudflare Named Tunnel token is required to install the Windows service.";
+                return false;
+            }
+            string exePath = EnsureCloudflared();
+            if (string.IsNullOrEmpty(exePath))
+            {
+                message = "cloudflared.exe is not available.";
+                return false;
+            }
+            try
+            {
+                var psi = new ProcessStartInfo
                 {
-                    _liveTunnelUrl = captured;
-                    _activeProviderName = "Pinggy SSH (Port 443)";
-                    _healthStatus = "Live";
-                    _consecutiveHealthFailures = 0;
-                    _lastHealthOkUtc = DateTime.UtcNow;
-                    Log("⚡ Tunnel Live (Pinggy): " + captured);
-                    RegisterWithCloud(captured);
-                    FireCaptured(captured);
+                    FileName = exePath,
+                    Arguments = "service install " + cleanToken,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var p = Process.Start(psi))
+                {
+                    string stdout = p.StandardOutput.ReadToEnd();
+                    string stderr = p.StandardError.ReadToEnd();
+                    p.WaitForExit(15000);
+                    if (p.ExitCode == 0)
+                    {
+                        message = "Cloudflare Windows Service installed successfully.";
+                        return true;
+                    }
+                    message = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+                    return false;
                 }
             }
-        }
-
-        private string FindOpenSsh()
-        {
-            string systemSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "OpenSSH", "ssh.exe");
-            if (File.Exists(systemSsh)) return systemSsh;
-            string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            string sysNative = Path.Combine(winDir, "sysnative", "OpenSSH", "ssh.exe");
-            if (File.Exists(sysNative)) return sysNative;
-            string sys32 = Path.Combine(winDir, "System32", "OpenSSH", "ssh.exe");
-            if (File.Exists(sys32)) return sys32;
-            return "ssh.exe";
+            catch (Exception ex)
+            {
+                message = "Service install requires Administrator privileges: " + ex.Message;
+                return false;
+            }
         }
 
         private string EnsureCloudflared()
@@ -818,7 +1275,7 @@ namespace ScanDrop.Native
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
                 using (var wc = new WebClient())
                 {
-                    wc.Headers.Add("User-Agent", "ScanDrop-NativeAgent");
+                    wc.Headers.Add("User-Agent", "ScanDrop-CloudflareSupervisor");
                     wc.DownloadFile("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe", exePath);
                 }
                 Log("Downloaded cloudflared.exe successfully.");
@@ -828,88 +1285,6 @@ namespace ScanDrop.Native
             {
                 Log("Could not download cloudflared.exe: " + ex.Message);
                 return null;
-            }
-        }
-
-        private void StartHeartbeatTimer()
-        {
-            if (_heartbeatTimer != null) return;
-            _heartbeatTimer = new Timer(_ =>
-            {
-                string url = _liveTunnelUrl;
-                if (IsValidPublicTunnelUrl(url))
-                {
-                    RegisterWithCloud(url);
-                }
-            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
-        }
-
-        private void StartWatchdogTimer()
-        {
-            if (_watchdogTimer != null) return;
-            _watchdogTimer = new Timer(_ => RunWatchdogCheck(), null, TimeSpan.FromSeconds(25), TimeSpan.FromSeconds(25));
-        }
-
-        private void RunWatchdogCheck()
-        {
-            if (_disposed || _probeInFlight) return;
-            _probeInFlight = true;
-            try
-            {
-                if (!ProbeLocalServer()) return;
-
-                string url = _liveTunnelUrl;
-                if (!IsValidPublicTunnelUrl(url)) return;
-
-                string err;
-                if (ProbePublicTunnel(url, out err))
-                {
-                    _consecutiveHealthFailures = 0;
-                    _lastHealthOkUtc = DateTime.UtcNow;
-                    _healthStatus = "Live";
-                    return;
-                }
-
-                // Debounce momentary network jitter: wait 2.5s and re-confirm before rotating tunnel
-                _consecutiveHealthFailures++;
-                Thread.Sleep(2500);
-                if (_disposed) return;
-                if (ProbePublicTunnel(url, out err))
-                {
-                    _consecutiveHealthFailures = 0;
-                    _lastHealthOkUtc = DateTime.UtcNow;
-                    _healthStatus = "Live";
-                    return;
-                }
-
-                _consecutiveHealthFailures++;
-                Log("Watchdog detected dead/stalled tunnel (" + err + "). Auto-recovering...");
-                _healthStatus = "Recovering";
-
-                string tok, cust, mode;
-                ReadConfig(out tok, out cust, out mode);
-                if (string.IsNullOrWhiteSpace(tok) && mode != "cloudflare" &&
-                    (_activeProviderName ?? "").IndexOf("Cloudflare", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    _cloudflareCooldownUntilUtc = DateTime.UtcNow.AddMinutes(5);
-                }
-                else if ((_activeProviderName ?? "").IndexOf("localhost.run", StringComparison.OrdinalIgnoreCase) >= 0 && mode == "auto")
-                {
-                    _localhostRunCooldownUntilUtc = DateTime.UtcNow.AddMinutes(3);
-                }
-
-                if (mode != "custom")
-                {
-                    _liveTunnelUrl = null;
-                    DisconnectFromCloud();
-                    FireCaptured("");
-                    Start();
-                }
-            }
-            catch { }
-            finally
-            {
-                _probeInFlight = false;
             }
         }
 
@@ -931,6 +1306,40 @@ namespace ScanDrop.Native
             }
         }
 
+        private void WaitForCloudflareDnsReady(string baseUrl, int gen, int maxWaitMs)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out uri) || string.IsNullOrEmpty(uri.Host)) return;
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(maxWaitMs);
+            while (DateTime.UtcNow < deadline)
+            {
+                lock (_lock)
+                {
+                    if (_disposed || _generation != gen) return;
+                }
+                try
+                {
+                    var req = (HttpWebRequest)WebRequest.Create("https://cloudflare-dns.com/dns-query?name=" + Uri.EscapeDataString(uri.Host) + "&type=A");
+                    req.Method = "GET";
+                    req.Accept = "application/dns-json";
+                    req.Timeout = 3500;
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    {
+                        string json = sr.ReadToEnd();
+                        if (json.IndexOf("\"Status\":0", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                            json.IndexOf("\"Answer\"", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            Thread.Sleep(1500); // Brief pause for ISP recursive resolver sync
+                            return;
+                        }
+                    }
+                }
+                catch { return; } // If DoH is blocked by corporate proxy, proceed directly to HTTP probes
+                Thread.Sleep(1500);
+            }
+        }
+
         private static bool ProbePublicTunnel(string baseUrl, out string error)
         {
             error = null;
@@ -939,11 +1348,9 @@ namespace ScanDrop.Native
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
                 var req = (HttpWebRequest)WebRequest.Create(baseUrl.TrimEnd('/') + "/api/health");
                 req.Method = "GET";
-                req.Timeout = 6500;
-                req.ReadWriteTimeout = 6500;
-                req.UserAgent = "ScanDrop-Watchdog/1.0";
-                req.Headers["X-Pinggy-No-Screen"] = "true";
-                req.Headers["Bypass-Tunnel-Reminder"] = "true";
+                req.Timeout = 8000;
+                req.ReadWriteTimeout = 8000;
+                req.UserAgent = "ScanDrop-CloudflareWatchdog/2.0";
                 using (var resp = (HttpWebResponse)req.GetResponse())
                 using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                 {
@@ -997,14 +1404,23 @@ namespace ScanDrop.Native
                     }
                     catch { }
                 }
+                string shopId, pairingCode, deviceId, deviceSecret;
+                lock (_lock)
+                {
+                    shopId = _shopId;
+                    pairingCode = _pairingCode;
+                    deviceId = _deviceId ?? "";
+                    deviceSecret = _deviceSecret ?? "";
+                }
+
                 string payload = ser.Serialize(new
                 {
-                    shopId = _shopId,
+                    shopId = shopId,
                     shopSlug = slug,
                     shopName = shopName,
-                    pairingCode = _pairingCode,
-                    deviceId = _deviceId ?? "",
-                    deviceSecret = _deviceSecret ?? "",
+                    pairingCode = pairingCode,
+                    deviceId = deviceId,
+                    deviceSecret = deviceSecret,
                     appVersion = AutoUpdater.CurrentVersion,
                     tunnelUrl = tunnelUrl
                 });
@@ -1040,13 +1456,22 @@ namespace ScanDrop.Native
                     }
                     catch { }
                 }
+                string shopId, pairingCode, deviceId, deviceSecret;
+                lock (_lock)
+                {
+                    shopId = _shopId;
+                    pairingCode = _pairingCode;
+                    deviceId = _deviceId ?? "";
+                    deviceSecret = _deviceSecret ?? "";
+                }
+
                 string payload = ser.Serialize(new
                 {
-                    shopId = _shopId,
+                    shopId = shopId,
                     shopSlug = slug,
-                    pairingCode = _pairingCode,
-                    deviceId = _deviceId ?? "",
-                    deviceSecret = _deviceSecret ?? ""
+                    pairingCode = pairingCode,
+                    deviceId = deviceId,
+                    deviceSecret = deviceSecret
                 });
                 var req = (HttpWebRequest)WebRequest.Create(_cloudUrl + "/api/tunnel/disconnect");
                 req.Method = "POST";
@@ -1062,43 +1487,30 @@ namespace ScanDrop.Native
 
         private void KillOrphanCloudflaredProcesses()
         {
+            int? svcPid;
+            TryDetectRunningCloudflaredService(out svcPid);
             try
             {
                 foreach (var p in Process.GetProcessesByName("cloudflared"))
                 {
-                    try { p.Kill(); } catch { }
+                    try
+                    {
+                        if (svcPid.HasValue && p.Id == svcPid.Value) continue; // Never kill Production Windows Service
+                        p.Kill();
+                    }
+                    catch { }
                 }
             }
             catch { }
         }
 
-        private void ScheduleRestart(int baseDelayMs, int expectedGen)
+        private void StopOwnedProcessOnlyLocked()
         {
-            int attempt = Interlocked.Increment(ref _reconnectAttempt);
-            int backoff = Math.Min(30000, baseDelayMs * (1 << Math.Min(attempt - 1, 3)));
-            ThreadPool.QueueUserWorkItem(_ =>
+            if (_usingWindowsService)
             {
-                Thread.Sleep(backoff);
-                if (_disposed || Volatile.Read(ref _generation) != expectedGen) return;
-                Start();
-            });
-        }
-
-        public void Restart()
-        {
-            Log("Restarting tunnel connection...");
-            Interlocked.Exchange(ref _reconnectAttempt, 0);
-            _cloudflareCooldownUntilUtc = DateTime.MinValue;
-            _localhostRunCooldownUntilUtc = DateTime.MinValue;
-            _pinggyCooldownUntilUtc = DateTime.MinValue;
-            _liveTunnelUrl = null;
-            _healthStatus = "Connecting";
-            FireCaptured("");
-            Start();
-        }
-
-        private void StopProcessOnly()
-        {
+                _tunnelProcess = null;
+                return;
+            }
             try
             {
                 if (_tunnelProcess != null && !_tunnelProcess.HasExited)
@@ -1106,6 +1518,35 @@ namespace ScanDrop.Native
             }
             catch { }
             _tunnelProcess = null;
+        }
+
+        private void TransitionStateLocked(TunnelState newState)
+        {
+            _state = newState;
+            FireStateChangedLocked();
+        }
+
+        private void FireStateChangedLocked()
+        {
+            var h = OnStateChanged;
+            if (h == null) return;
+            var snap = new TunnelStatusSnapshot
+            {
+                State = _state,
+                StateName = _state.ToString(),
+                DisplayStatus = FormatDisplayStatus(_state),
+                Mode = _currentMode,
+                ModeLabel = _modeLabel,
+                ProcessId = _processId,
+                PublicUrl = _publicUrl,
+                IsOnline = (_state == TunnelState.CONNECTED || _state == TunnelState.DEGRADED) && IsValidPublicTunnelUrl(_publicUrl),
+                LastSuccessfulHealthCheckUtc = _lastSuccessfulHealthCheckUtc,
+                LastFailureReason = _lastFailureReason,
+                RetryCount = _retryCount,
+                NextRetryUtc = _nextRetryUtc,
+                Generation = _generation
+            };
+            ThreadPool.QueueUserWorkItem(_ => { try { h(snap); } catch { } });
         }
 
         private void AppendTunnelLog(string line)
@@ -1126,23 +1567,33 @@ namespace ScanDrop.Native
 
         private void FireCaptured(string url)
         {
-            if (!string.IsNullOrEmpty(url)) Interlocked.Exchange(ref _reconnectAttempt, 0);
             var h = OnTunnelUrlCaptured;
             if (h != null) try { h(url); } catch { }
         }
 
         private void Log(string msg)
         {
-            AppendTunnelLog("[Manager] " + msg);
+            AppendTunnelLog("[CF-Supervisor] " + msg);
             var h = OnStatusMessage;
             if (h != null) try { h(msg); } catch { }
         }
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
-            Interlocked.Increment(ref _generation);
+            lock (_lock)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                Interlocked.Increment(ref _generation);
+                CancelRetryTimerLocked();
+                CancelStartupGuardLocked();
+                if (_heartbeatTimer != null) { _heartbeatTimer.Dispose(); _heartbeatTimer = null; }
+                if (_watchdogTimer != null) { _watchdogTimer.Dispose(); _watchdogTimer = null; }
+                StopOwnedProcessOnlyLocked();
+                _state = TunnelState.STOPPED;
+                _processId = null;
+                _publicUrl = null;
+            }
             try
             {
                 if (_eventsHooked)
@@ -1152,9 +1603,6 @@ namespace ScanDrop.Native
                 }
             }
             catch { }
-            if (_heartbeatTimer != null) { _heartbeatTimer.Dispose(); _heartbeatTimer = null; }
-            if (_watchdogTimer != null) { _watchdogTimer.Dispose(); _watchdogTimer = null; }
-            StopProcessOnly();
             DisconnectFromCloud();
         }
     }

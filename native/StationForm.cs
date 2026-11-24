@@ -95,22 +95,8 @@ namespace ScanDrop.Native
                 }
             });
 
-            _tunnel.OnTunnelUrlCaptured += url => SafeUi(() =>
-            {
-                if (string.IsNullOrEmpty(url))
-                {
-                    _tunnelUrlBox.Text = "Reconnecting (" + _tunnel.ActiveProviderName + ")...";
-                    _statusBadge.Text = "● Reconnecting (" + _tunnel.ActiveProviderName + ")";
-                    _statusBadge.ForeColor = Color.FromArgb(217, 119, 6);
-                }
-                else
-                {
-                    _tunnelUrlBox.Text = url;
-                    _statusBadge.Text = "● Tunnel Live (" + _tunnel.ActiveProviderName + ") • Isolated Receiver :" + _publicReceiver.Port;
-                    _statusBadge.ForeColor = Color.FromArgb(22, 163, 74);
-                }
-                RefreshStationMetrics();
-            });
+            _tunnel.OnStateChanged += snap => SafeUi(() => RefreshStationMetrics());
+            _tunnel.OnTunnelUrlCaptured += url => SafeUi(() => RefreshStationMetrics());
         }
 
         private void BuildUi()
@@ -159,7 +145,7 @@ namespace ScanDrop.Native
             infoCard.Controls.Add(localBox);
 
             infoCard.Controls.Add(new Label { Text = "Public Tunnel URL:", Location = new Point(16, 49), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            _tunnelUrlBox = new TextBox { Text = "Connecting Cloudflare / OpenSSH...", ReadOnly = true, Location = new Point(186, 47), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
+            _tunnelUrlBox = new TextBox { Text = "Connecting Cloudflare Tunnel...", ReadOnly = true, Location = new Point(186, 47), Size = new Size(618, 24), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(248, 250, 252) };
             infoCard.Controls.Add(_tunnelUrlBox);
 
             infoCard.Controls.Add(new Label { Text = "Customer QR Link:", Location = new Point(16, 82), Size = new Size(166, 22), ForeColor = Color.FromArgb(71, 85, 105), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
@@ -313,18 +299,41 @@ namespace ScanDrop.Native
                 _pauseBtn.Text = cfg.PauseReceiving ? "▶ Resume Receiving" : "⏸ Pause Receiving";
                 _pauseBtn.BackColor = cfg.PauseReceiving ? Color.FromArgb(254, 243, 199) : Color.White;
 
-                string lastOk = _tunnel.LastHealthOkUtc.HasValue
-                    ? _tunnel.LastHealthOkUtc.Value.ToLocalTime().ToString("HH:mm:ss")
+                var snap = _tunnel.GetStatusSnapshot();
+                if (snap.IsOnline && !string.IsNullOrEmpty(snap.PublicUrl))
+                {
+                    _tunnelUrlBox.Text = snap.PublicUrl;
+                    _statusBadge.Text = "● " + snap.DisplayStatus + " (" + snap.ModeLabel + ") • Receiver :" + _publicReceiver.Port;
+                    _statusBadge.ForeColor = snap.State == TunnelState.CONNECTED
+                        ? Color.FromArgb(22, 163, 74)
+                        : Color.FromArgb(217, 119, 6);
+                }
+                else
+                {
+                    _tunnelUrlBox.Text = snap.DisplayStatus + (snap.NextRetryUtc.HasValue ? (" (next retry " + snap.NextRetryUtc.Value.ToLocalTime().ToString("HH:mm:ss") + ")") : "");
+                    _statusBadge.Text = "● " + snap.DisplayStatus + " [" + snap.StateName + "]";
+                    _statusBadge.ForeColor = (snap.State == TunnelState.OFFLINE || snap.State == TunnelState.COOLDOWN)
+                        ? Color.FromArgb(220, 38, 38)
+                        : Color.FromArgb(217, 119, 6);
+                }
+
+                string lastOk = snap.LastSuccessfulHealthCheckUtc.HasValue
+                    ? snap.LastSuccessfulHealthCheckUtc.Value.ToLocalTime().ToString("HH:mm:ss")
                     : "Pending";
+                string pidStr = snap.ProcessId.HasValue ? snap.ProcessId.Value.ToString(CultureInfo.InvariantCulture) : "n/a";
+                string retryStr = snap.NextRetryUtc.HasValue
+                    ? (" • Retry #" + snap.RetryCount + " @ " + snap.NextRetryUtc.Value.ToLocalTime().ToString("HH:mm:ss"))
+                    : "";
                 _healthBox.Text = string.Format(
                     CultureInfo.InvariantCulture,
-                    "Receiver: {0} (:{1}) • Tunnel: {2} ({3}) • Uploads: {4} • Last Check: {5}",
+                    "Receiver: {0} (:{1}) • State: {2} • Mode: {3} • PID: {4} • Last OK: {5}{6}",
                     _publicReceiver.IsRunning ? "Running" : "Stopped",
                     _publicReceiver.Port,
-                    _tunnel.CurrentHealthStatus,
-                    _tunnel.ActiveProviderName,
-                    cfg.PauseReceiving ? "PAUSED" : "Accepting",
-                    lastOk
+                    snap.StateName,
+                    snap.ModeLabel,
+                    pidStr,
+                    lastOk,
+                    retryStr
                 );
             }
             catch { }
@@ -518,8 +527,8 @@ namespace ScanDrop.Native
 
             using (var dlg = new Form())
             {
-                dlg.Text = "Scan Drop — Tunnel & Connection Settings";
-                dlg.Size = new Size(520, 340);
+                dlg.Text = "Scan Drop — Cloudflare Tunnel Settings";
+                dlg.Size = new Size(540, 360);
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
@@ -530,37 +539,37 @@ namespace ScanDrop.Native
                 var note = new Label
                 {
                     Location = new Point(20, 14),
-                    Size = new Size(464, 42),
+                    Size = new Size(484, 44),
                     ForeColor = Color.FromArgb(71, 85, 105),
-                    Text = "Auto Cascade automatically switches Cloudflare → OpenSSH → Pinggy. Optionally enter a permanent Cloudflare Named Tunnel token (encrypted via Windows DPAPI)."
+                    Text = "Cloudflare-only connectivity. Auto mode prefers Production Named Tunnel (permanent hostname / Windows Service) when configured, otherwise uses Development Quick Tunnel."
                 };
 
-                dlg.Controls.Add(new Label { Text = "Provider Mode:", Location = new Point(20, 66), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-                var modeBox = new ComboBox { Location = new Point(170, 64), Size = new Size(314, 26), DropDownStyle = ComboBoxStyle.DropDownList };
-                modeBox.Items.AddRange(new object[] { "auto", "cloudflare", "openssh", "pinggy" });
-                int idx = modeBox.Items.IndexOf((curMode ?? "auto").ToLowerInvariant());
+                dlg.Controls.Add(new Label { Text = "Cloudflare Mode:", Location = new Point(20, 66), Size = new Size(146, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+                var modeBox = new ComboBox { Location = new Point(174, 64), Size = new Size(330, 26), DropDownStyle = ComboBoxStyle.DropDownList };
+                modeBox.Items.AddRange(new object[] { "auto", "named", "quick" });
+                int idx = modeBox.Items.IndexOf(TunnelManager.NormalizeCloudflareMode(curMode));
                 modeBox.SelectedIndex = idx >= 0 ? idx : 0;
 
-                dlg.Controls.Add(new Label { Text = "Permanent CF Token:", Location = new Point(20, 106), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-                var tokBox = new TextBox { Location = new Point(170, 104), Size = new Size(314, 24), Text = curToken ?? "", UseSystemPasswordChar = !string.IsNullOrEmpty(curToken) };
+                dlg.Controls.Add(new Label { Text = "Named Tunnel Token:", Location = new Point(20, 106), Size = new Size(146, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+                var tokBox = new TextBox { Location = new Point(174, 104), Size = new Size(330, 24), Text = curToken ?? "", UseSystemPasswordChar = !string.IsNullOrEmpty(curToken) };
 
-                dlg.Controls.Add(new Label { Text = "Static Custom URL:", Location = new Point(20, 144), Size = new Size(140, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-                var urlBox = new TextBox { Location = new Point(170, 142), Size = new Size(314, 24), Text = curUrl ?? "" };
+                dlg.Controls.Add(new Label { Text = "Permanent Hostname:", Location = new Point(20, 144), Size = new Size(146, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+                var urlBox = new TextBox { Location = new Point(174, 142), Size = new Size(330, 24), Text = curUrl ?? "" };
 
                 var hint = new Label
                 {
                     Location = new Point(20, 180),
-                    Size = new Size(464, 38),
+                    Size = new Size(484, 42),
                     ForeColor = Color.FromArgb(100, 116, 139),
                     Font = new Font("Segoe UI", 8.5f),
-                    Text = "Tunnel forwards strictly to the isolated Public Upload Port (:" + _publicReceiver.Port + "). Your admin dashboard (:" + _adminServer.Port + ") is never exposed publicly."
+                    Text = "Token is encrypted via Windows DPAPI. Tunnel forwards strictly to 127.0.0.1:" + _publicReceiver.Port + " (never exposes Admin :" + _adminServer.Port + "). Third-party SSH fallbacks are permanently disabled."
                 };
 
-                var saveBtn = new Button { Text = "Save & Reconnect Tunnel", Location = new Point(20, 234), Size = new Size(230, 38), BackColor = Color.FromArgb(37, 99, 235), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Cursor = Cursors.Hand };
+                var saveBtn = new Button { Text = "Save & Reconnect Cloudflare", Location = new Point(20, 244), Size = new Size(240, 38), BackColor = Color.FromArgb(37, 99, 235), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Cursor = Cursors.Hand };
                 saveBtn.FlatAppearance.BorderSize = 0;
                 saveBtn.Click += (s, e) => { _tunnel.SaveConfig(tokBox.Text, urlBox.Text, Convert.ToString(modeBox.SelectedItem)); dlg.Close(); };
 
-                var resetBtn = new Button { Text = "Reset to Auto Cascade", Location = new Point(264, 234), Size = new Size(220, 38), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
+                var resetBtn = new Button { Text = "Reset to Dev Quick Tunnel", Location = new Point(274, 244), Size = new Size(230, 38), BackColor = Color.White, ForeColor = Color.FromArgb(15, 23, 42), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
                 resetBtn.Click += (s, e) => { _tunnel.SaveConfig("", "", "auto"); dlg.Close(); };
 
                 dlg.Controls.AddRange(new Control[] { note, modeBox, tokBox, urlBox, hint, saveBtn, resetBtn });

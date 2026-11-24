@@ -22,7 +22,7 @@ namespace ScanDrop.Native.Api
             res.AddHeader("Access-Control-Allow-Origin", "*");
             res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
             res.AddHeader("Access-Control-Allow-Headers",
-                "Content-Type, X-Requested-With, X-Upload-Token, X-Session-Id, X-File-Id, X-Chunk-Index, X-Byte-Offset, X-Chunk-Sha256, X-Idempotency-Key, X-Pinggy-No-Screen, Bypass-Tunnel-Reminder");
+                "Content-Type, X-Requested-With, X-Upload-Token, X-Session-Id, X-File-Id, X-Chunk-Index, X-Byte-Offset, X-Chunk-Sha256, X-Idempotency-Key");
         }
 
         public static void AddLocalCors(HttpListenerResponse res)

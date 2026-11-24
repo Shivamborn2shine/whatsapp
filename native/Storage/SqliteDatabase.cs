@@ -794,6 +794,14 @@ namespace ScanDrop.Native.Storage
             };
         }
 
+        public int CountActiveUploadSessions()
+        {
+            string nowIso = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            var rows = Query("SELECT COUNT(*) AS cnt FROM upload_sessions WHERE status IN ('open', 'committing') AND expires_at > ?;", nowIso);
+            if (rows.Count == 0) return 0;
+            return (int)Long(rows[0], "cnt");
+        }
+
         public void UpdateUploadSession(string sessionId, string status, long bytesReceived)
         {
             Execute("UPDATE upload_sessions SET status = ?, bytes_received = ? WHERE session_id = ?;", status, bytesReceived, sessionId);

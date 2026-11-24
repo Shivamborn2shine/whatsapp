@@ -213,8 +213,7 @@
       try {
         const res = await fetch(baseUrl + '/api/health', {
           method: 'GET',
-          signal: ctrl.signal,
-          headers: { 'X-Pinggy-No-Screen': 'true', 'Bypass-Tunnel-Reminder': 'true' }
+          signal: ctrl.signal
         });
         if (!res.ok) return null;
         return await res.json();
@@ -223,6 +222,24 @@
       } finally {
         clearTimeout(timer);
       }
+    }
+
+    async function refreshLiveReceiverBase() {
+      if (!activeShop || activeShop.directReceiver || !activeShop.slug) return activeReceiverBase;
+      try {
+        const res = await fetch('/api/shop?slug=' + encodeURIComponent(activeShop.slug));
+        if (!res.ok) return activeReceiverBase;
+        const data = await res.json();
+        if (data && data.shop && data.shop.tunnelOnline && data.shop.tunnelUrl) {
+          const candidate = data.shop.tunnelUrl.replace(/[/]+$/, '');
+          const health = await probeReceiverHealth(candidate);
+          if (health && (health.ok || health.success)) {
+            activeReceiverBase = candidate;
+            return candidate;
+          }
+        }
+      } catch {}
+      return activeReceiverBase;
     }
 
     async function resolveCurrentShop() {
@@ -366,19 +383,17 @@
       });
     }
 
-    function sendChunkWithRetry(url, sessionId, token, fileId, chunkIndex, byteOffset, blob, onProgress) {
-      const maxAttempts = 3;
+    function sendChunkWithRetry(sessionId, token, fileId, chunkIndex, byteOffset, blob, onProgress) {
+      const maxAttempts = 5;
       const attemptSend = (attempt) => new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', url, true);
+        xhr.open('POST', activeReceiverBase + '/api/upload/chunk', true);
         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
         xhr.setRequestHeader('X-Session-Id', sessionId);
         xhr.setRequestHeader('X-Upload-Token', token);
         xhr.setRequestHeader('X-File-Id', fileId);
         xhr.setRequestHeader('X-Chunk-Index', String(chunkIndex));
         xhr.setRequestHeader('X-Byte-Offset', String(byteOffset));
-        xhr.setRequestHeader('X-Pinggy-No-Screen', 'true');
-        xhr.setRequestHeader('Bypass-Tunnel-Reminder', 'true');
         xhr.timeout = 90000;
         xhr.upload.onprogress = (ev) => { if (ev.lengthComputable && onProgress) onProgress(ev.loaded); };
         xhr.onload = () => {
@@ -393,9 +408,11 @@
         xhr.onerror = () => reject(new Error('Network interrupted'));
         xhr.ontimeout = () => reject(new Error('Chunk timed out'));
         xhr.send(blob);
-      }).catch(err => {
+      }).catch(async (err) => {
         if (err.fatal || attempt >= maxAttempts) throw err;
-        return new Promise(r => setTimeout(r, attempt * 1500)).then(() => attemptSend(attempt + 1));
+        await new Promise(r => setTimeout(r, Math.min(8000, attempt * 2000)));
+        await refreshLiveReceiverBase();
+        return attemptSend(attempt + 1);
       });
       return attemptSend(1);
     }
@@ -421,16 +438,13 @@
       }
 
       try {
-        const base = activeReceiverBase;
         const headers = {
           'Content-Type': 'application/json',
-          'X-Pinggy-No-Screen': 'true',
-          'Bypass-Tunnel-Reminder': 'true',
           'X-Idempotency-Key': pendingIdempotencyKey
         };
 
         // 1. Initialize upload session on shop PC
-        const initRes = await fetch(base + '/api/upload/sessions', {
+        const initRes = await fetch(activeReceiverBase + '/api/upload/sessions', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -477,7 +491,6 @@
             const slice = f.slice(start, end);
 
             await sendChunkWithRetry(
-              base + '/api/upload/chunk',
               initData.sessionId,
               initData.uploadToken,
               serverFile.fileId,
@@ -503,7 +516,7 @@
         progressLabel.textContent = 'Verifying file integrity on Shop PC...';
         progressFill.style.width = '97%';
 
-        const cmpRes = await fetch(base + '/api/upload/complete', {
+        const cmpRes = await fetch(activeReceiverBase + '/api/upload/complete', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -564,9 +577,7 @@
       resEl.style.display = 'block';
       resEl.textContent = 'Checking...';
       try {
-        const res = await fetch(activeReceiverBase + '/api/receipt?id=' + encodeURIComponent(code), {
-          headers: { 'X-Pinggy-No-Screen': 'true', 'Bypass-Tunnel-Reminder': 'true' }
-        });
+        const res = await fetch(activeReceiverBase + '/api/receipt?id=' + encodeURIComponent(code));
         const data = await res.json();
         if (!res.ok || !data.success) {
           resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';

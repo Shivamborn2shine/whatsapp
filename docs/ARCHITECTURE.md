@@ -33,7 +33,7 @@ Inspection of `d:\Business 2027\Scan Drop` revealed two existing tracks:
 [Customer Smartphone (Android Chrome / iOS Safari)]
         │ HTTPS (No login, no app install)
         ▼
-[Cloudflare Tunnel (Named in Prod / Quick in Dev) | Modular Fallback: OpenSSH / Pinggy]
+[Cloudflare Tunnel ONLY — Named Tunnel (Production/Service) or Quick Tunnel (Development)]
         │ Forwards ONLY to Public Receiver Port (127.0.0.1:8787)
         ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -202,7 +202,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC)
 
 ## 5. API Contract
 
-### A. Public Customer Upload Receiver (`127.0.0.1:8787` — Tunneled via Cloudflare/SSH)
+### A. Public Customer Upload Receiver (`127.0.0.1:8787` — Tunneled via Cloudflare ONLY)
 *Strictly isolated. Zero admin, file-download, or cross-submission endpoints exist on this listener.*
 
 | Method | Endpoint | Purpose | Auth / Guard |
@@ -236,7 +236,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC)
 | `POST` | `/api/file/print-native` | Print via selected Windows printer (manual staff action; records `sent_to_spooler` / `printed` honestly) |
 | `GET/POST` | `/api/settings` | Configure shop name, storage path, retention hours, max file/submission size, allowed formats, pause toggle, theme |
 | `GET/POST` | `/api/storage`, `/api/storage/clear` | Inspect disk usage breakdown and clear `temp` / `completed` / `all` |
-| `GET/POST` | `/api/tunnel/config`, `/api/tunnel/restart` | Configure Auto Cascade or DPAPI-protected permanent Cloudflare Named Tunnel token |
+| `GET/POST` | `/api/tunnel/status`, `/api/tunnel/config`, `/api/tunnel/restart` | Cloudflare-only supervisor status (`STOPPED`/`CONNECTING`/`CONNECTED`/`DEGRADED`/`COOLDOWN`/`RECONNECTING`/`OFFLINE`) and DPAPI-protected Named Tunnel config |
 | `GET/POST` | `/api/version`, `/api/update/check`, `/api/update/apply` | SHA-256 verified OTA updates |
 
 ---
@@ -245,7 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC)
 
 | Threat | Mitigation |
 |---|---|
-| **Public access to admin dashboard or other customers' files** | Architectural dual-port isolation: Cloudflare/SSH tunnels forward *only* to `:8787`, which mounts zero admin or file-download routes. `:3838` rejects forwarded headers and stays loopback-only. |
+| **Public access to admin dashboard or other customers' files** | Architectural dual-port isolation: Cloudflare Tunnel forwards *only* to `:8787`, which mounts zero admin or file-download routes. `:3838` rejects forwarded headers and stays loopback-only. |
 | **Executable / malware / spoofed extension uploads** | Server-side allowlist + **magic-byte header inspection** (`%PDF-`, JPEG `FF D8 FF`, PNG `89 50 4E 47`, WEBP `RIFF..WEBP`, BMP `BM`, OOXML ZIP `50 4B 03 04`, OLE2 `D0 CF 11 E0`, printable UTF-8 TXT). Rejects PE/MZ binaries (`4D 5A`), scripts, and mismatched types; quarantines or deletes immediately. |
 | **Path traversal / filename injection** | Internal disk filenames are strictly generated GUIDs (`{guid}{safeExt}`). Customer original filenames are stored only as SQLite metadata. All paths are canonicalized (`Path.GetFullPath`) and verified against the storage root. |
 | **Disk exhaustion / DoS / flood uploads** | Per-IP sliding-window rate limits + pre-upload free disk check (requires configurable reserve >= 500 MB free after upload, else HTTP `507`) + max chunk (< 8 MiB), max file (default 100 MB, configurable), max submission limits + one-click **Pause Receiving** switch. |
@@ -274,7 +274,6 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC)
 | **Windows 10/11 x64** | Present | Target OS + built-in `winsqlite3.dll` + Windows DPAPI + GDI+ + WinForms |
 | **.NET Framework 4.8 C# Compiler (`csc.exe`)** | Present (`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`) | Compiles standalone `ScanDrop.exe` with zero external runtime installer needed |
 | **Node.js v24.13.0** | Present | Builds web portal bundles (`build_netlify.js`) and syntax/JS verification |
-| **Cloudflared (`bin/cloudflared.exe`)** | Present (`2026.11.0`) | Cloudflare Quick & Named Tunnels |
-| **Windows Built-in OpenSSH (`ssh.exe`)** | Present | Zero-config fallback tunnel provider |
+| **Cloudflared (`bin/cloudflared.exe`)** | Present (`2026.11.0`) | Exclusive remote connectivity provider (Cloudflare Named & Quick Tunnels — zero third-party fallbacks) |
 | **LibreOffice (`soffice.exe`)** | Optional (Not currently installed on dev PC) | Optional local DOCX/XLSX/PPTX→PDF conversion; detected gracefully at runtime with clear status indicator |
 | **Inno Setup 6 (`ISCC.exe`)** | Optional (Not currently installed on dev PC) | Compiles `installer/ScanDropSetup.iss` into `ScanDropSetup.exe`; portable packaging script also provided |

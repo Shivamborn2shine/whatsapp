@@ -320,9 +320,85 @@ namespace ScanDrop.Native
                         if (migratedSubs.Count == 0 || migratedSubs[0].ShopId != "shop_paired_test_99")
                             throw new Exception("ReplacePrimaryShop lost or failed to repoint existing submissions!");
                         Console.WriteLine("  [PASS] 10. FK-safe shop pairing migration verified with existing submissions");
+
+                        // Test 11-14: Cloudflare-only Tunnel Supervisor State Machine Verification
+                        using (var sup = new TunnelManager(appRootDir, pub.Port, DefaultCloudUrl, "shop_test", "SD-TEST", db, paths.LogsDir))
+                        {
+                            // Test 11: Non-Cloudflare URLs & legacy providers strictly rejected
+                            if (TunnelManager.IsValidPublicTunnelUrl("https://abc.lhr.life") ||
+                                TunnelManager.IsValidPublicTunnelUrl("https://xyz.pinggy.link") ||
+                                TunnelManager.IsValidPublicTunnelUrl("https://foo.serveo.net") ||
+                                TunnelManager.IsValidPublicTunnelUrl("https://bar.ngrok-free.app") ||
+                                !TunnelManager.IsValidPublicTunnelUrl("https://good-shop-test.trycloudflare.com") ||
+                                TunnelManager.NormalizeCloudflareMode("openssh") != "auto" ||
+                                TunnelManager.NormalizeCloudflareMode("pinggy") != "auto")
+                            {
+                                throw new Exception("Cloudflare-only URL or mode guard failed!");
+                            }
+                            Console.WriteLine("  [PASS] 11. Cloudflare-only policy rejects OpenSSH/lhr/Pinggy/Serveo/ngrok");
+
+                            // Test 12: Stale health-check events ignored + temporary drop DEGRADED -> CONNECTED
+                            string testCfUrl = "https://steady-test-tunnel.trycloudflare.com";
+                            sup.InjectStateForSelfTest(TunnelState.CONNECTED, testCfUrl, 4242);
+                            var s0 = sup.GetStatusSnapshot();
+                            bool staleGenApplied = sup.ApplyHealthCheckResult(s0.Generation - 1, testCfUrl, false, "stale gen error");
+                            bool staleUrlApplied = sup.ApplyHealthCheckResult(s0.Generation, "https://old-dead.trycloudflare.com", false, "stale url error");
+                            var sAfterStale = sup.GetStatusSnapshot();
+                            if (staleGenApplied || staleUrlApplied || sAfterStale.State != TunnelState.CONNECTED || sAfterStale.ProcessId != 4242 || !string.IsNullOrEmpty(sAfterStale.LastFailureReason))
+                                throw new Exception("Stale health-check event mutated active tunnel state!");
+
+                            // 1st failure -> DEGRADED (does NOT restart working tunnel), recovery -> CONNECTED (same PID)
+                            sup.ApplyHealthCheckResult(s0.Generation, testCfUrl, false, "transient packet loss");
+                            var sDegraded = sup.GetStatusSnapshot();
+                            if (sDegraded.State != TunnelState.DEGRADED || sDegraded.ProcessId != 4242)
+                                throw new Exception("Expected DEGRADED state on transient failure without killing PID!");
+                            sup.ApplyHealthCheckResult(s0.Generation, testCfUrl, true, null);
+                            var sRecovered = sup.GetStatusSnapshot();
+                            if (sRecovered.State != TunnelState.CONNECTED || sRecovered.ProcessId != 4242 || !string.IsNullOrEmpty(sRecovered.LastFailureReason))
+                                throw new Exception("Expected clean recovery from DEGRADED back to CONNECTED!");
+                            Console.WriteLine("  [PASS] 12. Stale health-checks rejected & transient drop recovers DEGRADED -> CONNECTED");
+
+                            // Test 13: Real Cloudflare HTTP 429 rate-limit -> COOLDOWN, respects Retry-After, blocks Start() bypass
+                            sup.InjectStateForSelfTest(TunnelState.CONNECTING, null, 5555);
+                            sup.SimulateRateLimitForSelfTest("ERR failed to request quick Tunnel: status 429 Too Many Requests; Retry-After: 180");
+                            var sCool = sup.GetStatusSnapshot();
+                            if (sCool.State != TunnelState.COOLDOWN ||
+                                sCool.DisplayStatus != "Cloudflare Offline — Reconnecting" ||
+                                !sCool.NextRetryUtc.HasValue ||
+                                (sCool.NextRetryUtc.Value - DateTime.UtcNow).TotalSeconds < 120)
+                            {
+                                throw new Exception("Rate-limit did not enter COOLDOWN with respected Retry-After interval!");
+                            }
+                            int coolGen = sCool.Generation;
+                            sup.Start(); // Must NOT create a new Quick Tunnel during cooldown
+                            var sStillCool = sup.GetStatusSnapshot();
+                            if (sStillCool.State != TunnelState.COOLDOWN || sStillCool.Generation != coolGen)
+                                throw new Exception("Start() bypassed Cloudflare rate-limit COOLDOWN!");
+                            Console.WriteLine("  [PASS] 13. Rate-limit HTTP 429 enters COOLDOWN, respects Retry-After, blocks bypass");
+
+                            // Test 14: Exponential backoff with jitter + zero ssh.exe processes + simultaneous Start() guard
+                            int b1 = sup.ComputeBackoffWithJitterMs(1, 3000, 120000);
+                            int b3 = sup.ComputeBackoffWithJitterMs(3, 3000, 120000);
+                            int b6 = sup.ComputeBackoffWithJitterMs(6, 3000, 120000);
+                            if (b1 < 2000 || b1 > 4000 || b3 < 9000 || b6 < 70000 || b6 > 155000)
+                                throw new Exception("Backoff with jitter out of expected range: " + b1 + "," + b3 + "," + b6);
+
+                            sup.InjectStateForSelfTest(TunnelState.CONNECTED, testCfUrl, 7777);
+                            int lockedGen = sup.GetStatusSnapshot().Generation;
+                            var threads = new Thread[8];
+                            for (int ti = 0; ti < threads.Length; ti++)
+                            {
+                                threads[ti] = new Thread(() => sup.Start());
+                                threads[ti].Start();
+                            }
+                            for (int ti = 0; ti < threads.Length; ti++) threads[ti].Join();
+                            if (sup.GetStatusSnapshot().Generation != lockedGen || sup.GetStatusSnapshot().ProcessId != 7777)
+                                throw new Exception("Simultaneous Start() calls disturbed an already-connected tunnel!");
+                            Console.WriteLine("  [PASS] 14. Exponential backoff with jitter & simultaneous Start() single-flight guard verified");
+                        }
                     }
                 }
-                Console.WriteLine("ALL 10 PRD v2.0 SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 14 PRD v2.0 + CLOUDFLARE-ONLY SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

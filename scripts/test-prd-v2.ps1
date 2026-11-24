@@ -36,7 +36,7 @@ for ($i = 0; $i -lt 20; $i++) {
 }
 Assert-True ($null -ne $health) "Local admin /api/health reports live tunnel ($($health.tunnelUrl))"
 $tunnelBase = $health.tunnelUrl.TrimEnd('/')
-$pubHeaders = @{ "X-Pinggy-No-Screen" = "true"; "Bypass-Tunnel-Reminder" = "true" }
+$pubHeaders = @{}
 Start-Sleep -Seconds 2
 
 # 2. Public tunnel health & zero info leak
@@ -85,14 +85,12 @@ $f1Id = $initResp.files[1].fileId
 $c0Hdrs = @{
     "X-Session-Id" = $initResp.sessionId; "X-Upload-Token" = $initResp.uploadToken
     "X-File-Id" = $f0Id; "X-Chunk-Index" = "0"; "X-Byte-Offset" = "0"
-    "X-Pinggy-No-Screen" = "true"; "Bypass-Tunnel-Reminder" = "true"
 }
 $null = Invoke-RestMethod -Method Post -Uri "$tunnelBase/api/upload/chunk" -Headers $c0Hdrs -ContentType "application/octet-stream" -Body $pdfBytes -TimeoutSec 20
 
 $c1Hdrs = @{
     "X-Session-Id" = $initResp.sessionId; "X-Upload-Token" = $initResp.uploadToken
     "X-File-Id" = $f1Id; "X-Chunk-Index" = "0"; "X-Byte-Offset" = "0"
-    "X-Pinggy-No-Screen" = "true"; "Bypass-Tunnel-Reminder" = "true"
 }
 $null = Invoke-RestMethod -Method Post -Uri "$tunnelBase/api/upload/chunk" -Headers $c1Hdrs -ContentType "application/octet-stream" -Body $pngBytes -TimeoutSec 20
 
@@ -115,7 +113,6 @@ $badInit = Invoke-RestMethod -Method Post -Uri "$tunnelBase/api/upload/sessions"
 $badHdrs = @{
     "X-Session-Id" = $badInit.sessionId; "X-Upload-Token" = $badInit.uploadToken
     "X-File-Id" = $badInit.files[0].fileId; "X-Chunk-Index" = "0"; "X-Byte-Offset" = "0"
-    "X-Pinggy-No-Screen" = "true"; "Bypass-Tunnel-Reminder" = "true"
 }
 $null = Invoke-RestMethod -Method Post -Uri "$tunnelBase/api/upload/chunk" -Headers $badHdrs -ContentType "application/octet-stream" -Body $fakeExe -TimeoutSec 15
 $badStatus = 0

@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.1.1",
+    "version":  "4.2.0",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Fixed SQLite FOREIGN KEY constraint error when pairing an existing PC to a newly created shop, and added automatic standalone UI bootstrap (workspace + shop HTML) for single-EXE downloads.",
-    "sha256":  "2a83fdf70a56bc2cbf402efc2f6d6bfdcc375bce76e79dc6857058a98ff83a15",
+    "releaseNotes":  "Cloudflare-only single tunnel supervisor (STOPPED/CONNECTING/CONNECTED/DEGRADED/COOLDOWN/RECONNECTING/OFFLINE) with zero OpenSSH/third-party fallback, endpoint health verification, exponential backoff with jitter, rate-limit COOLDOWN compliance, Windows Service Named Tunnel preference, and mid-upload resumable recovery.",
+    "sha256":  "4ddd6154fceb60e274b4129bb3e8c863795fc6ef26851bc220bcac783f76aa58",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

@@ -330,13 +330,23 @@ module.exports = `<!DOCTYPE html>
 
         const badge = document.getElementById('storageTunnelBadge');
         if (badge) {
-          if (data.tunnelOnline) {
+          const stName = data.tunnelState || (data.tunnelOnline ? 'CONNECTED' : 'CONNECTING');
+          if (stName === 'CONNECTED') {
             badge.className = 'badge badge-green';
-            badge.textContent = '⚡ Tunnel Live (' + (data.tunnelProvider || 'Connected') + ')';
-            badge.title = data.tunnelUrl || '';
+            badge.textContent = '⚡ ' + (data.tunnelHealth || 'Cloudflare Connected');
+            badge.title = (data.tunnelProvider || 'Cloudflare') + ' • ' + (data.tunnelUrl || '');
+          } else if (stName === 'DEGRADED') {
+            badge.className = 'badge badge-amber';
+            badge.textContent = '⚠️ ' + (data.tunnelHealth || 'Cloudflare Degraded — Verifying');
+            badge.title = data.tunnelLastFailure || data.tunnelUrl || '';
+          } else if (stName === 'COOLDOWN' || stName === 'RECONNECTING' || stName === 'OFFLINE') {
+            badge.className = 'badge badge-red';
+            badge.textContent = '⚠️ ' + (data.tunnelHealth || 'Cloudflare Offline — Reconnecting');
+            badge.title = (data.tunnelLastFailure || '') + (data.tunnelNextRetryUtc ? (' • Next retry: ' + new Date(data.tunnelNextRetryUtc).toLocaleTimeString()) : '');
           } else {
             badge.className = 'badge badge-amber';
-            badge.textContent = '⏳ Tunnel ' + (data.tunnelHealth || 'Connecting');
+            badge.textContent = '⏳ ' + (data.tunnelHealth || 'Connecting Cloudflare...');
+            badge.title = data.tunnelProvider || 'Cloudflare Tunnel';
           }
         }
 
@@ -352,7 +362,7 @@ module.exports = `<!DOCTYPE html>
           conv: (cloudState.convertedFiles || []).length,
           acts: (cloudState.auditEvents || []).length,
           paused: data.acceptingUploads,
-          tunnel: [data.tunnelOnline, data.tunnelUrl, data.tunnelHealth]
+          tunnel: [data.tunnelOnline, data.tunnelUrl, data.tunnelState, data.tunnelHealth, data.tunnelPid, data.tunnelRetryCount, data.tunnelNextRetryUtc, data.tunnelLastFailure]
         });
 
         if (forceRender || newKey !== lastStateRenderKey) {
@@ -707,12 +717,14 @@ module.exports = `<!DOCTYPE html>
 
       if (currentTab === 'dashboard') {
         const lastCheck = lastMeta.tunnelLastOkUtc ? new Date(lastMeta.tunnelLastOkUtc).toLocaleTimeString() : 'Pending';
+        const nextRetry = lastMeta.tunnelNextRetryUtc ? new Date(lastMeta.tunnelNextRetryUtc).toLocaleTimeString() : 'None';
+        const tState = lastMeta.tunnelState || (lastMeta.tunnelOnline ? 'CONNECTED' : 'CONNECTING');
         container.innerHTML = \`
           <div class="stats-row">
             <div class="stat-card"><div class="stat-icon">📥</div><div><div class="stat-num">\${recSubs.length}</div><div class="stat-lbl">New / Pending</div></div></div>
             <div class="stat-card"><div class="stat-icon">📅</div><div><div class="stat-num">\${lastMeta.dailyCount || allSubs.length}</div><div class="stat-lbl">Submissions Today</div></div></div>
             <div class="stat-card"><div class="stat-icon">💾</div><div><div class="stat-num">\${formatSize((latestStorageStats || {}).totalUsedBytes)}</div><div class="stat-lbl">Local SSD Used</div></div></div>
-            <div class="stat-card"><div class="stat-icon">⚡</div><div><div class="stat-num" style="font-size:15px;">\${lastMeta.tunnelOnline ? 'Connected' : 'Connecting'}</div><div class="stat-lbl">\${esc(lastMeta.tunnelProvider || 'Tunnel')}</div></div></div>
+            <div class="stat-card"><div class="stat-icon">☁️</div><div><div class="stat-num" style="font-size:14px;">\${esc(lastMeta.tunnelHealth || 'Connecting Cloudflare...')}</div><div class="stat-lbl">\${esc(lastMeta.tunnelProvider || 'Cloudflare Tunnel')}</div></div></div>
           </div>
 
           <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
@@ -731,17 +743,21 @@ module.exports = `<!DOCTYPE html>
             </div>
 
             <div class="list-panel" style="padding:18px;gap:10px;">
-              <h3>Station &amp; Connectivity</h3>
-              <div style="font-size:12.5px;display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-                <div><strong>Receiver:</strong> \${lastMeta.receiverRunning ? 'Running (:' + lastMeta.receiverPort + ')' : 'Active'}</div>
-                <div><strong>Tunnel Status:</strong> \${esc(lastMeta.tunnelHealth || 'Connecting')}</div>
+              <h3>Cloudflare Connectivity Supervisor</h3>
+              <div style="font-size:12.5px;display:flex;flex-direction:column;gap:7px;margin-top:6px;">
+                <div><strong>Receiver:</strong> \${lastMeta.receiverRunning ? 'Running (127.0.0.1:' + lastMeta.receiverPort + ')' : 'Active'}</div>
+                <div><strong>State:</strong> <code>\${esc(tState)}</code> — \${esc(lastMeta.tunnelHealth || 'Connecting Cloudflare...')}</div>
+                <div><strong>Mode:</strong> \${esc(lastMeta.tunnelProvider || 'Cloudflare Tunnel')}</div>
+                <div><strong>Tunnel PID:</strong> \${lastMeta.tunnelPid ? lastMeta.tunnelPid : 'n/a'}</div>
                 <div><strong>Last Check:</strong> \${lastCheck}</div>
+                \${lastMeta.tunnelRetryCount > 0 ? \`<div><strong>Retries:</strong> \${lastMeta.tunnelRetryCount} • <strong>Next Retry:</strong> \${nextRetry}</div>\` : ''}
+                \${lastMeta.tunnelLastFailure ? \`<div style="color:var(--danger);font-size:11.5px;"><strong>Last Failure:</strong> \${esc(lastMeta.tunnelLastFailure)}</div>\` : ''}
                 <div><strong>Uploads:</strong> \${lastMeta.acceptingUploads === false ? '<span style="color:var(--warning);font-weight:700;">Paused</span>' : '<span style="color:var(--success);font-weight:700;">Accepting</span>'}</div>
                 <div><strong>Office→PDF:</strong> \${lastMeta.libreOfficeInstalled ? 'LibreOffice Ready' : 'Images Ready (Install LibreOffice for DOCX)'}</div>
               </div>
               <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
                 <button class="btn" onclick="setTab('qr')">⊞ Show Shop QR</button>
-                <button class="btn btn-outline" onclick="fetch('/api/tunnel/restart',{method:'POST'}).then(()=>fetchCloudState(true))">↻ Restart Tunnel</button>
+                <button class="btn btn-outline" onclick="fetch('/api/tunnel/restart',{method:'POST'}).then(()=>fetchCloudState(true))">↻ Restart Cloudflare</button>
               </div>
             </div>
           </div>
