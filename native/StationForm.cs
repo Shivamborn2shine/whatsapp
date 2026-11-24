@@ -20,6 +20,12 @@ namespace ScanDrop.Native
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_RESTORE = 9;
+        private readonly SynchronizationContext _uiSync;
+
         private readonly LocalAdminServer _adminServer;
         private readonly PublicUploadServer _publicReceiver;
         private readonly StorageManager _storage;
@@ -69,6 +75,8 @@ namespace ScanDrop.Native
 
             BuildUi();
             SetupTray();
+            _uiSync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            IntPtr ensureHandle = Handle; // Force Win32 HWND creation on UI thread so tray/IPC wakeups always marshal safely
 
             Shown += (s, e) =>
             {
@@ -287,7 +295,8 @@ namespace ScanDrop.Native
                 if (IsDisposed) return;
                 ShowInTaskbar = true;
                 if (!Visible) Show();
-                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                WindowState = FormWindowState.Normal;
+                try { ShowWindow(Handle, SW_RESTORE); } catch { }
                 TopMost = true;
                 BringToFront();
                 Activate();
@@ -386,8 +395,15 @@ namespace ScanDrop.Native
             if (IsDisposed) return;
             try
             {
-                if (InvokeRequired) BeginInvoke(act);
-                else act();
+                if (IsHandleCreated)
+                {
+                    if (InvokeRequired) BeginInvoke(act);
+                    else act();
+                }
+                else if (_uiSync != null)
+                {
+                    _uiSync.Post(_ => { try { if (!IsDisposed) act(); } catch { } }, null);
+                }
             }
             catch { }
         }

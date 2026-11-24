@@ -2,7 +2,7 @@
     "version":  "4.2.3",
     "releaseDate":  "2026-11-24",
     "releaseNotes":  "Clicking ScanDrop on the Windows taskbar or shortcut while already running now immediately restores and focuses the Station window instead of showing an \u0027already running\u0027 popup.",
-    "sha256":  "b738cbba657d436baf2f38264344d593142fcab921b2ef3e1ef2aae44d6c9e24",
+    "sha256":  "3199f907343c42fd70d058f0809b830f48f257d458a065cb5a9beadae943249e",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
