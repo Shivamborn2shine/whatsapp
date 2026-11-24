@@ -563,10 +563,35 @@ namespace ScanDrop.Native
                             if (db.GetTrayItems().Count != 0)
                                 throw new Exception("Holding Tray clear did not empty tray_items!");
                             Console.WriteLine("  [PASS] 17. Holding Tray pin, local upload, reorder, PDF prep, copy-to-job & clear verified");
+
+                            // Test 18: Persistent Page Manager selection state (X-Page-Plan saved in SQLite & cleared on reset-edited)
+                            string pmFid = afterPermDel.Files[0].FileId;
+                            string samplePlan = "[{\"s\":0,\"on\":1,\"r\":0},{\"s\":1,\"on\":0,\"r\":0},{\"s\":2,\"on\":1,\"r\":90}]";
+                            var pmReq = (HttpWebRequest)WebRequest.Create(admBase + "/api/file/save-edited-pdf");
+                            pmReq.Method = "POST";
+                            pmReq.ContentType = "application/pdf";
+                            pmReq.Headers["X-File-Id"] = pmFid;
+                            pmReq.Headers["X-Output-Name"] = "page_plan_test.pdf";
+                            pmReq.Headers["X-Page-Plan"] = Uri.EscapeDataString(samplePlan);
+                            pmReq.ContentLength = samplePdf.Length;
+                            using (var rs = pmReq.GetRequestStream()) rs.Write(samplePdf, 0, samplePdf.Length);
+                            using (var pmResp = (HttpWebResponse)pmReq.GetResponse())
+                            {
+                                if ((int)pmResp.StatusCode != 200) throw new Exception("save-edited-pdf with X-Page-Plan failed");
+                            }
+                            var fWithPlan = db.GetFileById(pmFid);
+                            if (fWithPlan == null || fWithPlan.PagePlanJson != samplePlan)
+                                throw new Exception("PagePlanJson did not persist in SQLite! Got: " + (fWithPlan != null ? fWithPlan.PagePlanJson : "null"));
+
+                            HttpPostJson(admBase + "/api/file/reset-edited", ser.Serialize(new { fileId = pmFid }));
+                            var fReset = db.GetFileById(pmFid);
+                            if (fReset == null || !string.IsNullOrEmpty(fReset.PagePlanJson) || fReset.ConversionStatus != "none")
+                                throw new Exception("reset-edited did not clear PagePlanJson!");
+                            Console.WriteLine("  [PASS] 18. Persistent Page Manager state (X-Page-Plan) & reset-edited verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 17 PRD v2.0 + CLOUDFLARE + WORKFLOW + TRAY SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 18 PRD v2.0 + CLOUDFLARE + WORKFLOW + TRAY + PAGE-PLAN SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

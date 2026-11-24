@@ -522,7 +522,7 @@ ${studioHtml}
         }
 
         const newKey = JSON.stringify({
-          subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, (s.trashedFiles || []).length, s.totalSizeBytes, (s.files || []).map(f => f.id + ':' + f.originalName + ':' + f.conversionStatus + ':' + (f.sortOrder || 0)).join(',')]),
+          subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, (s.trashedFiles || []).length, s.totalSizeBytes, (s.files || []).map(f => f.id + ':' + f.originalName + ':' + f.conversionStatus + ':' + (f.sortOrder || 0) + ':' + (f.pagePlanJson || '')).join(',')]),
           trash: (cloudState.trashedFiles || []).map(t => t.id).join(','),
           tray: (cloudState.trayItems || []).map(t => t.id + ':' + (t.sortOrder || 0)).join(','),
           conv: (cloudState.convertedFiles || []).length,
@@ -1026,7 +1026,7 @@ ${studioHtml}
                     <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="\${esc(f.originalName)}">\${esc(f.originalName)}</div>
                     <div style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                       <span>\${formatSize(f.sizeBytes)}</span>
-                      \${isEdited ? '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ Edited</span>' : (f.conversionStatus === 'converted' ? '<span>• PDF Ready</span>' : '')}
+                      \${formatFileEditBadge(f)}
                     </div>
                   </div>
                   <button class="card-pin-btn" title="Keep a copy in Holding Tray (or drag card down to Tray)" onclick="pinFileToTray('\${esc(f.id)}', '\${esc(f.originalName)}')">📌</button>

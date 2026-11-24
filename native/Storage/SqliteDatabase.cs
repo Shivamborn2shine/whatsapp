@@ -229,6 +229,8 @@ namespace ScanDrop.Native.Storage
                 ExecRaw("ALTER TABLE files ADD COLUMN trashed_at TEXT;");
             if (!existing.Contains("sort_order"))
                 ExecRaw("ALTER TABLE files ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;");
+            if (!existing.Contains("page_plan_json"))
+                ExecRaw("ALTER TABLE files ADD COLUMN page_plan_json TEXT;");
         }
 
         private void EnsureDefaultShop()
@@ -941,7 +943,15 @@ namespace ScanDrop.Native.Storage
 
         public void UpdateFileConversion(string fileId, string status, string convertedPath)
         {
-            Execute("UPDATE files SET conversion_status = ?, converted_path = ? WHERE file_id = ?;", status, convertedPath, fileId);
+            if (string.Equals(status, "none", StringComparison.OrdinalIgnoreCase))
+                Execute("UPDATE files SET conversion_status = ?, converted_path = ?, page_plan_json = NULL WHERE file_id = ?;", status, convertedPath, fileId);
+            else
+                Execute("UPDATE files SET conversion_status = ?, converted_path = ? WHERE file_id = ?;", status, convertedPath, fileId);
+        }
+
+        public void UpdateFilePagePlan(string fileId, string pagePlanJson)
+        {
+            Execute("UPDATE files SET page_plan_json = ? WHERE file_id = ?;", string.IsNullOrWhiteSpace(pagePlanJson) ? null : pagePlanJson, fileId);
         }
 
         public void DeleteSubmission(string submissionId)
@@ -1181,7 +1191,8 @@ namespace ScanDrop.Native.Storage
                 ReceivedAt = Str(r, "received_at"),
                 IsTrashed = Long(r, "is_trashed") != 0,
                 TrashedAt = Str(r, "trashed_at"),
-                SortOrder = (int)Long(r, "sort_order")
+                SortOrder = (int)Long(r, "sort_order"),
+                PagePlanJson = Str(r, "page_plan_json")
             };
         }
 

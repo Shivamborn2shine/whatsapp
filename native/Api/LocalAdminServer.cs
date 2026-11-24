@@ -802,7 +802,8 @@ namespace ScanDrop.Native.Api
                         { "conversionStatus", f.ConversionStatus },
                         { "convertedUrl", !string.IsNullOrEmpty(f.ConvertedPath) ? ("/api/converted?name=" + Uri.EscapeDataString(Path.GetFileName(f.ConvertedPath))) : null },
                         { "receivedAt", f.ReceivedAt },
-                        { "sortOrder", f.SortOrder }
+                        { "sortOrder", f.SortOrder },
+                        { "pagePlanJson", f.PagePlanJson }
                     });
                 }
 
@@ -1227,6 +1228,11 @@ namespace ScanDrop.Native.Api
         {
             string fileId = req.Headers["X-File-Id"];
             string outNameRaw = req.Headers["X-Output-Name"];
+            string pagePlanRaw = req.Headers["X-Page-Plan"];
+            if (!string.IsNullOrEmpty(pagePlanRaw))
+            {
+                try { pagePlanRaw = Uri.UnescapeDataString(pagePlanRaw); } catch { }
+            }
             if (!Directory.Exists(_storage.Paths.ConvertedDir)) Directory.CreateDirectory(_storage.Paths.ConvertedDir);
 
             string safeName = StorageManager.SanitizeDisplayName(string.IsNullOrWhiteSpace(outNameRaw)
@@ -1260,6 +1266,8 @@ namespace ScanDrop.Native.Api
                 if (f != null)
                 {
                     _db.UpdateFileConversion(f.FileId, "edited", fullPath);
+                    if (!string.IsNullOrWhiteSpace(pagePlanRaw))
+                        _db.UpdateFilePagePlan(f.FileId, pagePlanRaw);
                     _db.AddActivity("FILE_EDITED", "shopkeeper", f.SubmissionId, "Saved edited PDF for " + f.OriginalFilename + " -> " + safeName);
                 }
             }
@@ -1282,10 +1290,49 @@ namespace ScanDrop.Native.Api
         {
             var body = HttpHelpers.ReadJsonBody(req);
             string fileId = HttpHelpers.GetStr(body, "fileId");
+            bool forceOriginal = HttpHelpers.GetBool(body, "forceOriginal", false);
             var file = _db.GetFileById(fileId);
             if (file == null)
             {
                 HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "File not found." } });
+                return;
+            }
+
+            string ext = (file.FileExtension ?? Path.GetExtension(file.StoragePath)).ToLowerInvariant();
+
+            // When opening Page Manager on a Word/Office file, always render ALL original pages (cached locally)
+            if (forceOriginal)
+            {
+                if (ext == ".pdf")
+                {
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "source", "original" },
+                        { "filename", file.OriginalFilename },
+                        { "url", "/api/file?id=" + Uri.EscapeDataString(file.FileId) }
+                    });
+                    return;
+                }
+                string origCacheName = "orig_" + StorageManager.SanitizeDisplayName(file.FileId) + ".pdf";
+                string origCachePath = Path.Combine(_storage.Paths.ConvertedDir, origCacheName);
+                if (!File.Exists(origCachePath))
+                {
+                    var origConv = _converter.ConvertPathToPdf(file.StoragePath, origCacheName, ext);
+                    if (!origConv.Success)
+                    {
+                        HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", origConv.ErrorMessage } });
+                        return;
+                    }
+                    origCacheName = origConv.OutputFilename;
+                }
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "source", "original_cached" },
+                    { "filename", origCacheName },
+                    { "url", "/api/converted?name=" + Uri.EscapeDataString(origCacheName) }
+                });
                 return;
             }
 
@@ -1304,7 +1351,6 @@ namespace ScanDrop.Native.Api
                 return;
             }
 
-            string ext = (file.FileExtension ?? Path.GetExtension(file.StoragePath)).ToLowerInvariant();
             if (ext == ".pdf")
             {
                 HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>

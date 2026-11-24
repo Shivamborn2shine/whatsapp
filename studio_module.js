@@ -1653,7 +1653,7 @@ const studioJs = `
           '<div style="flex:1;min-width:0;">' +
             '<div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(f.originalName) + '</div>' +
             '<div style="font-size:11px;color:var(--muted);">' + formatSize(f.sizeBytes) + ' • ' +
-              (isEdited ? '<span style="color:var(--success);font-weight:700;">✓ Using Saved Pages / Edited PDF</span>' : 'Original (auto-converted if needed)') +
+              (isEdited ? (formatFileEditBadge(f) || '<span style="color:var(--success);font-weight:700;">✓ Using Saved Pages / Edited PDF</span>') : 'Original (auto-converted if needed)') +
             '</div>' +
           '</div>' +
           (canPickPages
@@ -2540,17 +2540,17 @@ const studioJs = `
           // Always open the original full PDF so shopkeeper can see & toggle ALL pages!
           pdfUrl = '/api/file?id=' + encodeURIComponent(targetFile.id);
         } else {
-          // Convert Word doc (.docx/.doc) to PDF so we can pick/reorder/rotate exact pages!
+          // Convert original Word doc (.docx/.doc) to PDF so all original pages stay inspectable
           const prepRes = await fetch('/api/file/prepare-pdf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileId: targetFile.id })
+            body: JSON.stringify({ fileId: targetFile.id, forceOriginal: true })
           });
           const prep = await prepRes.json();
           if (!prepRes.ok || !prep.success) throw new Error(prep.error || 'Could not convert Word document to pages.');
           pdfUrl = prep.url;
         }
-        await pmLoadPdfFromUrl(pdfUrl);
+        await pmLoadPdfFromUrl(pdfUrl, targetFile.pagePlanJson || null);
       } catch (err) {
         alert('Page Manager error: ' + err.message);
         closeStudioModal('pageManagerModal');
@@ -2594,20 +2594,57 @@ const studioJs = `
       }
     }
 
-    async function pmLoadPdfFromUrl(pdfUrl) {
+    async function pmLoadPdfFromUrl(pdfUrl, savedPlanJson) {
       const res = await fetch(pdfUrl + (pdfUrl.includes('?') ? '&' : '?') + 't=' + Date.now());
       if (!res.ok) throw new Error('Could not fetch PDF (' + res.status + ')');
       const buf = new Uint8Array(await res.arrayBuffer());
       pmState.pdfBytes = buf;
       pmState.pdfJsDoc = await window.pdfjsLib.getDocument({ data: buf.slice() }).promise;
       pmState.totalSourcePages = pmState.pdfJsDoc.numPages;
-      pmState.pages = Array.from({ length: pmState.totalSourcePages }, (_, i) => ({
+
+      let restored = null;
+      if (savedPlanJson) {
+        try {
+          const parsed = JSON.parse(savedPlanJson);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const valid = parsed
+              .filter(x => x && typeof x.s === 'number' && x.s >= 0 && x.s < pmState.totalSourcePages)
+              .map((x, idx) => ({
+                uid: 'pg_' + x.s + '_' + idx + '_' + Date.now(),
+                srcIndex: x.s,
+                selected: x.on !== 0 && x.on !== false,
+                rot: Number(x.r || 0) % 360
+              }));
+            if (valid.length > 0) restored = valid;
+          }
+        } catch {}
+      }
+
+      pmState.pages = restored || Array.from({ length: pmState.totalSourcePages }, (_, i) => ({
         uid: 'pg_' + i + '_' + Date.now(),
         srcIndex: i,
         selected: true,
         rot: 0
       }));
       pmRenderGrid();
+    }
+
+    function formatFileEditBadge(f) {
+      if (!f) return '';
+      if (f.pagePlanJson) {
+        try {
+          const arr = JSON.parse(f.pagePlanJson);
+          if (Array.isArray(arr) && arr.length > 0) {
+            const sel = arr.filter(x => x && x.on !== 0 && x.on !== false).length;
+            return '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ ' + sel + '/' + arr.length + ' pages</span>';
+          }
+        } catch {}
+      }
+      if (f.conversionStatus === 'edited' && f.convertedUrl) {
+        return '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ Edited</span>';
+      }
+      if (f.conversionStatus === 'converted') return '<span>• PDF Ready</span>';
+      return '';
     }
 
     function pmRenderGrid() {
@@ -2832,12 +2869,14 @@ const studioJs = `
           return;
         }
 
+        const compactPlan = JSON.stringify(pmState.pages.map(p => ({ s: p.srcIndex, on: p.selected ? 1 : 0, r: p.rot || 0 })));
         const res = await fetch('/api/file/save-edited-pdf', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/pdf',
             'X-File-Id': pmState.fileId || '',
-            'X-Output-Name': outName
+            'X-Output-Name': outName,
+            'X-Page-Plan': encodeURIComponent(compactPlan)
           },
           body: bytes
         });

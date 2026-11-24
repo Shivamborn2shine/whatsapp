@@ -29,6 +29,7 @@ namespace ScanDrop.Native.Core
         public bool IsTrashed;
         public string TrashedAt;
         public int SortOrder;
+        public string PagePlanJson;
     }
 
     public sealed class SubmissionRecord

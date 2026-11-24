@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.6.0",
+    "version":  "4.6.1",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Redesigned ScanDrop UI with Electric Blue / Deep Navy / Ice Blue / Golden Yellow brand palette, flowing wave canvas \u0026 deep-navy glowing sidebar; added Visual Page Manager for PDF \u0026 Word documents (pick exact pages, range filter 1-3,5, drag-reorder, rotate, duplicate, delete, send pages to Holding Tray); added per-file page ranges in Merge \u0026 Print All; added global Ctrl+Z Undo \u0026 multi-step Undo/Redo across Page Manager, Image Canvas \u0026 Merge.",
-    "sha256":  "0f891b0caecf8854d67ee2e79257795cb4f8695720615f096dc6a49af7c7e2c8",
+    "releaseNotes":  "Page Manager now persistently remembers excluded pages, rotations, reorders, and duplicates in SQLite when revisiting any PDF or Word file, and shows exact selected page counts (e.g. 9/12 pages) directly on file cards and Merge \u0026 Print rows.",
+    "sha256":  "818be8eb58254a3bb9ab5b393f283c423d1fcc96077d8a2a1e68d01a738245fb",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
