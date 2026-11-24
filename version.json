@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.8.1",
+    "version":  "4.8.2",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Fixed PDF to Word (.docx) producing raw binary %PDF-1.4 text on laptops with older Office (2007/2010), WPS Office, or missing Word PDF Reflow: enforces Microsoft Word IFDP PDF Reflow format, rejects/deletes corrupted raw-PDF output, cascades to LibreOffice Writer, and includes a built-in column-aware PDF-to-DOCX OpenXML extractor fallback so every laptop produces clean editable Word files.",
-    "sha256":  "d16049ff47baadb96f00a60834bc86b15950be0f29a464139471c0c852bc1f92",
+    "releaseNotes":  "Upgraded built-in PDF-to-Word engine to Full Visual Layout (.docx): preserves exact 2-column layouts, colored sidebars, profile photos, icons, text colors, fonts, and editable floating text boxes natively on EVERY laptop â€” including Office 2007/2010, WPS Office, and PCs without Word 2013+ PDF Reflow.",
+    "sha256":  "1bac0607afef6e4daba877e575b45d569f728b897f40ef352aed35dd2cec05b2",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

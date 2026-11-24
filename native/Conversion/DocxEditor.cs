@@ -82,10 +82,16 @@ namespace ScanDrop.Native.Conversion
     public static class DocxEditor
     {
         private static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        private static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
         private static readonly XNamespace WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
         private static readonly XNamespace A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        private static readonly XNamespace PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+        private static readonly XNamespace WPS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+        private static readonly XNamespace MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+        private static readonly XNamespace V = "urn:schemas-microsoft-com:vml";
         private static readonly XNamespace XML = "http://www.w3.org/XML/1998/namespace";
         private const double EmuPerCm = 360000.0;
+        private const double EmuPerPt = 12700.0;
 
         public static DocxInspectResult Inspect(string docxPath)
         {
@@ -671,6 +677,401 @@ namespace ScanDrop.Native.Conversion
                     docXml.Save(xw);
                 }
             }
+        }
+
+        public sealed class VisualPdfRunLine
+        {
+            public string Text;
+            public double FontSize;
+            public bool Bold;
+            public bool Italic;
+            public string ColorHex;
+            public string FontFamily;
+            public double LineHeightPt;
+        }
+
+        public sealed class VisualPdfTextBox
+        {
+            public double X;
+            public double Y;
+            public double W;
+            public double H;
+            public string Align;
+            public List<VisualPdfRunLine> Lines = new List<VisualPdfRunLine>();
+        }
+
+        public sealed class VisualPdfPage
+        {
+            public double WidthPt;
+            public double HeightPt;
+            public byte[] BgImageBytes;
+            public string BgImageExt;
+            public List<VisualPdfTextBox> Boxes = new List<VisualPdfTextBox>();
+        }
+
+        /// <summary>
+        /// Pure native .NET 4.8 Full Visual-Layout OpenXML (.docx) generator.
+        /// Embeds each PDF page's text-free graphics/photos/sidebars/icons as a full-page behind-text background
+        /// and overlays exact-positioned, transparent, color-matched editable Word Text Boxes (with both DrawingML
+        /// wps:wsp for Word 2010-365/LibreOffice AND VML fallback for Word 2007/WPS Office).
+        /// </summary>
+        public static void BuildVisualDocxFromPages(string outDocxPath, List<VisualPdfPage> pages)
+        {
+            if (pages == null || pages.Count == 0)
+                throw new ArgumentException("At least one visual page is required.");
+
+            var body = new XElement(W + "body");
+            var relEntries = new List<string>();
+            relEntries.Add("<Relationship Id=\"rIdStyles\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>");
+            var mediaFiles = new List<KeyValuePair<string, byte[]>>();
+            int nextId = 1;
+
+            double firstW = pages[0].WidthPt > 100 ? pages[0].WidthPt : 595.0;
+            double firstH = pages[0].HeightPt > 100 ? pages[0].HeightPt : 842.0;
+
+            for (int pi = 0; pi < pages.Count; pi++)
+            {
+                var pg = pages[pi];
+                double pw = pg.WidthPt > 100 ? pg.WidthPt : firstW;
+                double ph = pg.HeightPt > 100 ? pg.HeightPt : firstH;
+
+                if (pi > 0)
+                {
+                    body.Add(new XElement(W + "p",
+                        new XElement(W + "pPr", new XElement(W + "spacing", new XAttribute(W + "before", "0"), new XAttribute(W + "after", "0"), new XAttribute(W + "line", "20"), new XAttribute(W + "lineRule", "exact"))),
+                        new XElement(W + "r", new XElement(W + "br", new XAttribute(W + "type", "page")))
+                    ));
+                }
+
+                var pagePara = new XElement(W + "p",
+                    new XElement(W + "pPr",
+                        new XElement(W + "spacing",
+                            new XAttribute(W + "before", "0"),
+                            new XAttribute(W + "after", "0"),
+                            new XAttribute(W + "line", "20"),
+                            new XAttribute(W + "lineRule", "exact"))
+                    )
+                );
+
+                // 1. Behind-text full-page graphics/photo/sidebar background layer
+                if (pg.BgImageBytes != null && pg.BgImageBytes.Length > 0)
+                {
+                    string imgExt = string.Equals(pg.BgImageExt, "jpg", StringComparison.OrdinalIgnoreCase) ? "jpg" : "png";
+                    string relId = "rIdBg" + (pi + 1).ToString(CultureInfo.InvariantCulture);
+                    string mediaTarget = "media/page_bg_" + (pi + 1).ToString(CultureInfo.InvariantCulture) + "." + imgExt;
+                    relEntries.Add("<Relationship Id=\"" + relId + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"" + mediaTarget + "\"/>");
+                    mediaFiles.Add(new KeyValuePair<string, byte[]>("word/" + mediaTarget, pg.BgImageBytes));
+
+                    long cx = (long)Math.Round(pw * EmuPerPt);
+                    long cy = (long)Math.Round(ph * EmuPerPt);
+                    int docPrId = nextId++;
+                    int cNvPrId = nextId++;
+
+                    var bgDrawing = new XElement(W + "drawing",
+                        new XElement(WP + "anchor",
+                            new XAttribute("distT", "0"), new XAttribute("distB", "0"),
+                            new XAttribute("distL", "0"), new XAttribute("distR", "0"),
+                            new XAttribute("simplePos", "0"),
+                            new XAttribute("relativeHeight", "100"),
+                            new XAttribute("behindDoc", "1"),
+                            new XAttribute("locked", "0"),
+                            new XAttribute("layoutInCell", "1"),
+                            new XAttribute("allowOverlap", "1"),
+                            new XElement(WP + "simplePos", new XAttribute("x", "0"), new XAttribute("y", "0")),
+                            new XElement(WP + "positionH", new XAttribute("relativeFrom", "page"),
+                                new XElement(WP + "posOffset", "0")),
+                            new XElement(WP + "positionV", new XAttribute("relativeFrom", "page"),
+                                new XElement(WP + "posOffset", "0")),
+                            new XElement(WP + "extent", new XAttribute("cx", cx.ToString(CultureInfo.InvariantCulture)), new XAttribute("cy", cy.ToString(CultureInfo.InvariantCulture))),
+                            new XElement(WP + "effectExtent", new XAttribute("l", "0"), new XAttribute("t", "0"), new XAttribute("r", "0"), new XAttribute("b", "0")),
+                            new XElement(WP + "wrapNone"),
+                            new XElement(WP + "docPr", new XAttribute("id", docPrId.ToString(CultureInfo.InvariantCulture)), new XAttribute("name", "PageBg" + (pi + 1).ToString(CultureInfo.InvariantCulture))),
+                            new XElement(WP + "cNvGraphicFramePr",
+                                new XElement(A + "graphicFrameLocks", new XAttribute("noChangeAspect", "1"))),
+                            new XElement(A + "graphic",
+                                new XElement(A + "graphicData", new XAttribute("uri", "http://schemas.openxmlformats.org/drawingml/2006/picture"),
+                                    new XElement(PIC + "pic",
+                                        new XElement(PIC + "nvPicPr",
+                                            new XElement(PIC + "cNvPr", new XAttribute("id", cNvPrId.ToString(CultureInfo.InvariantCulture)), new XAttribute("name", mediaTarget)),
+                                            new XElement(PIC + "cNvPicPr")),
+                                        new XElement(PIC + "blipFill",
+                                            new XElement(A + "blip", new XAttribute(R + "embed", relId)),
+                                            new XElement(A + "stretch", new XElement(A + "fillRect"))),
+                                        new XElement(PIC + "spPr",
+                                            new XElement(A + "xfrm",
+                                                new XElement(A + "off", new XAttribute("x", "0"), new XAttribute("y", "0")),
+                                                new XElement(A + "ext", new XAttribute("cx", cx.ToString(CultureInfo.InvariantCulture)), new XAttribute("cy", cy.ToString(CultureInfo.InvariantCulture)))),
+                                            new XElement(A + "prstGeom", new XAttribute("prst", "rect"), new XElement(A + "avLst"))))))
+                        )
+                    );
+                    pagePara.Add(new XElement(W + "r", bgDrawing));
+                }
+
+                // 2. Exact-positioned editable floating text boxes
+                if (pg.Boxes != null)
+                {
+                    for (int bi = 0; bi < pg.Boxes.Count; bi++)
+                    {
+                        var box = pg.Boxes[bi];
+                        if (box == null || box.Lines == null || box.Lines.Count == 0) continue;
+
+                        double bx = Math.Max(0, box.X);
+                        double by = Math.Max(0, box.Y);
+                        double bw = Math.Max(16, Math.Min(pw - bx, box.W));
+                        double bh = Math.Max(12, Math.Min(ph - by, box.H));
+
+                        long xEmu = (long)Math.Round(bx * EmuPerPt);
+                        long yEmu = (long)Math.Round(by * EmuPerPt);
+                        long wEmu = (long)Math.Round(bw * EmuPerPt);
+                        long hEmu = (long)Math.Round(bh * EmuPerPt);
+                        int tbDocPrId = nextId++;
+
+                        var txbxChoiceContent = BuildTextBoxContentElement(box);
+                        var txbxFallbackContent = BuildTextBoxContentElement(box);
+
+                        // Modern DrawingML text box (Word 2010, 2013, 2016, 2019, 2021, 365, LibreOffice)
+                        var choiceDrawing = new XElement(W + "drawing",
+                            new XElement(WP + "anchor",
+                                new XAttribute("distT", "0"), new XAttribute("distB", "0"),
+                                new XAttribute("distL", "0"), new XAttribute("distR", "0"),
+                                new XAttribute("simplePos", "0"),
+                                new XAttribute("relativeHeight", (251658240 + bi).ToString(CultureInfo.InvariantCulture)),
+                                new XAttribute("behindDoc", "0"),
+                                new XAttribute("locked", "0"),
+                                new XAttribute("layoutInCell", "1"),
+                                new XAttribute("allowOverlap", "1"),
+                                new XElement(WP + "simplePos", new XAttribute("x", "0"), new XAttribute("y", "0")),
+                                new XElement(WP + "positionH", new XAttribute("relativeFrom", "page"),
+                                    new XElement(WP + "posOffset", xEmu.ToString(CultureInfo.InvariantCulture))),
+                                new XElement(WP + "positionV", new XAttribute("relativeFrom", "page"),
+                                    new XElement(WP + "posOffset", yEmu.ToString(CultureInfo.InvariantCulture))),
+                                new XElement(WP + "extent",
+                                    new XAttribute("cx", wEmu.ToString(CultureInfo.InvariantCulture)),
+                                    new XAttribute("cy", hEmu.ToString(CultureInfo.InvariantCulture))),
+                                new XElement(WP + "effectExtent", new XAttribute("l", "0"), new XAttribute("t", "0"), new XAttribute("r", "0"), new XAttribute("b", "0")),
+                                new XElement(WP + "wrapNone"),
+                                new XElement(WP + "docPr",
+                                    new XAttribute("id", tbDocPrId.ToString(CultureInfo.InvariantCulture)),
+                                    new XAttribute("name", "TextBox_" + (pi + 1).ToString(CultureInfo.InvariantCulture) + "_" + (bi + 1).ToString(CultureInfo.InvariantCulture))),
+                                new XElement(WP + "cNvGraphicFramePr"),
+                                new XElement(A + "graphic",
+                                    new XElement(A + "graphicData",
+                                        new XAttribute("uri", "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"),
+                                        new XElement(WPS + "wsp",
+                                            new XElement(WPS + "cNvSpPr", new XAttribute("txBox", "1")),
+                                            new XElement(WPS + "spPr",
+                                                new XElement(A + "xfrm",
+                                                    new XElement(A + "off", new XAttribute("x", "0"), new XAttribute("y", "0")),
+                                                    new XElement(A + "ext",
+                                                        new XAttribute("cx", wEmu.ToString(CultureInfo.InvariantCulture)),
+                                                        new XAttribute("cy", hEmu.ToString(CultureInfo.InvariantCulture)))),
+                                                new XElement(A + "prstGeom", new XAttribute("prst", "rect"), new XElement(A + "avLst")),
+                                                new XElement(A + "noFill"),
+                                                new XElement(A + "ln", new XElement(A + "noFill"))),
+                                            new XElement(WPS + "txbx", txbxChoiceContent),
+                                            new XElement(WPS + "bodyPr",
+                                                new XAttribute("rot", "0"),
+                                                new XAttribute("vert", "horz"),
+                                                new XAttribute("wrap", "square"),
+                                                new XAttribute("lIns", "0"),
+                                                new XAttribute("tIns", "0"),
+                                                new XAttribute("rIns", "0"),
+                                                new XAttribute("bIns", "0"),
+                                                new XAttribute("anchor", "t"),
+                                                new XAttribute("anchorCtr", "0"),
+                                                new XElement(A + "spAutoFit")))))
+                            )
+                        );
+
+                        // VML fallback text box (Word 2007 & legacy WPS Office)
+                        string vmlStyle = string.Format(CultureInfo.InvariantCulture,
+                            "position:absolute;margin-left:{0:0.##}pt;margin-top:{1:0.##}pt;width:{2:0.##}pt;height:{3:0.##}pt;z-index:{4};mso-position-horizontal-relative:page;mso-position-vertical-relative:page",
+                            bx, by, bw, bh, 100 + bi);
+                        var fallbackPict = new XElement(W + "pict",
+                            new XElement(V + "rect",
+                                new XAttribute("id", "_x0000_s" + (1025 + tbDocPrId).ToString(CultureInfo.InvariantCulture)),
+                                new XAttribute("style", vmlStyle),
+                                new XAttribute("filled", "f"),
+                                new XAttribute("stroked", "f"),
+                                new XElement(V + "textbox",
+                                    new XAttribute("style", "mso-fit-shape-to-text:t"),
+                                    new XAttribute("inset", "0,0,0,0"),
+                                    txbxFallbackContent)
+                            )
+                        );
+
+                        var altContent = new XElement(MC + "AlternateContent",
+                            new XElement(MC + "Choice", new XAttribute("Requires", "wps"), choiceDrawing),
+                            new XElement(MC + "Fallback", fallbackPict)
+                        );
+
+                        pagePara.Add(new XElement(W + "r", altContent));
+                    }
+                }
+
+                body.Add(pagePara);
+            }
+
+            long pgWTwips = (long)Math.Round(firstW * 20.0);
+            long pgHTwips = (long)Math.Round(firstH * 20.0);
+            var pgSzEl = new XElement(W + "pgSz",
+                new XAttribute(W + "w", pgWTwips.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute(W + "h", pgHTwips.ToString(CultureInfo.InvariantCulture)));
+            if (firstW > firstH) pgSzEl.SetAttributeValue(W + "orient", "landscape");
+
+            body.Add(new XElement(W + "sectPr",
+                pgSzEl,
+                new XElement(W + "pgMar",
+                    new XAttribute(W + "top", "360"),
+                    new XAttribute(W + "right", "360"),
+                    new XAttribute(W + "bottom", "360"),
+                    new XAttribute(W + "left", "360"),
+                    new XAttribute(W + "header", "360"),
+                    new XAttribute(W + "footer", "360"),
+                    new XAttribute(W + "gutter", "0"))
+            ));
+
+            var docXml = new XDocument(
+                new XDeclaration("1.0", "UTF-8", "yes"),
+                new XElement(W + "document",
+                    new XAttribute(XNamespace.Xmlns + "w", W.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "r", R.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "wp", WP.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "a", A.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "pic", PIC.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "wps", WPS.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "mc", MC.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "v", V.NamespaceName),
+                    new XAttribute(MC + "Ignorable", "wps"),
+                    body
+                )
+            );
+
+            using (var fs = new FileStream(outDocxPath, FileMode.Create, FileAccess.Write))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                WriteUtf8Entry(zip, "[Content_Types].xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                    "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+                    "<Default Extension=\"png\" ContentType=\"image/png\"/>" +
+                    "<Default Extension=\"jpg\" ContentType=\"image/jpeg\"/>" +
+                    "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>" +
+                    "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>" +
+                    "</Types>");
+                WriteUtf8Entry(zip, "_rels/.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
+                    "</Relationships>");
+                WriteUtf8Entry(zip, "word/_rels/document.xml.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    string.Join("", relEntries.ToArray()) +
+                    "</Relationships>");
+                WriteUtf8Entry(zip, "word/styles.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">" +
+                    "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\" w:cs=\"Calibri\"/><w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/></w:rPr></w:rPrDefault>" +
+                    "<w:pPrDefault><w:pPr><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults>" +
+                    "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>" +
+                    "</w:styles>");
+
+                foreach (var mf in mediaFiles)
+                {
+                    var me = zip.CreateEntry(mf.Key, CompressionLevel.NoCompression);
+                    using (var ms = me.Open())
+                        ms.Write(mf.Value, 0, mf.Value.Length);
+                }
+
+                var docEntry = zip.CreateEntry("word/document.xml", CompressionLevel.Optimal);
+                using (var xw = XmlWriter.Create(docEntry.Open(), new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false }))
+                {
+                    docXml.Save(xw);
+                }
+            }
+        }
+
+        private static XElement BuildTextBoxContentElement(VisualPdfTextBox box)
+        {
+            var content = new XElement(W + "txbxContent");
+            string align = (box.Align ?? "left").Trim().ToLowerInvariant();
+            for (int i = 0; i < box.Lines.Count; i++)
+            {
+                var line = box.Lines[i];
+                if (line == null) continue;
+                string clean = StripInvalidXmlChars(line.Text ?? "");
+                double pt = line.FontSize >= 5.5 && line.FontSize <= 72 ? line.FontSize : 10.5;
+                int halfPt = (int)Math.Round(pt * 2.0);
+                string fontFam = string.IsNullOrWhiteSpace(line.FontFamily) ? "Calibri" : line.FontFamily.Trim();
+                string colorHex = SanitizeHexColor(line.ColorHex);
+
+                var spacingEl = new XElement(W + "spacing",
+                    new XAttribute(W + "before", "0"),
+                    new XAttribute(W + "after", "0"));
+                if (line.LineHeightPt >= pt * 0.9 && line.LineHeightPt <= pt * 2.5)
+                {
+                    int lineTwips = (int)Math.Round(line.LineHeightPt * 20.0);
+                    spacingEl.SetAttributeValue(W + "line", lineTwips.ToString(CultureInfo.InvariantCulture));
+                    spacingEl.SetAttributeValue(W + "lineRule", "atLeast");
+                }
+                else
+                {
+                    spacingEl.SetAttributeValue(W + "line", "240");
+                    spacingEl.SetAttributeValue(W + "lineRule", "auto");
+                }
+
+                var pPr = new XElement(W + "pPr", spacingEl);
+                if (align == "center" || align == "right")
+                    pPr.Add(new XElement(W + "jc", new XAttribute(W + "val", align)));
+
+                // Strict OOXML CT_RPr element order: rFonts -> b/bCs -> i/iCs -> color -> sz/szCs
+                var rPr = new XElement(W + "rPr",
+                    new XElement(W + "rFonts",
+                        new XAttribute(W + "ascii", fontFam),
+                        new XAttribute(W + "hAnsi", fontFam),
+                        new XAttribute(W + "cs", fontFam))
+                );
+                if (line.Bold)
+                {
+                    rPr.Add(new XElement(W + "b"));
+                    rPr.Add(new XElement(W + "bCs"));
+                }
+                if (line.Italic)
+                {
+                    rPr.Add(new XElement(W + "i"));
+                    rPr.Add(new XElement(W + "iCs"));
+                }
+                rPr.Add(new XElement(W + "color", new XAttribute(W + "val", colorHex)));
+                rPr.Add(new XElement(W + "sz", new XAttribute(W + "val", halfPt.ToString(CultureInfo.InvariantCulture))));
+                rPr.Add(new XElement(W + "szCs", new XAttribute(W + "val", halfPt.ToString(CultureInfo.InvariantCulture))));
+
+                var tEl = new XElement(W + "t", clean);
+                if (clean.StartsWith(" ") || clean.EndsWith(" "))
+                    tEl.SetAttributeValue(XML + "space", "preserve");
+
+                content.Add(new XElement(W + "p", pPr, new XElement(W + "r", rPr, tEl)));
+            }
+            if (!content.HasElements)
+                content.Add(new XElement(W + "p"));
+            return content;
+        }
+
+        private static string SanitizeHexColor(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "111827";
+            string s = raw.Trim().TrimStart('#').ToUpperInvariant();
+            if (s.Length == 3)
+                s = "" + s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+            if (s.Length != 6) return "111827";
+            for (int i = 0; i < 6; i++)
+            {
+                char c = s[i];
+                bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F');
+                if (!ok) return "111827";
+            }
+            return s;
         }
 
         private static void WriteUtf8Entry(ZipArchive zip, string path, string content)

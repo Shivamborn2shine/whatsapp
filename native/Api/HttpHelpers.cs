@@ -111,7 +111,8 @@ namespace ScanDrop.Native.Api
                 }
                 string raw = Encoding.UTF8.GetString(ms.ToArray());
                 if (string.IsNullOrWhiteSpace(raw)) return new Dictionary<string, object>();
-                return new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }.Deserialize<Dictionary<string, object>>(raw)
+                int maxLen = Math.Max(16 * 1024 * 1024, maxBytes);
+                return new JavaScriptSerializer { MaxJsonLength = maxLen }.Deserialize<Dictionary<string, object>>(raw)
                     ?? new Dictionary<string, object>();
             }
         }

@@ -3190,74 +3190,315 @@
       setTimeout(() => { try { el.remove(); } catch {} }, durationMs || 6500);
     }
 
-    function groupPdfItemsIntoLines(items) {
-      if (!items || !items.length) return [];
-      const sorted = items.slice().sort((a, b) => (b.y - a.y) || (a.x - b.x));
-      const rows = [];
-      for (const it of sorted) {
-        let placed = false;
-        const tol = Math.max(3.2, it.h * 0.45);
-        for (let i = rows.length - 1; i >= Math.max(0, rows.length - 6); i--) {
-          if (Math.abs(rows[i].y - it.y) <= tol) {
-            rows[i].items.push(it);
-            placed = true;
-            break;
+    function rgbToHex6(r, g, b) {
+      const h = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+      return (h(r) + h(g) + h(b)).toUpperCase();
+    }
+
+    function hexColorDist(c1, c2) {
+      const p = c => [parseInt(c.slice(0, 2), 16) || 0, parseInt(c.slice(2, 4), 16) || 0, parseInt(c.slice(4, 6), 16) || 0];
+      const a = p(c1 || '111827');
+      const b = p(c2 || '111827');
+      return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    }
+
+    function sampleItemColorAndScrub(fullImg, bgImg, bgCtx, px, py, pw, ph) {
+      const W = fullImg.width;
+      const H = fullImg.height;
+      const x0 = Math.max(0, Math.floor(px - 1));
+      const y0 = Math.max(0, Math.floor(py - 1));
+      const x1 = Math.min(W - 1, Math.ceil(px + Math.max(4, pw) + 1));
+      const y1 = Math.min(H - 1, Math.ceil(py + Math.max(4, ph) + 1));
+      if (x1 <= x0 || y1 <= y0) return '111827';
+
+      const fd = fullImg.data;
+      const bd = bgImg.data;
+      let inkR = 0, inkG = 0, inkB = 0, inkW = 0, inkCount = 0;
+      const stepX = Math.max(1, Math.floor((x1 - x0) / 48));
+      const stepY = Math.max(1, Math.floor((y1 - y0) / 24));
+
+      for (let y = y0; y <= y1; y += stepY) {
+        const rowOff = y * W * 4;
+        for (let x = x0; x <= x1; x += stepX) {
+          const i = rowOff + x * 4;
+          const diff = Math.abs(fd[i] - bd[i]) + Math.abs(fd[i + 1] - bd[i + 1]) + Math.abs(fd[i + 2] - bd[i + 2]);
+          if (diff > 36) {
+            const wt = diff * diff;
+            inkR += fd[i] * wt;
+            inkG += fd[i + 1] * wt;
+            inkB += fd[i + 2] * wt;
+            inkW += wt;
+            inkCount++;
           }
         }
-        if (!placed) rows.push({ y: it.y, items: [it] });
       }
-      rows.sort((a, b) => b.y - a.y);
-      const out = [];
-      for (const row of rows) {
-        row.items.sort((a, b) => a.x - b.x);
-        let text = '';
-        let prevEnd = null;
-        let maxH = 0;
-        let boldChars = 0;
-        let totalChars = 0;
-        for (const it of row.items) {
-          const s = it.str || '';
-          if (!s.trim()) continue;
-          if (prevEnd !== null) {
-            const gap = it.x - prevEnd;
-            if (gap > Math.max(18, it.h * 1.8)) text += '   ';
-            else if (gap > Math.max(1.8, it.h * 0.18) && !text.endsWith(' ') && !s.startsWith(' ')) text += ' ';
+
+      if (inkCount >= 2 && inkW > 0) {
+        return rgbToHex6(inkR / inkW, inkG / inkW, inkB / inkW);
+      }
+
+      // Rare fallback: text was drawn as vector paths instead of fillText -> sample perimeter bg & scrub glyph cleanly
+      const perimR = [], perimG = [], perimB = [];
+      const samplePt = (sx, sy) => {
+        if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
+        const idx = (sy * W + sx) * 4;
+        perimR.push(bd[idx]); perimG.push(bd[idx + 1]); perimB.push(bd[idx + 2]);
+      };
+      const pyTop = Math.max(0, y0 - 2);
+      const pyBot = Math.min(H - 1, y1 + 2);
+      const pxL = Math.max(0, x0 - 2);
+      const pxR = Math.min(W - 1, x1 + 2);
+      for (let x = x0; x <= x1; x += Math.max(2, stepX * 2)) { samplePt(x, pyTop); samplePt(x, pyBot); }
+      for (let y = y0; y <= y1; y += Math.max(2, stepY * 2)) { samplePt(pxL, y); samplePt(pxR, y); }
+
+      const med = arr => { if (!arr.length) return 255; arr.sort((a, b) => a - b); return arr[Math.floor(arr.length / 2)]; };
+      const bgR = med(perimR), bgG = med(perimG), bgB = med(perimB);
+
+      let fR = 0, fG = 0, fB = 0, fW = 0;
+      for (let y = y0; y <= y1; y += stepY) {
+        const rowOff = y * W * 4;
+        for (let x = x0; x <= x1; x += stepX) {
+          const i = rowOff + x * 4;
+          const dist = Math.abs(fd[i] - bgR) + Math.abs(fd[i + 1] - bgG) + Math.abs(fd[i + 2] - bgB);
+          if (dist > 45) {
+            const wt = dist * dist;
+            fR += fd[i] * wt; fG += fd[i + 1] * wt; fB += fd[i + 2] * wt; fW += wt;
           }
-          text += s;
-          prevEnd = it.x + Math.max(it.w, s.length * it.h * 0.42);
-          if (it.h > maxH) maxH = it.h;
-          const cLen = s.trim().length;
-          totalChars += cLen;
-          if (it.bold) boldChars += cLen;
         }
-        const cleaned = text.replace(/\s{4,}/g, '   ').trim();
-        if (cleaned) {
-          out.push({
-            text: cleaned,
-            fontSize: Math.round(Math.max(8, Math.min(28, maxH || 11)) * 10) / 10,
-            bold: (totalChars > 0 && (boldChars / totalChars) >= 0.5) || maxH >= 14.5
+      }
+
+      bgCtx.fillStyle = 'rgb(' + bgR + ',' + bgG + ',' + bgB + ')';
+      bgCtx.fillRect(Math.max(0, x0 - 1), Math.max(0, y0 - 1), (x1 - x0) + 3, (y1 - y0) + 3);
+
+      if (fW > 0) return rgbToHex6(fR / fW, fG / fW, fB / fW);
+      const lum = (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
+      return lum < 128 ? 'FFFFFF' : '111827';
+    }
+
+    function mapPdfFontFamily(fontKey, cssFamily) {
+      const f = ((fontKey || '') + ' ' + (cssFamily || '')).toLowerCase();
+      if (/mono|courier|consolas|code/.test(f)) return 'Consolas';
+      if (/serif|slab|zilla|times|georgia|garamond|cambria|palatino|merriweather|playfair/.test(f)) return 'Georgia';
+      return 'Calibri';
+    }
+
+    function buildVisualBoxesForPage(items, widthPt, heightPt) {
+      if (!items || !items.length) return [];
+      // 1. Group items into same-baseline, same-column, same-color visual lines
+      const sorted = items.slice().sort((a, b) => (a.baselineY - b.baselineY) || (a.x - b.x));
+      const lines = [];
+      for (const it of sorted) {
+        let bestLine = null;
+        let bestGap = 1e9;
+        for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
+          const ln = lines[i];
+          const yTol = Math.max(2.6, Math.min(ln.fontSize, it.fontSize) * 0.45);
+          if (Math.abs(ln.baselineY - it.baselineY) > yTol) continue;
+          if (hexColorDist(ln.color, it.color) > 75) continue;
+          const gap = it.x - ln.right;
+          const maxGap = Math.max(22, Math.max(ln.fontSize, it.fontSize) * 2.2);
+          if (gap >= -it.fontSize * 0.6 && gap <= maxGap && gap < bestGap) {
+            bestGap = gap;
+            bestLine = ln;
+          }
+        }
+        if (bestLine) {
+          bestLine.items.push(it);
+          bestLine.right = Math.max(bestLine.right, it.x + it.w);
+          bestLine.topY = Math.min(bestLine.topY, it.topY);
+          bestLine.bottomY = Math.max(bestLine.bottomY, it.topY + it.h);
+          bestLine.fontSize = Math.max(bestLine.fontSize, it.fontSize);
+        } else {
+          lines.push({
+            x: it.x,
+            right: it.x + it.w,
+            baselineY: it.baselineY,
+            topY: it.topY,
+            bottomY: it.topY + it.h,
+            fontSize: it.fontSize,
+            color: it.color,
+            fontFamily: it.fontFamily,
+            items: [it]
           });
         }
       }
-      return out;
+
+      // Finalize text & style for each visual line (fixing tight word-space gaps like ZillaSlab!)
+      const builtLines = [];
+      for (const ln of lines) {
+        ln.items.sort((a, b) => a.x - b.x);
+        let text = '';
+        let prevEnd = null;
+        let boldChars = 0, italicChars = 0, totalChars = 0;
+        for (const it of ln.items) {
+          const s = it.str || '';
+          if (!s.length) continue;
+          if (prevEnd !== null) {
+            const gap = it.x - prevEnd;
+            if (gap > Math.max(0.75, it.fontSize * 0.09) && !text.endsWith(' ') && !s.startsWith(' ')) {
+              text += ' ';
+            }
+          }
+          text += s;
+          prevEnd = it.x + Math.max(it.w, s.length * it.fontSize * 0.36);
+          const cLen = s.trim().length;
+          totalChars += cLen;
+          if (it.bold) boldChars += cLen;
+          if (it.italic) italicChars += cLen;
+        }
+        const cleaned = text.replace(/\s{2,}/g, ' ').trim();
+        if (!cleaned) continue;
+        builtLines.push({
+          x: ln.x,
+          right: ln.right,
+          w: Math.max(10, ln.right - ln.x),
+          topY: ln.topY,
+          bottomY: ln.bottomY,
+          baselineY: ln.baselineY,
+          text: cleaned,
+          fontSize: Math.round(ln.fontSize * 10) / 10,
+          bold: totalChars > 0 && (boldChars / totalChars) >= 0.5,
+          italic: totalChars > 0 && (italicChars / totalChars) >= 0.5,
+          color: ln.color,
+          fontFamily: ln.fontFamily
+        });
+      }
+
+      // 2. Group tightly stacked lines in the same column & style into multi-line editable Word Text Boxes
+      builtLines.sort((a, b) => (a.topY - b.topY) || (a.x - b.x));
+      const boxes = [];
+      for (const ln of builtLines) {
+        let targetBox = null;
+        for (let i = boxes.length - 1; i >= Math.max(0, boxes.length - 16); i--) {
+          const bx = boxes[i];
+          const last = bx.rawLines[bx.rawLines.length - 1];
+          const dy = ln.baselineY - last.baselineY;
+          if (dy < last.fontSize * 0.80 || dy > last.fontSize * 1.65) continue;
+          if (Math.abs(ln.x - bx.x) > 9) continue;
+          if (Math.abs(ln.fontSize - last.fontSize) > 1.2) continue;
+          if (ln.bold !== last.bold || ln.italic !== last.italic) continue;
+          if (ln.fontFamily !== last.fontFamily) continue;
+          if (hexColorDist(ln.color, last.color) > 65) continue;
+          if (ln.x > bx.right + 12 || ln.right < bx.x - 12) continue;
+          targetBox = bx;
+          break;
+        }
+        if (targetBox) {
+          targetBox.rawLines.push(ln);
+          targetBox.x = Math.min(targetBox.x, ln.x);
+          targetBox.right = Math.max(targetBox.right, ln.right);
+          targetBox.bottomY = Math.max(targetBox.bottomY, ln.bottomY);
+        } else {
+          boxes.push({
+            x: ln.x,
+            right: ln.right,
+            topY: ln.topY,
+            bottomY: ln.bottomY,
+            rawLines: [ln]
+          });
+        }
+      }
+
+      // 3. Compute safe non-overlapping box widths so Word never wraps headings unexpectedly
+      const result = [];
+      for (let i = 0; i < boxes.length; i++) {
+        const bx = boxes[i];
+        const firstFs = bx.rawLines[0].fontSize || 10.5;
+        let maxRightLimit = widthPt - 4;
+        for (let j = 0; j < boxes.length; j++) {
+          if (i === j) continue;
+          const other = boxes[j];
+          const vOverlap = other.topY < bx.bottomY && other.bottomY > bx.topY;
+          if (vOverlap && other.x > bx.right - 2) {
+            maxRightLimit = Math.min(maxRightLimit, other.x - 4);
+          }
+        }
+        const rawW = bx.right - bx.x;
+        const paddedW = Math.min(maxRightLimit - bx.x, rawW + Math.max(14, rawW * 0.08, firstFs * 1.1));
+        const finalW = Math.max(rawW + 4, paddedW);
+        const finalH = Math.max(firstFs * 1.25, (bx.bottomY - bx.topY) + 4);
+
+        const outLines = [];
+        for (let k = 0; k < bx.rawLines.length; k++) {
+          const cur = bx.rawLines[k];
+          const next = k + 1 < bx.rawLines.length ? bx.rawLines[k + 1] : null;
+          const lhPt = next ? Math.max(cur.fontSize * 1.0, Math.min(cur.fontSize * 1.85, next.baselineY - cur.baselineY)) : (cur.fontSize * 1.18);
+          outLines.push({
+            text: cur.text,
+            fontSize: cur.fontSize,
+            bold: cur.bold,
+            italic: cur.italic,
+            color: cur.color,
+            fontFamily: cur.fontFamily,
+            lineHeightPt: Math.round(lhPt * 10) / 10
+          });
+        }
+
+        result.push({
+          x: Math.round(Math.max(0, bx.x - 1) * 10) / 10,
+          y: Math.round(Math.max(0, bx.topY - 1) * 10) / 10,
+          w: Math.round(finalW * 10) / 10,
+          h: Math.round(finalH * 10) / 10,
+          align: 'left',
+          lines: outLines
+        });
+      }
+      return result;
     }
 
     async function convertPdfToDocxViaPdfJs(fileId, fileName, fallbackReason, btnEl) {
       if (!window.pdfjsLib) {
-        throw new Error('Built-in PDF extractor (pdf.js) is unavailable offline. Install Microsoft Word 2013+ or LibreOffice.');
+        throw new Error('Built-in Visual PDF Engine (pdf.js) is unavailable offline. Install Microsoft Word 2013+ or LibreOffice.');
       }
       ensurePdfJsWorker();
-      if (btnEl) btnEl.textContent = '⏳ Extracting...';
+      if (btnEl) btnEl.textContent = '⏳ Extracting Layout...';
       const pdfRes = await fetch('/api/file?id=' + encodeURIComponent(fileId));
       if (!pdfRes.ok) throw new Error('Could not read source PDF from local storage.');
       const pdfBytes = new Uint8Array(await pdfRes.arrayBuffer());
       const pdfDoc = await window.pdfjsLib.getDocument({ data: pdfBytes }).promise;
 
-      const pages = [];
-      let totalLines = 0;
+      const visualPages = [];
+      let totalBoxes = 0;
       for (let p = 1; p <= pdfDoc.numPages; p++) {
+        if (btnEl && pdfDoc.numPages > 1) btnEl.textContent = '⏳ Page ' + p + '/' + pdfDoc.numPages + '...';
         const page = await pdfDoc.getPage(p);
-        const vp = page.getViewport({ scale: 1.0 });
+        const vp1 = page.getViewport({ scale: 1.0 });
+        const scale = Math.min(2.0, Math.max(1.35, 1400 / Math.max(vp1.width, vp1.height)));
+        const vpR = page.getViewport({ scale });
+
+        // 1. Render full visual page (for exact ink color sampling)
+        const fullCanvas = document.createElement('canvas');
+        fullCanvas.width = Math.ceil(vpR.width);
+        fullCanvas.height = Math.ceil(vpR.height);
+        const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+        fullCtx.fillStyle = '#FFFFFF';
+        fullCtx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
+        await page.render({ canvasContext: fullCtx, viewport: vpR }).promise;
+
+        // 2. Render text-free graphics/photo/sidebar/icons background layer
+        const bgCanvas = document.createElement('canvas');
+        bgCanvas.width = fullCanvas.width;
+        bgCanvas.height = fullCanvas.height;
+        const bgCtx = bgCanvas.getContext('2d', { willReadFrequently: true });
+        bgCtx.fillStyle = '#FFFFFF';
+        bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+        const bgCtxProxy = new Proxy(bgCtx, {
+          get(target, prop) {
+            if (prop === 'fillText' || prop === 'strokeText') return function() {};
+            const val = target[prop];
+            return typeof val === 'function' ? val.bind(target) : val;
+          },
+          set(target, prop, value) {
+            target[prop] = value;
+            return true;
+          }
+        });
+        await page.render({ canvasContext: bgCtxProxy, viewport: vpR }).promise;
+
+        const fullImg = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height);
+        const bgImg = bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height);
+
+        // 3. Extract positioned text items with exact sampled ink colors + path-glyph scrub
         const tc = await page.getTextContent();
         const styles = tc.styles || {};
         const items = [];
@@ -3265,64 +3506,51 @@
           const str = (raw && typeof raw.str === 'string') ? raw.str : '';
           if (!str.trim()) continue;
           const tr = raw.transform || [11, 0, 0, 11, 0, 0];
-          const h = Math.max(Math.abs(tr[3]) || 0, Math.abs(tr[0]) || 0, raw.height || 11);
-          const x = tr[4] || 0;
-          const y = tr[5] || 0;
-          const w = raw.width || (str.length * h * 0.48);
+          const vtr = window.pdfjsLib.Util.transform(vp1.transform, tr);
+          const fontSize = Math.max(5.5, Math.min(72, Math.hypot(vtr[2], vtr[3]) || Math.hypot(vtr[0], vtr[1]) || raw.height || 10.5));
+          const x = vtr[4] || 0;
+          const baselineY = vtr[5] || 0;
+          const topY = baselineY - fontSize * 0.90;
+          const w = (raw.width && raw.width > 0) ? raw.width : (str.length * fontSize * 0.50);
+          const h = fontSize * 1.15;
+
           const fontKey = raw.fontName || '';
-          const fontFamily = (styles[fontKey] && styles[fontKey].fontFamily) ? styles[fontKey].fontFamily : '';
-          const isBold = /bold|black|heavy|semibold|demi/i.test(fontKey + ' ' + fontFamily);
-          items.push({ str, x, y, w, h, bold: isBold });
+          const cssFam = (styles[fontKey] && styles[fontKey].fontFamily) ? styles[fontKey].fontFamily : '';
+          const isBold = /bold|black|heavy|semibold|demi/i.test(fontKey + ' ' + cssFam);
+          const isItalic = /italic|oblique/i.test(fontKey + ' ' + cssFam);
+          const fontFamily = mapPdfFontFamily(fontKey, cssFam);
+          const color = sampleItemColorAndScrub(fullImg, bgImg, bgCtx, x * scale, topY * scale, w * scale, h * scale);
+
+          items.push({ str, x, baselineY, topY, w, h, fontSize, bold: isBold, italic: isItalic, fontFamily, color });
         }
 
-        // Detect clean 2-column layout (e.g. modern resumes) so columns stay cleanly separated instead of interleaving
-        let splitX = null;
-        if (items.length >= 10 && vp.width > 300) {
-          let bestScore = -1;
-          for (let frac = 0.30; frac <= 0.60; frac += 0.02) {
-            const gx = vp.width * frac;
-            let leftC = 0, rightC = 0, crossC = 0;
-            for (const it of items) {
-              if (it.x + it.w <= gx + 4) leftC++;
-              else if (it.x >= gx - 4) rightC++;
-              else crossC++;
-            }
-            if (leftC >= 4 && rightC >= 4 && crossC <= 1) {
-              const score = Math.min(leftC, rightC) - crossC * 10;
-              if (score > bestScore) { bestScore = score; splitX = gx; }
-            }
-          }
+        const boxes = buildVisualBoxesForPage(items, vp1.width, vp1.height);
+        totalBoxes += boxes.length;
+
+        let bgDataUrl = bgCanvas.toDataURL('image/png');
+        if (bgDataUrl.length > 480000) {
+          bgDataUrl = bgCanvas.toDataURL('image/jpeg', 0.91);
         }
 
-        let pageLines;
-        if (splitX !== null) {
-          const leftItems = items.filter(it => (it.x + it.w * 0.5) < splitX);
-          const rightItems = items.filter(it => (it.x + it.w * 0.5) >= splitX);
-          const leftLines = groupPdfItemsIntoLines(leftItems);
-          const rightLines = groupPdfItemsIntoLines(rightItems);
-          pageLines = leftLines.concat(rightLines);
-        } else {
-          pageLines = groupPdfItemsIntoLines(items);
-        }
-
-        totalLines += pageLines.length;
-        pages.push(pageLines);
-      }
-
-      if (totalLines === 0) {
-        throw new Error('This PDF contains scanned images with no selectable text, and Word 2013+ / LibreOffice PDF Reflow is unavailable on this PC (' + (fallbackReason || 'no office reflow engine') + '). Install Microsoft Word 2013+ or free LibreOffice.');
+        visualPages.push({
+          widthPt: Math.round(vp1.width * 10) / 10,
+          heightPt: Math.round(vp1.height * 10) / 10,
+          bgDataUrl,
+          boxes
+        });
       }
 
       if (btnEl) btnEl.textContent = '⏳ Building .docx...';
       const buildRes = await fetch('/api/file/build-docx-from-pages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, fileName, pages })
+        body: JSON.stringify({ fileId, fileName, visualPages })
       });
       const buildData = await buildRes.json();
       if (!buildRes.ok || !buildData.success) {
-        throw new Error(buildData.error || 'Could not generate editable Word (.docx) file.');
+        throw new Error(buildData.error || 'Could not generate visual editable Word (.docx) file.');
       }
+      buildData._scannedOnly = (totalBoxes === 0);
       return buildData;
     }
 
@@ -3343,7 +3571,7 @@
         if (!res.ok || !data.success) {
           if (data && data.fallbackSupported) {
             fallbackNote = data.error || 'Office PDF Reflow unavailable';
-            showToast('Office PDF Reflow unavailable on this PC — switching to Built-in PDF Extractor...', null, null, 4500);
+            showToast('Building full visual layout Word doc (' + fallbackNote + ')...', null, null, 5000);
             data = await convertPdfToDocxViaPdfJs(fileId, fileName, fallbackNote, btnEl);
             usedBuiltinFallback = true;
           } else {
@@ -3362,7 +3590,9 @@
         a.remove();
 
         const toastMsg = usedBuiltinFallback
-          ? ('✓ Downloaded ' + data.outputFilename + ' via Built-in Extractor (this PC lacks Word 2013+ PDF Reflow / LibreOffice). Install Word 2013+ or LibreOffice for full graphic layout reflow.')
+          ? (data._scannedOnly
+              ? ('✓ Downloaded ' + data.outputFilename + ' (scanned PDF pages embedded in Word).')
+              : ('✓ Downloaded ' + data.outputFilename + ' (Built-in Visual Layout Engine). Open in Word to edit text directly in place!'))
           : ('✓ Downloaded ' + data.outputFilename + ' (' + data.engine + '). Edit in Word, then drag it back here!');
 
         showToast(

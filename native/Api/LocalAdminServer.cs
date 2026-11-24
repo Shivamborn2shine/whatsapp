@@ -1530,7 +1530,7 @@ namespace ScanDrop.Native.Api
 
         private void HandleBuildDocxFromPages(HttpListenerRequest req, HttpListenerResponse res)
         {
-            var body = HttpHelpers.ReadJsonBody(req);
+            var body = HttpHelpers.ReadJsonBody(req, 64 * 1024 * 1024);
             string fileId = HttpHelpers.GetStr(body, "fileId");
             string fileName = HttpHelpers.GetStr(body, "fileName");
             var file = !string.IsNullOrWhiteSpace(fileId) ? _db.GetFileById(fileId) : null;
@@ -1540,6 +1540,109 @@ namespace ScanDrop.Native.Api
             );
             if (string.IsNullOrWhiteSpace(baseName)) baseName = "document";
 
+            if (!Directory.Exists(_storage.Paths.ConvertedDir)) Directory.CreateDirectory(_storage.Paths.ConvertedDir);
+            string outName = baseName + ".docx";
+            string outPath = Path.Combine(_storage.Paths.ConvertedDir, outName);
+            if (File.Exists(outPath))
+            {
+                outName = baseName + "_" + DateTime.UtcNow.ToString("HHmmss", CultureInfo.InvariantCulture) + ".docx";
+                outPath = Path.Combine(_storage.Paths.ConvertedDir, outName);
+            }
+
+            // Preferred: Full Visual-Layout DOCX (graphics/photo/sidebar background + exact positioned editable text boxes)
+            object rawVisual;
+            if (body.TryGetValue("visualPages", out rawVisual) && rawVisual is System.Collections.IEnumerable)
+            {
+                var vPages = new List<DocxEditor.VisualPdfPage>();
+                foreach (var vpObj in (System.Collections.IEnumerable)rawVisual)
+                {
+                    var vpDict = vpObj as Dictionary<string, object>;
+                    if (vpDict == null) continue;
+                    var vp = new DocxEditor.VisualPdfPage
+                    {
+                        WidthPt = ParseDoubleVal(vpDict, "widthPt", 595.0),
+                        HeightPt = ParseDoubleVal(vpDict, "heightPt", 842.0),
+                        BgImageExt = "png"
+                    };
+
+                    string bgDataUrl = HttpHelpers.GetStr(vpDict, "bgDataUrl");
+                    if (!string.IsNullOrWhiteSpace(bgDataUrl))
+                    {
+                        int comma = bgDataUrl.IndexOf(',');
+                        if (comma > 0)
+                        {
+                            string header = bgDataUrl.Substring(0, comma).ToLowerInvariant();
+                            if (header.Contains("image/jpeg") || header.Contains("image/jpg")) vp.BgImageExt = "jpg";
+                            try { vp.BgImageBytes = Convert.FromBase64String(bgDataUrl.Substring(comma + 1)); } catch { }
+                        }
+                    }
+
+                    object rawBoxes;
+                    if (vpDict.TryGetValue("boxes", out rawBoxes) && rawBoxes is System.Collections.IEnumerable)
+                    {
+                        foreach (var bObj in (System.Collections.IEnumerable)rawBoxes)
+                        {
+                            var bDict = bObj as Dictionary<string, object>;
+                            if (bDict == null) continue;
+                            var box = new DocxEditor.VisualPdfTextBox
+                            {
+                                X = ParseDoubleVal(bDict, "x", 0),
+                                Y = ParseDoubleVal(bDict, "y", 0),
+                                W = ParseDoubleVal(bDict, "w", 100),
+                                H = ParseDoubleVal(bDict, "h", 16),
+                                Align = HttpHelpers.GetStr(bDict, "align") ?? "left"
+                            };
+                            object rawLines;
+                            if (bDict.TryGetValue("lines", out rawLines) && rawLines is System.Collections.IEnumerable)
+                            {
+                                foreach (var lObj in (System.Collections.IEnumerable)rawLines)
+                                {
+                                    var lDict = lObj as Dictionary<string, object>;
+                                    if (lDict == null) continue;
+                                    box.Lines.Add(new DocxEditor.VisualPdfRunLine
+                                    {
+                                        Text = HttpHelpers.GetStr(lDict, "text") ?? "",
+                                        FontSize = ParseDoubleVal(lDict, "fontSize", 11.0),
+                                        Bold = HttpHelpers.GetBool(lDict, "bold", false),
+                                        Italic = HttpHelpers.GetBool(lDict, "italic", false),
+                                        ColorHex = HttpHelpers.GetStr(lDict, "color") ?? "111827",
+                                        FontFamily = HttpHelpers.GetStr(lDict, "fontFamily") ?? "Calibri",
+                                        LineHeightPt = ParseDoubleVal(lDict, "lineHeightPt", 0)
+                                    });
+                                }
+                            }
+                            if (box.Lines.Count > 0) vp.Boxes.Add(box);
+                        }
+                    }
+                    vPages.Add(vp);
+                }
+
+                if (vPages.Count == 0)
+                {
+                    HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "No visual PDF pages provided." } });
+                    return;
+                }
+
+                DocxEditor.BuildVisualDocxFromPages(outPath, vPages);
+                long vSize = new FileInfo(outPath).Length;
+                _db.AddActivity("PDF_TO_DOCX", "shopkeeper", file != null ? file.SubmissionId : null,
+                    "Built full visual-layout editable DOCX via Built-in Visual Engine -> " + outName);
+                FireStateChanged();
+
+                string vUrl = "/api/converted?name=" + Uri.EscapeDataString(outName);
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "outputFilename", outName },
+                    { "sizeBytes", vSize },
+                    { "engine", "Built-in Visual Layout Engine" },
+                    { "url", vUrl },
+                    { "downloadUrl", vUrl + "&download=1" }
+                });
+                return;
+            }
+
+            // Legacy plain-text fallback
             var pages = new List<List<DocxEditor.ExtractedPdfLine>>();
             object rawPages;
             if (body.TryGetValue("pages", out rawPages) && rawPages is System.Collections.IEnumerable)
@@ -1553,13 +1656,10 @@ namespace ScanDrop.Native.Api
                         {
                             var d = itemObj as Dictionary<string, object>;
                             if (d == null) continue;
-                            double sz = 11.0;
-                            if (d.ContainsKey("fontSize") && d["fontSize"] != null)
-                                double.TryParse(Convert.ToString(d["fontSize"], CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out sz);
                             lineList.Add(new DocxEditor.ExtractedPdfLine
                             {
                                 Text = HttpHelpers.GetStr(d, "text") ?? "",
-                                FontSize = sz,
+                                FontSize = ParseDoubleVal(d, "fontSize", 11.0),
                                 Bold = HttpHelpers.GetBool(d, "bold", false)
                             });
                         }
@@ -1572,15 +1672,6 @@ namespace ScanDrop.Native.Api
             {
                 HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "No extractable text found in PDF (it may be a scanned image PDF)." } });
                 return;
-            }
-
-            if (!Directory.Exists(_storage.Paths.ConvertedDir)) Directory.CreateDirectory(_storage.Paths.ConvertedDir);
-            string outName = baseName + ".docx";
-            string outPath = Path.Combine(_storage.Paths.ConvertedDir, outName);
-            if (File.Exists(outPath))
-            {
-                outName = baseName + "_" + DateTime.UtcNow.ToString("HHmmss", CultureInfo.InvariantCulture) + ".docx";
-                outPath = Path.Combine(_storage.Paths.ConvertedDir, outName);
             }
 
             DocxEditor.BuildDocxFromExtractedPages(outPath, pages);
@@ -1599,6 +1690,15 @@ namespace ScanDrop.Native.Api
                 { "url", url },
                 { "downloadUrl", url + "&download=1" }
             });
+        }
+
+        private static double ParseDoubleVal(Dictionary<string, object> d, string key, double fallback)
+        {
+            if (d == null || !d.ContainsKey(key) || d[key] == null) return fallback;
+            double v;
+            if (double.TryParse(Convert.ToString(d[key], CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out v) && !double.IsNaN(v) && !double.IsInfinity(v))
+                return v;
+            return fallback;
         }
 
         private void HandleOpenConverted(HttpListenerRequest req, HttpListenerResponse res)

@@ -628,13 +628,33 @@ namespace ScanDrop.Native
                             {
                                 fileId = pmFid,
                                 fileName = "Diksha_Bisht_Resume.pdf",
-                                pages = new object[]
+                                visualPages = new object[]
                                 {
-                                    new object[]
+                                    new
                                     {
-                                        new { text = "Diksha Bisht", fontSize = 20, bold = true },
-                                        new { text = "EDUCATION", fontSize = 14, bold = true },
-                                        new { text = "Graphic Era Hill University, Dehradun", fontSize = 11, bold = false }
+                                        widthPt = 595.0,
+                                        heightPt = 842.0,
+                                        bgDataUrl = "data:image/png;base64," + Convert.ToBase64String(samplePng),
+                                        boxes = new object[]
+                                        {
+                                            new
+                                            {
+                                                x = 36.0, y = 40.0, w = 180.0, h = 32.0, align = "left",
+                                                lines = new object[]
+                                                {
+                                                    new { text = "Diksha Bisht", fontSize = 22.0, bold = true, italic = false, color = "FFFFFF", fontFamily = "Georgia", lineHeightPt = 26.0 }
+                                                }
+                                            },
+                                            new
+                                            {
+                                                x = 280.0, y = 48.0, w = 260.0, h = 48.0, align = "left",
+                                                lines = new object[]
+                                                {
+                                                    new { text = "EDUCATION", fontSize = 13.0, bold = true, italic = false, color = "111827", fontFamily = "Georgia", lineHeightPt = 18.0 },
+                                                    new { text = "Graphic Era Hill University, Dehradun", fontSize = 11.0, bold = false, italic = false, color = "374151", fontFamily = "Georgia", lineHeightPt = 15.0 }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }));
@@ -642,13 +662,13 @@ namespace ScanDrop.Native
                             string builtName = builtDict.ContainsKey("outputFilename") ? Convert.ToString(builtDict["outputFilename"]) : "";
                             string builtPath = Path.Combine(paths.ConvertedDir, builtName);
                             if (string.IsNullOrEmpty(builtName) || !File.Exists(builtPath))
-                                throw new Exception("build-docx-from-pages did not create output .docx: " + builtJson);
+                                throw new Exception("build-docx-from-pages visualPages did not create output .docx: " + builtJson);
                             if (DocxEditor.IsCorruptedRawPdfDocx(builtPath))
-                                throw new Exception("IsCorruptedRawPdfDocx falsely flagged clean built .docx!");
+                                throw new Exception("IsCorruptedRawPdfDocx falsely flagged clean built visual .docx!");
                             var inspectBuilt = DocxEditor.Inspect(builtPath);
-                            if (!inspectBuilt.Success || !inspectBuilt.BodyBlocks.Exists(b => b.Text.Contains("Diksha Bisht")))
-                                throw new Exception("Built fallback .docx did not inspect cleanly with expected text!");
-                            Console.WriteLine("  [PASS] 20. Raw-PDF DOCX corruption guard & built-in OpenXML fallback verified");
+                            if (!inspectBuilt.Success || !inspectBuilt.BodyBlocks.Exists(b => b.Text.Contains("Diksha Bisht")) || inspectBuilt.Images.Count < 1)
+                                throw new Exception("Built visual .docx missing expected text or embedded background image!");
+                            Console.WriteLine("  [PASS] 20. Raw-PDF corruption guard & Visual-Layout OpenXML (.docx) engine verified");
                         }
                     }
                 }
