@@ -472,6 +472,60 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (path == "/api/tray/file" && req.HttpMethod == "GET")
+                {
+                    HandleStreamTrayFile(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/add-from-file" && req.HttpMethod == "POST")
+                {
+                    HandleTrayAddFromFile(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/add-upload" && req.HttpMethod == "POST")
+                {
+                    HandleTrayAddUpload(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/remove" && req.HttpMethod == "POST")
+                {
+                    HandleTrayRemove(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/clear" && req.HttpMethod == "POST")
+                {
+                    HandleTrayClear(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/reorder" && req.HttpMethod == "POST")
+                {
+                    HandleTrayReorder(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/copy-to-submission" && req.HttpMethod == "POST")
+                {
+                    HandleTrayCopyToSubmission(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/prepare-pdf" && req.HttpMethod == "POST")
+                {
+                    HandleTrayPreparePdf(req, res);
+                    return;
+                }
+
+                if (path == "/api/tray/open" && req.HttpMethod == "POST")
+                {
+                    HandleTrayOpen(req, res);
+                    return;
+                }
+
                 if (path == "/api/printers" && req.HttpMethod == "GET")
                 {
                     HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
@@ -848,11 +902,32 @@ namespace ScanDrop.Native.Api
                 { "tunnelOnline", snap != null && snap.IsOnline }
             };
 
+            var trayDtos = new List<object>();
+            var trayItems = _db.GetTrayItems();
+            foreach (var ti in trayItems)
+            {
+                if (string.IsNullOrEmpty(ti.StoragePath) || !File.Exists(ti.StoragePath)) continue;
+                trayDtos.Add(new Dictionary<string, object>
+                {
+                    { "id", ti.TrayId },
+                    { "sourceFileId", ti.SourceFileId },
+                    { "sourceLabel", ti.SourceLabel },
+                    { "originalName", ti.OriginalFilename },
+                    { "fileExtension", ti.FileExtension },
+                    { "mimeType", ti.ContentType },
+                    { "sizeBytes", ti.FileSize },
+                    { "sortOrder", ti.SortOrder },
+                    { "addedAt", ti.AddedAt },
+                    { "url", "/api/tray/file?id=" + Uri.EscapeDataString(ti.TrayId) }
+                });
+            }
+
             var stateObj = new Dictionary<string, object>
             {
                 { "shops", new List<object> { shopObj } },
                 { "submissions", subDtos },
                 { "trashedFiles", globalTrashDtos },
+                { "trayItems", trayDtos },
                 { "auditEvents", actDtos },
                 { "convertedFiles", convertedList },
                 { "printerProfiles", GetInstalledPrinters() }
@@ -1587,6 +1662,306 @@ namespace ScanDrop.Native.Api
             var orderedIds = ExtractStringIds(body, null, "fileIds");
             _db.UpdateSubmissionFileOrder(sub.SubmissionId, orderedIds);
             FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+        }
+
+        private void HandleStreamTrayFile(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string trayId = req.QueryString["id"];
+            bool download = req.QueryString["download"] == "1";
+            var item = _db.GetTrayItemById(trayId);
+            if (item == null || string.IsNullOrEmpty(item.StoragePath) || !File.Exists(item.StoragePath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "error", "Tray item not found" } });
+                return;
+            }
+            StreamDiskFile(res, item.StoragePath, item.ContentType, item.OriginalFilename, download);
+        }
+
+        private void HandleTrayAddFromFile(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string fileId = HttpHelpers.GetStr(body, "fileId");
+            var file = _db.GetFileById(fileId);
+            if (file == null || string.IsNullOrEmpty(file.StoragePath) || !File.Exists(file.StoragePath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Source file not found." } });
+                return;
+            }
+
+            if (!Directory.Exists(_storage.Paths.TrayDir)) Directory.CreateDirectory(_storage.Paths.TrayDir);
+
+            // If the file has an edited PDF saved, stage that version; otherwise copy original file
+            bool useEdited = string.Equals(file.ConversionStatus, "edited", StringComparison.OrdinalIgnoreCase) &&
+                             !string.IsNullOrEmpty(file.ConvertedPath) && File.Exists(file.ConvertedPath);
+            string srcPath = useEdited ? file.ConvertedPath : file.StoragePath;
+            string ext = useEdited ? ".pdf" : (file.FileExtension ?? Path.GetExtension(file.OriginalFilename) ?? ".bin").ToLowerInvariant();
+            string displayName = useEdited && !file.OriginalFilename.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+                ? (Path.GetFileNameWithoutExtension(file.OriginalFilename) + " (Edited).pdf")
+                : file.OriginalFilename;
+            string ct = useEdited ? "application/pdf" : (file.ContentType ?? "application/octet-stream");
+
+            string trayId = "tray_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+            string destPath = Path.Combine(_storage.Paths.TrayDir, trayId + ext);
+            File.Copy(srcPath, destPath, true);
+
+            var sub = _db.GetSubmissionByReceiptOrId(file.SubmissionId);
+            string label = sub != null ? sub.ReceiptCode : "Inbox";
+
+            var rec = new TrayItemRecord
+            {
+                TrayId = trayId,
+                SourceFileId = file.FileId,
+                SourceLabel = label,
+                OriginalFilename = displayName,
+                ContentType = ct,
+                FileExtension = ext,
+                FileSize = new FileInfo(destPath).Length,
+                StoragePath = destPath,
+                SortOrder = _db.GetNextTraySortOrder(),
+                AddedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
+            };
+            _db.InsertTrayItem(rec);
+            FireStateChanged();
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "item", new Dictionary<string, object>
+                    {
+                        { "id", rec.TrayId },
+                        { "originalName", rec.OriginalFilename },
+                        { "fileExtension", rec.FileExtension },
+                        { "sizeBytes", rec.FileSize },
+                        { "sourceLabel", rec.SourceLabel }
+                    }
+                }
+            });
+        }
+
+        private void HandleTrayAddUpload(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string rawName = req.Headers["X-File-Name"];
+            if (!string.IsNullOrEmpty(rawName))
+            {
+                try { rawName = Uri.UnescapeDataString(rawName); } catch { }
+            }
+            string displayName = StorageManager.SanitizeDisplayName(string.IsNullOrWhiteSpace(rawName) ? "tray_file.pdf" : rawName);
+            string ext = Path.GetExtension(displayName).ToLowerInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = ".bin";
+
+            if (!Directory.Exists(_storage.Paths.TrayDir)) Directory.CreateDirectory(_storage.Paths.TrayDir);
+            string trayId = "tray_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+            string destPath = Path.Combine(_storage.Paths.TrayDir, trayId + ext);
+
+            long written = 0;
+            using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                byte[] buf = new byte[65536];
+                int read;
+                while ((read = req.InputStream.Read(buf, 0, buf.Length)) > 0)
+                {
+                    fs.Write(buf, 0, read);
+                    written += read;
+                }
+            }
+
+            if (written <= 0)
+            {
+                try { File.Delete(destPath); } catch { }
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Dropped file is empty." } });
+                return;
+            }
+
+            var rec = new TrayItemRecord
+            {
+                TrayId = trayId,
+                SourceFileId = null,
+                SourceLabel = "Local PC",
+                OriginalFilename = displayName,
+                ContentType = string.IsNullOrWhiteSpace(req.ContentType) ? "application/octet-stream" : req.ContentType,
+                FileExtension = ext,
+                FileSize = written,
+                StoragePath = destPath,
+                SortOrder = _db.GetNextTraySortOrder(),
+                AddedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
+            };
+            _db.InsertTrayItem(rec);
+            FireStateChanged();
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "item", new Dictionary<string, object>
+                    {
+                        { "id", rec.TrayId },
+                        { "originalName", rec.OriginalFilename },
+                        { "fileExtension", rec.FileExtension },
+                        { "sizeBytes", rec.FileSize },
+                        { "sourceLabel", rec.SourceLabel }
+                    }
+                }
+            });
+        }
+
+        private void HandleTrayRemove(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string trayId = HttpHelpers.GetStr(body, "trayId");
+            var removed = _db.DeleteTrayItem(trayId);
+            if (removed != null && !string.IsNullOrEmpty(removed.StoragePath))
+            {
+                try { if (File.Exists(removed.StoragePath)) File.Delete(removed.StoragePath); } catch { }
+            }
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+        }
+
+        private void HandleTrayClear(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var items = _db.ClearTrayItems();
+            foreach (var it in items)
+            {
+                if (!string.IsNullOrEmpty(it.StoragePath))
+                {
+                    try { if (File.Exists(it.StoragePath)) File.Delete(it.StoragePath); } catch { }
+                }
+            }
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "clearedCount", items.Count } });
+        }
+
+        private void HandleTrayReorder(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            var ids = ExtractStringIds(body, null, "trayIds");
+            _db.UpdateTrayOrder(ids);
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+        }
+
+        private void HandleTrayCopyToSubmission(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string subKey = HttpHelpers.GetStr(body, "submissionId");
+            var sub = _db.GetSubmissionByReceiptOrId(subKey);
+            if (sub == null)
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Target submission not found." } });
+                return;
+            }
+            var trayIds = ExtractStringIds(body, "trayId", "trayIds");
+            if (trayIds.Count == 0)
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "No tray items specified." } });
+                return;
+            }
+
+            string subDir = Path.Combine(_storage.Paths.ReceivedDir, sub.SubmissionId);
+            if (!Directory.Exists(subDir)) Directory.CreateDirectory(subDir);
+
+            int copied = 0;
+            foreach (var tid in trayIds)
+            {
+                var item = _db.GetTrayItemById(tid);
+                if (item == null || string.IsNullOrEmpty(item.StoragePath) || !File.Exists(item.StoragePath)) continue;
+
+                string ext = string.IsNullOrEmpty(item.FileExtension) ? Path.GetExtension(item.OriginalFilename).ToLowerInvariant() : item.FileExtension;
+                if (string.IsNullOrEmpty(ext)) ext = ".bin";
+                string internalName = _storage.GenerateInternalFilename(ext);
+                string destPath = Path.Combine(subDir, internalName);
+                File.Copy(item.StoragePath, destPath, true);
+
+                string shaHex = "";
+                try
+                {
+                    using (var sha = SHA256.Create())
+                    using (var fs = File.OpenRead(destPath))
+                        shaHex = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+                }
+                catch { }
+
+                var fRec = new FileRecord
+                {
+                    FileId = "file_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    SubmissionId = sub.SubmissionId,
+                    OriginalFilename = item.OriginalFilename,
+                    InternalFilename = internalName,
+                    ContentType = item.ContentType ?? "application/octet-stream",
+                    FileExtension = ext,
+                    FileSize = new FileInfo(destPath).Length,
+                    Checksum = shaHex,
+                    StoragePath = destPath,
+                    ConversionStatus = "none",
+                    ConvertedPath = null,
+                    ReceivedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+                    IsTrashed = false,
+                    TrashedAt = null,
+                    SortOrder = _db.GetNextFileSortOrder(sub.SubmissionId)
+                };
+                _db.InsertFile(fRec);
+                copied++;
+            }
+
+            _db.RecalculateSubmissionTotalSize(sub.SubmissionId);
+            if (copied > 0)
+            {
+                _db.AddActivity("TRAY_TO_SUBMISSION", "shopkeeper", sub.SubmissionId,
+                    "Copied " + copied + " file(s) from Holding Tray into " + sub.ReceiptCode);
+            }
+            FireStateChanged();
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "copiedCount", copied } });
+        }
+
+        private void HandleTrayPreparePdf(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string trayId = HttpHelpers.GetStr(body, "trayId");
+            var item = _db.GetTrayItemById(trayId);
+            if (item == null || string.IsNullOrEmpty(item.StoragePath) || !File.Exists(item.StoragePath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Tray item not found." } });
+                return;
+            }
+            string ext = (item.FileExtension ?? "").ToLowerInvariant();
+            if (ext == ".pdf")
+            {
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "url", "/api/tray/file?id=" + Uri.EscapeDataString(item.TrayId) },
+                    { "filename", item.OriginalFilename },
+                    { "source", "tray_pdf" }
+                });
+                return;
+            }
+            string outName = Path.GetFileNameWithoutExtension(item.OriginalFilename) + "_tray_" + DateTime.UtcNow.ToString("HHmmss", CultureInfo.InvariantCulture) + ".pdf";
+            var conv = _converter.ConvertPathToPdf(item.StoragePath, outName);
+            if (!conv.Success)
+            {
+                HttpHelpers.WriteJson(res, 422, new Dictionary<string, object> { { "success", false }, { "error", conv.ErrorMessage } });
+                return;
+            }
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "url", "/api/converted?name=" + Uri.EscapeDataString(conv.OutputFilename) },
+                { "filename", conv.OutputFilename },
+                { "source", "tray_converted" }
+            });
+        }
+
+        private void HandleTrayOpen(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string trayId = HttpHelpers.GetStr(body, "trayId");
+            var item = _db.GetTrayItemById(trayId);
+            if (item == null || string.IsNullOrEmpty(item.StoragePath) || !File.Exists(item.StoragePath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Tray item not found." } });
+                return;
+            }
+            Process.Start(new ProcessStartInfo(item.StoragePath) { UseShellExecute = true });
             HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
         }
 

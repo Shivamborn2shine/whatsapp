@@ -195,6 +195,19 @@ namespace ScanDrop.Native.Storage
                     details TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC);
+
+                CREATE TABLE IF NOT EXISTS tray_items (
+                    tray_id TEXT PRIMARY KEY,
+                    source_file_id TEXT,
+                    source_label TEXT NOT NULL DEFAULT 'Local PC',
+                    original_filename TEXT NOT NULL,
+                    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+                    file_extension TEXT NOT NULL DEFAULT '',
+                    file_size INTEGER NOT NULL DEFAULT 0,
+                    storage_path TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    added_at TEXT NOT NULL
+                );
             ");
 
             EnsureFilesExtraColumns();
@@ -779,6 +792,83 @@ namespace ScanDrop.Native.Storage
                 "UPDATE submissions SET total_size = COALESCE((SELECT SUM(file_size) FROM files WHERE submission_id = ? AND COALESCE(is_trashed, 0) = 0), 0) WHERE submission_id = ?;",
                 submissionId, submissionId
             );
+        }
+
+        public List<TrayItemRecord> GetTrayItems()
+        {
+            var rows = Query("SELECT * FROM tray_items ORDER BY sort_order ASC, added_at ASC;");
+            var list = new List<TrayItemRecord>(rows.Count);
+            foreach (var r in rows) list.Add(MapTrayItem(r));
+            return list;
+        }
+
+        public TrayItemRecord GetTrayItemById(string trayId)
+        {
+            if (string.IsNullOrWhiteSpace(trayId)) return null;
+            var rows = Query("SELECT * FROM tray_items WHERE tray_id = ? LIMIT 1;", trayId.Trim());
+            return rows.Count > 0 ? MapTrayItem(rows[0]) : null;
+        }
+
+        public int GetNextTraySortOrder()
+        {
+            var rows = Query("SELECT COALESCE(MAX(sort_order), -1) AS mx FROM tray_items;");
+            if (rows.Count == 0) return 0;
+            return (int)Long(rows[0], "mx") + 1;
+        }
+
+        public void InsertTrayItem(TrayItemRecord t)
+        {
+            Execute(
+                "INSERT INTO tray_items (tray_id, source_file_id, source_label, original_filename, content_type, file_extension, file_size, storage_path, sort_order, added_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                t.TrayId, t.SourceFileId, t.SourceLabel ?? "Local PC", t.OriginalFilename,
+                t.ContentType ?? "application/octet-stream", t.FileExtension ?? "",
+                t.FileSize, t.StoragePath, t.SortOrder, t.AddedAt
+            );
+        }
+
+        public TrayItemRecord DeleteTrayItem(string trayId)
+        {
+            var item = GetTrayItemById(trayId);
+            if (item == null) return null;
+            Execute("DELETE FROM tray_items WHERE tray_id = ?;", trayId);
+            return item;
+        }
+
+        public List<TrayItemRecord> ClearTrayItems()
+        {
+            var items = GetTrayItems();
+            Execute("DELETE FROM tray_items;");
+            return items;
+        }
+
+        public void UpdateTrayOrder(List<string> orderedTrayIds)
+        {
+            if (orderedTrayIds == null) return;
+            RunInTransaction(() =>
+            {
+                for (int i = 0; i < orderedTrayIds.Count; i++)
+                {
+                    Execute("UPDATE tray_items SET sort_order = ? WHERE tray_id = ?;", i, orderedTrayIds[i]);
+                }
+            });
+        }
+
+        private static TrayItemRecord MapTrayItem(Dictionary<string, object> r)
+        {
+            return new TrayItemRecord
+            {
+                TrayId = Str(r, "tray_id"),
+                SourceFileId = Str(r, "source_file_id"),
+                SourceLabel = Str(r, "source_label"),
+                OriginalFilename = Str(r, "original_filename"),
+                ContentType = Str(r, "content_type"),
+                FileExtension = Str(r, "file_extension"),
+                FileSize = Long(r, "file_size"),
+                StoragePath = Str(r, "storage_path"),
+                SortOrder = (int)Long(r, "sort_order"),
+                AddedAt = Str(r, "added_at")
+            };
         }
 
         public FileRecord GetFileById(string fileId)

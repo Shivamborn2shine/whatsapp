@@ -31,6 +31,7 @@ namespace ScanDrop.Native.Storage
         public string QuarantineDir { get; private set; }
         public string ConvertedDir { get; private set; }
         public string PreviewsDir { get; private set; }
+        public string TrayDir { get; private set; }
         public string LogsDir { get; private set; }
         public string ConfigDir { get; private set; }
 
@@ -52,6 +53,7 @@ namespace ScanDrop.Native.Storage
             QuarantineDir = Path.Combine(UploadsDir, "quarantine");
             ConvertedDir = Path.Combine(DataRootDir, "converted");
             PreviewsDir = Path.Combine(DataRootDir, "previews");
+            TrayDir = Path.Combine(DataRootDir, "tray");
             LogsDir = Path.Combine(DataRootDir, "logs");
             ConfigDir = Path.Combine(DataRootDir, "config");
 
@@ -63,7 +65,7 @@ namespace ScanDrop.Native.Storage
             foreach (var dir in new[]
             {
                 DataRootDir, DatabaseDir, UploadsDir, TempDir, ReceivedDir,
-                QuarantineDir, ConvertedDir, PreviewsDir, LogsDir, ConfigDir
+                QuarantineDir, ConvertedDir, PreviewsDir, TrayDir, LogsDir, ConfigDir
             })
             {
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);

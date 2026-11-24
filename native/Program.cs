@@ -526,10 +526,47 @@ namespace ScanDrop.Native
                             if (afterPermDel.Files.Count != 2 || afterPermDel.TrashedFiles.Count != 0)
                                 throw new Exception("Permanent single-file delete did not clean up cleanly!");
                             Console.WriteLine("  [PASS] 16. Per-file Trash, Restore, Drag-in Add, Reorder & Permanent Delete verified");
+
+                            // Test 17: Persistent Holding Tray (pin from job, upload local file, reorder, prepare-pdf, copy to job, clear)
+                            string pinJson = HttpPostJson(admBase + "/api/tray/add-from-file", ser.Serialize(new { fileId = afterPermDel.Files[0].FileId }));
+                            var pinDict = ser.Deserialize<Dictionary<string, object>>(pinJson);
+                            string trayId1 = Convert.ToString(((Dictionary<string, object>)pinDict["item"])["id"]);
+
+                            var upReq = (HttpWebRequest)WebRequest.Create(admBase + "/api/tray/add-upload");
+                            upReq.Method = "POST";
+                            upReq.ContentType = "image/png";
+                            upReq.Headers["X-File-Name"] = Uri.EscapeDataString("Stamp_Overlay.png");
+                            upReq.ContentLength = samplePng.Length;
+                            using (var rs = upReq.GetRequestStream()) rs.Write(samplePng, 0, samplePng.Length);
+                            string upJson;
+                            using (var upResp = (HttpWebResponse)upReq.GetResponse())
+                            using (var sr = new StreamReader(upResp.GetResponseStream(), Encoding.UTF8))
+                                upJson = sr.ReadToEnd();
+                            var upDict = ser.Deserialize<Dictionary<string, object>>(upJson);
+                            string trayId2 = Convert.ToString(((Dictionary<string, object>)upDict["item"])["id"]);
+
+                            HttpPostJson(admBase + "/api/tray/reorder", ser.Serialize(new { trayIds = new[] { trayId2, trayId1 } }));
+                            var trayList = db.GetTrayItems();
+                            if (trayList.Count != 2 || trayList[0].TrayId != trayId2)
+                                throw new Exception("Holding Tray add/reorder failed!");
+
+                            string prepTrayJson = HttpPostJson(admBase + "/api/tray/prepare-pdf", ser.Serialize(new { trayId = trayId2 }));
+                            if (!prepTrayJson.Contains("\"success\":true"))
+                                throw new Exception("Holding Tray prepare-pdf failed: " + prepTrayJson);
+
+                            HttpPostJson(admBase + "/api/tray/copy-to-submission", ser.Serialize(new { trayId = trayId2, submissionId = receiptCode }));
+                            var subAfterTrayCopy = db.GetSubmissionByReceiptOrId(receiptCode);
+                            if (subAfterTrayCopy.Files.Count != 3)
+                                throw new Exception("Expected 3 files after copying from Holding Tray, got " + subAfterTrayCopy.Files.Count);
+
+                            HttpPostJson(admBase + "/api/tray/clear", "{}");
+                            if (db.GetTrayItems().Count != 0)
+                                throw new Exception("Holding Tray clear did not empty tray_items!");
+                            Console.WriteLine("  [PASS] 17. Holding Tray pin, local upload, reorder, PDF prep, copy-to-job & clear verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 16 PRD v2.0 + CLOUDFLARE + WORKFLOW SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 17 PRD v2.0 + CLOUDFLARE + WORKFLOW + TRAY SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

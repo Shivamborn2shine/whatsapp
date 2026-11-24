@@ -56,6 +56,30 @@ const studioCss = `
     .sd-toast { pointer-events:auto; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.28); border-radius:12px; padding:11px 14px; font-size:12.5px; font-weight:600; box-shadow:0 12px 30px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .sd-toast-btn { background:#3b82f6; color:#fff; border:none; border-radius:7px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
     .sd-toast-btn:hover { background:#2563eb; }
+
+    /* Docked Holding Tray (Temporary Staging Shelf) */
+    .holding-tray { flex-shrink:0; background:var(--surface); border-top:2px solid var(--border); padding:8px 18px 10px; display:flex; flex-direction:column; gap:8px; transition:border-color 0.15s, background 0.15s, box-shadow 0.15s; z-index:40; }
+    .holding-tray.collapsed { padding:7px 18px; gap:0; }
+    .holding-tray.collapsed .tray-shelf { display:none; }
+    body.dragging-file-active .holding-tray { border-top-color:#2563eb; background:var(--primary-soft); }
+    body.dragging-file-active .holding-tray.collapsed .tray-shelf { display:flex; }
+    .holding-tray.tray-drag-over { border-top-color:#2563eb; background:rgba(37,99,235,0.16); box-shadow:inset 0 0 0 2px #2563eb; }
+    .tray-header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .tray-header-left { display:flex; align-items:center; gap:8px; min-width:0; }
+    .tray-header-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .tray-shelf { display:flex; align-items:stretch; gap:8px; overflow-x:auto; padding:2px 0 3px; min-height:66px; }
+    .tray-empty-hint { flex:1; border:1.5px dashed var(--border); border-radius:10px; display:flex; align-items:center; justify-content:center; padding:12px 16px; font-size:12px; color:var(--muted); font-weight:600; cursor:pointer; transition:all 0.15s; text-align:center; }
+    .tray-empty-hint:hover, .holding-tray.tray-drag-over .tray-empty-hint { border-color:var(--primary); color:var(--primary); background:var(--primary-soft); }
+    .tray-chip { width:222px; flex-shrink:0; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; padding:7px 9px; display:flex; flex-direction:column; gap:5px; cursor:grab; transition:transform 0.12s, border-color 0.15s, opacity 0.15s; }
+    .tray-chip:hover { border-color:rgba(37,99,235,0.5); }
+    .tray-chip.dragging { opacity:0.45; transform:scale(0.96); }
+    .tray-chip.tray-chip-over { border-left:3px solid var(--primary); }
+    .tray-chip-top { display:flex; align-items:center; gap:7px; }
+    .tray-chip-actions { display:flex; gap:4px; align-items:center; }
+    .card-pin-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:12.5px; padding:3px 5px; border-radius:6px; transition:all 0.12s; flex-shrink:0; }
+    .card-pin-btn:hover { background:var(--primary-soft); color:var(--primary); }
+    body.dragging-tray-active .drop-in-zone, body.dragging-tray-active #inspectorFilesScroll { outline:2px dashed #2563eb; background:var(--primary-soft); border-radius:10px; }
+    .sub-row.tray-drop-hover { background:rgba(37,99,235,0.18) !important; outline:2px dashed #2563eb; outline-offset:-2px; }
 `;
 
 const studioHtml = `
@@ -1662,7 +1686,16 @@ const studioJs = `
       draggingFileState = null;
       if (!st || st.handled) return;
 
-      // Intuitive "drag out of the list" -> automatically move to Trash!
+      // Intuitive "drag out of the list" -> automatically move to Trash (unless released over Holding Tray!)
+      const trayEl = document.getElementById('holdingTrayBar');
+      if (trayEl && (ev.clientX !== 0 || ev.clientY !== 0)) {
+        const tr = trayEl.getBoundingClientRect();
+        if (ev.clientX >= tr.left && ev.clientX <= tr.right && ev.clientY >= tr.top && ev.clientY <= tr.bottom) {
+          pinFileToTray(fileId, fileName);
+          return;
+        }
+      }
+
       const listEl = document.getElementById('inspectorFilesScroll');
       if (listEl && (ev.clientX !== 0 || ev.clientY !== 0)) {
         const r = listEl.getBoundingClientRect();
@@ -1675,6 +1708,11 @@ const studioJs = `
     }
 
     function handleFileCardDragOver(ev, targetFileId) {
+      if (draggingTrayState) {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'copy';
+        return;
+      }
       if (draggingFileState && draggingFileState.fileId !== targetFileId) {
         ev.preventDefault();
         ev.dataTransfer.dropEffect = 'move';
@@ -1687,6 +1725,15 @@ const studioJs = `
 
     async function handleFileCardDrop(ev, targetFileId, subId) {
       if (ev.currentTarget) ev.currentTarget.classList.remove('drag-over-card');
+      if (draggingTrayState) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const t = draggingTrayState;
+        draggingTrayState = null;
+        document.body.classList.remove('dragging-tray-active');
+        await copyTrayItemsToSubmission([t.trayId], subId, false);
+        return;
+      }
       if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1714,17 +1761,26 @@ const studioJs = `
     }
 
     function handleTrashZoneDragOver(ev) {
-      if (!draggingFileState) return;
+      if (!draggingFileState && !draggingTrayState) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'move';
       if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('drag-active');
     }
 
     async function handleTrashZoneDrop(ev) {
+      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
+      if (draggingTrayState) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const t = draggingTrayState;
+        draggingTrayState = null;
+        document.body.classList.remove('dragging-tray-active');
+        await removeTrayItem(t.trayId, t.fileName);
+        return;
+      }
       if (!draggingFileState) return;
       ev.preventDefault();
       ev.stopPropagation();
-      if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
       const st = draggingFileState;
       st.handled = true;
       await trashFile(st.fileId, st.fileName);
@@ -1740,6 +1796,15 @@ const studioJs = `
     async function handleAddZoneDrop(ev, subId, refreshMerge) {
       if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('drag-active');
       if (draggingFileState) return;
+      if (draggingTrayState) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const t = draggingTrayState;
+        draggingTrayState = null;
+        document.body.classList.remove('dragging-tray-active');
+        await copyTrayItemsToSubmission([t.trayId], subId, !!refreshMerge);
+        return;
+      }
       if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1751,6 +1816,314 @@ const studioJs = `
       if (ev) ev.stopPropagation();
       const el = document.getElementById('more_' + fileId);
       if (el) el.classList.toggle('open');
+    }
+
+    // ------------------------------------------------------------------------
+    // 6. PERSISTENT HOLDING TRAY (Temporary Staging Shelf Across All Jobs)
+    // ------------------------------------------------------------------------
+    let trayCollapsed = false;
+    let draggingTrayState = null;
+
+    function toggleHoldingTray() {
+      trayCollapsed = !trayCollapsed;
+      renderHoldingTray();
+    }
+
+    function renderHoldingTray() {
+      const bar = document.getElementById('holdingTrayBar');
+      if (!bar) return;
+      const items = (cloudState && cloudState.trayItems) || [];
+      bar.classList.toggle('collapsed', trayCollapsed);
+
+      const countEl = document.getElementById('trayCountBadge');
+      if (countEl) {
+        countEl.textContent = items.length;
+        countEl.className = 'badge ' + (items.length > 0 ? 'badge-blue' : 'badge-gray');
+      }
+      const toggleBtn = document.getElementById('trayToggleBtn');
+      if (toggleBtn) toggleBtn.textContent = trayCollapsed ? '▴ Expand' : '▾ Minimize';
+
+      const copyBtn = document.getElementById('trayCopyToSubBtn');
+      if (copyBtn) {
+        copyBtn.style.display = (items.length > 0 && selectedSubId) ? 'inline-flex' : 'none';
+        if (selectedSubId) copyBtn.textContent = '📥 Add All to ' + selectedSubId;
+      }
+      const mergeBtn = document.getElementById('trayMergeBtn');
+      if (mergeBtn) {
+        mergeBtn.style.display = items.length > 0 ? 'inline-flex' : 'none';
+        mergeBtn.textContent = '📑 Merge & Print Tray (' + items.length + ')';
+      }
+      const clearBtn = document.getElementById('trayClearBtn');
+      if (clearBtn) clearBtn.style.display = items.length > 0 ? 'inline-flex' : 'none';
+
+      const shelf = document.getElementById('trayShelfItems');
+      if (!shelf) return;
+      if (items.length === 0) {
+        shelf.innerHTML = '<div class="tray-empty-hint" onclick="document.getElementById(\\'trayAddFileInput\\').click()">📌 Holding Tray is empty — drag any file from a customer job or Windows Explorer here to keep temporarily, move between jobs, or Merge &amp; Print</div>';
+        return;
+      }
+
+      shelf.innerHTML = items.map(it => {
+        const [cls, lbl] = getFileBadge(it.fileExtension);
+        const safeName = esc(it.originalName);
+        const safeId = esc(it.id);
+        return '<div class="tray-chip" draggable="true" ' +
+          'ondragstart="handleTrayChipDragStart(event,\\'' + safeId + '\\',\\'' + safeName + '\\')" ' +
+          'ondragend="handleTrayChipDragEnd(event)" ' +
+          'ondragover="handleTrayChipDragOver(event,\\'' + safeId + '\\')" ' +
+          'ondragleave="this.classList.remove(\\'tray-chip-over\\')" ' +
+          'ondrop="handleTrayChipDrop(event,\\'' + safeId + '\\')">' +
+          '<div class="tray-chip-top">' +
+            '<div class="file-type-box ' + cls + '" style="width:26px;height:26px;font-size:9px;border-radius:6px;">' + lbl + '</div>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-size:11.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + safeName + '">' + safeName + '</div>' +
+              '<div style="font-size:10px;color:var(--muted);">' + formatSize(it.sizeBytes) + ' • ' + esc(it.sourceLabel || 'Local PC') + '</div>' +
+            '</div>' +
+            '<button class="card-trash-btn" style="font-size:11px;padding:2px 4px;" title="Remove from Tray" onclick="removeTrayItem(\\'' + safeId + '\\',\\'' + safeName + '\\')">✕</button>' +
+          '</div>' +
+          '<div class="tray-chip-actions">' +
+            '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="previewUrl(\\'' + esc(it.url) + '\\',\\'' + safeName + '\\',\\'' + esc(it.fileExtension) + '\\',null)" title="Preview">👁</button>' +
+            '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="openTrayFileNative(\\'' + safeId + '\\')" title="Open in Windows App">↗</button>' +
+            '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="directPrint(\\'' + esc(it.url) + '\\',\\'' + safeName + '\\')" title="Print">🖨</button>' +
+            '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="downloadFile(null,\\'' + safeName + '\\',\\'' + esc(it.url) + '\\')" title="Download">⬇</button>' +
+            (selectedSubId ? '<button class="mini-btn mini-btn-edit" style="padding:2px 6px;font-size:10px;margin-left:auto;" onclick="copyTrayItemsToSubmission([\\'' + safeId + '\\'],\\'' + esc(selectedSubId) + '\\',false)" title="Copy into ' + esc(selectedSubId) + '">+ ' + esc(selectedSubId) + '</button>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function pinFileToTray(fileId, fileName) {
+      const res = await fetch('/api/tray/add-from-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Could not add to Holding Tray: ' + (data.error || 'error')); return; }
+      trayCollapsed = false;
+      await fetchCloudState(true);
+      showToast('📌 Kept "' + (fileName || 'file') + '" in Holding Tray', null, null, 3500);
+    }
+
+    async function uploadFilesToTray(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      const files = Array.from(fileList);
+      let added = 0;
+      for (const f of files) {
+        try {
+          const res = await fetch('/api/tray/add-upload', {
+            method: 'POST',
+            headers: {
+              'Content-Type': f.type || 'application/octet-stream',
+              'X-File-Name': encodeURIComponent(f.name)
+            },
+            body: f
+          });
+          const data = await res.json();
+          if (res.ok && data.success) added++;
+        } catch {}
+      }
+      trayCollapsed = false;
+      await fetchCloudState(true);
+      if (added > 0) showToast('📌 Added ' + added + ' file(s) to Holding Tray', null, null, 3500);
+    }
+
+    async function removeTrayItem(trayId, fileName) {
+      await fetch('/api/tray/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trayId })
+      });
+      await fetchCloudState(true);
+      showToast('Removed "' + (fileName || 'item') + '" from Holding Tray', null, null, 2500);
+    }
+
+    async function clearHoldingTray() {
+      const items = (cloudState && cloudState.trayItems) || [];
+      if (items.length === 0) return;
+      if (!confirm('Clear all ' + items.length + ' temporary item(s) from Holding Tray? (Original submission files remain safe.)')) return;
+      await fetch('/api/tray/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      await fetchCloudState(true);
+      showToast('🧹 Cleared Holding Tray', null, null, 3000);
+    }
+
+    async function openTrayFileNative(trayId) {
+      const res = await fetch('/api/tray/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trayId })
+      });
+      if (!res.ok) alert('Could not open tray file in default Windows app.');
+    }
+
+    async function copyTrayItemsToSubmission(trayIds, submissionId, refreshMerge) {
+      if (!submissionId || !trayIds || trayIds.length === 0) return;
+      const res = await fetch('/api/tray/copy-to-submission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trayIds, submissionId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { alert('Could not add tray file(s): ' + (data.error || 'error')); return; }
+      await fetchCloudState(true);
+      if (refreshMerge && mergeQueue.submissionId) openMergeModal(mergeQueue.submissionId);
+      showToast('📥 Added ' + data.copiedCount + ' file(s) from Tray into ' + submissionId, null, null, 4000);
+    }
+
+    async function copyAllTrayToSelectedJob() {
+      if (!selectedSubId) { alert('Select a customer submission in Inbox first.'); return; }
+      const ids = ((cloudState && cloudState.trayItems) || []).map(i => i.id);
+      if (ids.length === 0) return;
+      await copyTrayItemsToSubmission(ids, selectedSubId, false);
+    }
+
+    async function mergeAndPrintTray() {
+      const items = (cloudState && cloudState.trayItems) || [];
+      if (items.length === 0) return;
+      const btn = document.getElementById('trayMergeBtn');
+      const origTxt = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Merging...'; }
+      try {
+        const mergedPdf = await window.PDFLib.PDFDocument.create();
+        let totalPages = 0;
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          showToast('Preparing Tray (' + (i + 1) + '/' + items.length + '): ' + it.originalName, null, null, 2500);
+          const prepRes = await fetch('/api/tray/prepare-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trayId: it.id })
+          });
+          const prep = await prepRes.json();
+          if (!prepRes.ok || !prep.success) throw new Error(it.originalName + ': ' + (prep.error || 'Convert failed'));
+          const bytes = await (await fetch(prep.url + (prep.url.includes('?') ? '&' : '?') + 't=' + Date.now())).arrayBuffer();
+          const srcDoc = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+          const pages = await mergedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
+          pages.forEach(p => mergedPdf.addPage(p));
+          totalPages += pages.length;
+        }
+        const mergedBytes = await mergedPdf.save();
+        const outName = 'Merged_Tray_' + items.length + 'files_' + Date.now().toString().slice(-4) + '.pdf';
+        const saveRes = await fetch('/api/file/save-edited-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/pdf', 'X-Output-Name': outName },
+          body: mergedBytes
+        });
+        const saved = await saveRes.json();
+        if (!saveRes.ok || !saved.success) throw new Error(saved.error || 'Save failed');
+        await fetchCloudState(true);
+        showToast('✓ Merged ' + items.length + ' tray file(s) (' + totalPages + ' pages) — sending to print!', null, null, 5000);
+        directPrint(saved.url, saved.filename);
+      } catch (err) {
+        alert('Merge Tray failed: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origTxt; }
+      }
+    }
+
+    function handleTrayBarDragOver(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.dataTransfer.dropEffect = draggingTrayState ? 'move' : 'copy';
+      const bar = document.getElementById('holdingTrayBar');
+      if (bar) bar.classList.add('tray-drag-over');
+    }
+
+    function handleTrayBarDragLeave(ev) {
+      const bar = document.getElementById('holdingTrayBar');
+      if (bar && !bar.contains(ev.relatedTarget)) bar.classList.remove('tray-drag-over');
+    }
+
+    async function handleTrayBarDrop(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const bar = document.getElementById('holdingTrayBar');
+      if (bar) bar.classList.remove('tray-drag-over');
+
+      if (draggingFileState) {
+        const st = draggingFileState;
+        st.handled = true;
+        await pinFileToTray(st.fileId, st.fileName);
+        return;
+      }
+      if (draggingTrayState) return;
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        await uploadFilesToTray(ev.dataTransfer.files);
+      }
+    }
+
+    function handleTrayChipDragStart(ev, trayId, fileName) {
+      draggingTrayState = { trayId, fileName };
+      ev.dataTransfer.effectAllowed = 'copyMove';
+      try { ev.dataTransfer.setData('application/x-scandrop-tray', trayId); } catch {}
+      try { ev.dataTransfer.setData('text/plain', fileName); } catch {}
+      if (ev.currentTarget) ev.currentTarget.classList.add('dragging');
+      document.body.classList.add('dragging-tray-active');
+    }
+
+    function handleTrayChipDragEnd(ev) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('dragging');
+      document.body.classList.remove('dragging-tray-active');
+      document.querySelectorAll('.tray-chip-over,.tray-drop-hover').forEach(n => n.classList.remove('tray-chip-over', 'tray-drop-hover'));
+      draggingTrayState = null;
+    }
+
+    function handleTrayChipDragOver(ev, targetTrayId) {
+      if (draggingTrayState && draggingTrayState.trayId !== targetTrayId) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.dataTransfer.dropEffect = 'move';
+        if (ev.currentTarget) ev.currentTarget.classList.add('tray-chip-over');
+      }
+    }
+
+    async function handleTrayChipDrop(ev, targetTrayId) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('tray-chip-over');
+      if (!draggingTrayState || draggingTrayState.trayId === targetTrayId) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const items = (cloudState && cloudState.trayItems) || [];
+      const ids = items.map(i => i.id);
+      const fromIdx = ids.indexOf(draggingTrayState.trayId);
+      const toIdx = ids.indexOf(targetTrayId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      ids.splice(fromIdx, 1);
+      ids.splice(toIdx, 0, draggingTrayState.trayId);
+      draggingTrayState = null;
+      document.body.classList.remove('dragging-tray-active');
+      await fetch('/api/tray/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trayIds: ids })
+      });
+      await fetchCloudState(true);
+    }
+
+    function handleSubRowDragOver(ev) {
+      if (draggingTrayState || (ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('Files'))) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.dataTransfer.dropEffect = 'copy';
+        if (ev.currentTarget) ev.currentTarget.classList.add('tray-drop-hover');
+      }
+    }
+
+    async function handleSubRowDrop(ev, subId) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('tray-drop-hover');
+      if (draggingTrayState) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const t = draggingTrayState;
+        draggingTrayState = null;
+        document.body.classList.remove('dragging-tray-active');
+        await copyTrayItemsToSubmission([t.trayId], subId, false);
+        return;
+      }
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await uploadLocalFilesToSubmission(subId, ev.dataTransfer.files, false);
+      }
     }
 
     function mergeMove(idx, delta) {

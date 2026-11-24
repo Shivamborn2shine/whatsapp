@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.4.0",
+    "version":  "4.5.0",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "One-click PDF to Word (.docx) conversion via Microsoft Word/LibreOffice with instant download, drag-files-out-to-Trash (with Undo, per-job \u0026 global Trash tabs, Restore, Empty Trash), drag-and-drop new/edited files into any submission or Merge modal for later merging, and streamlined file cards.",
-    "sha256":  "ea4fbbf4f67920dfe6671cb78381c6d8a017f22a1d82f6fe258103532a57db60",
+    "releaseNotes":  "Added a persistent docked Holding Tray at the bottom of the dashboard where you can temporarily keep files from any customer job or Windows Explorer, reorder them, drag them into another customer\u0027s submission, or Merge \u0026 Print everything in the Tray in 1 click.",
+    "sha256":  "2b9ead348c7eb7f155aa7757dbed7b72f1356f286cfd58d73a428c7c2055f131",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

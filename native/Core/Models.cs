@@ -48,6 +48,20 @@ namespace ScanDrop.Native.Core
         public List<FileRecord> TrashedFiles = new List<FileRecord>();
     }
 
+    public sealed class TrayItemRecord
+    {
+        public string TrayId;
+        public string SourceFileId;
+        public string SourceLabel;
+        public string OriginalFilename;
+        public string ContentType;
+        public string FileExtension;
+        public long FileSize;
+        public string StoragePath;
+        public int SortOrder;
+        public string AddedAt;
+    }
+
     public sealed class UploadSessionRecord
     {
         public string SessionId;

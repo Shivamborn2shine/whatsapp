@@ -208,6 +208,29 @@ ${studioCss}
     <div class="workspace-scroll" id="workspaceContent">
       <div style="text-align:center;padding:60px;color:var(--muted);">Loading local Scan Drop workspace...</div>
     </div>
+
+    <!-- DOCKED HOLDING TRAY (Temporary Staging Shelf Across All Tabs & Jobs) -->
+    <section id="holdingTrayBar" class="holding-tray"
+      ondragover="handleTrayBarDragOver(event)"
+      ondragleave="handleTrayBarDragLeave(event)"
+      ondrop="handleTrayBarDrop(event)">
+      <div class="tray-header">
+        <div class="tray-header-left">
+          <strong style="font-size:12.5px;">📌 Holding Tray</strong>
+          <span id="trayCountBadge" class="badge badge-gray">0</span>
+          <span style="font-size:11px;color:var(--muted);">Keep files temporarily • Drag from any job or PC • Drag out to any job or Merge &amp; Print</span>
+        </div>
+        <div class="tray-header-actions">
+          <input type="file" id="trayAddFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){uploadFilesToTray(this.files);this.value='';}">
+          <button class="btn btn-outline" style="padding:4px 9px;font-size:11px;" onclick="document.getElementById('trayAddFileInput').click()">+ Add Files</button>
+          <button class="btn btn-sync" id="trayCopyToSubBtn" style="padding:4px 9px;font-size:11px;display:none;" onclick="copyAllTrayToSelectedJob()">📥 Add All to Job</button>
+          <button class="btn" id="trayMergeBtn" style="padding:4px 10px;font-size:11px;background:#16a34a;display:none;" onclick="mergeAndPrintTray()">📑 Merge &amp; Print Tray</button>
+          <button class="btn btn-danger-soft" id="trayClearBtn" style="padding:4px 9px;font-size:11px;display:none;" onclick="clearHoldingTray()">🧹 Clear</button>
+          <button class="btn btn-outline" id="trayToggleBtn" style="padding:4px 8px;font-size:11px;" onclick="toggleHoldingTray()">▾ Minimize</button>
+        </div>
+      </div>
+      <div id="trayShelfItems" class="tray-shelf"></div>
+    </section>
   </main>
 
   <!-- SAFE PREVIEW MODAL -->
@@ -388,6 +411,7 @@ ${studioHtml}
         const newKey = JSON.stringify({
           subs: (cloudState.submissions || []).map(s => [s.id, s.status, (s.files || []).length, (s.trashedFiles || []).length, s.totalSizeBytes, (s.files || []).map(f => f.id + ':' + f.originalName + ':' + f.conversionStatus + ':' + (f.sortOrder || 0)).join(',')]),
           trash: (cloudState.trashedFiles || []).map(t => t.id).join(','),
+          tray: (cloudState.trayItems || []).map(t => t.id + ':' + (t.sortOrder || 0)).join(','),
           conv: (cloudState.convertedFiles || []).length,
           acts: (cloudState.auditEvents || []).length,
           paused: data.acceptingUploads,
@@ -818,7 +842,10 @@ ${studioHtml}
         const rowsHtml = filtered.length === 0
           ? '<div style="padding:56px 20px;text-align:center;color:var(--muted);"><div style="font-size:30px;margin-bottom:8px;">📥</div><strong>No submissions found</strong><p style="font-size:12px;margin-top:4px;">Ask customers to scan your shop QR code.</p></div>'
           : filtered.map(sub => \`
-            <div class="sub-row \${selectedSub && selectedSub.id === sub.id ? 'selected' : ''}" onclick="selectedSubId='\${esc(sub.id)}';renderCurrentView()">
+            <div class="sub-row \${selectedSub && selectedSub.id === sub.id ? 'selected' : ''}" onclick="selectedSubId='\${esc(sub.id)}';renderCurrentView()"
+              ondragover="handleSubRowDragOver(event)"
+              ondragleave="this.classList.remove('tray-drop-hover')"
+              ondrop="handleSubRowDrop(event, '\${esc(sub.id)}')">
               <input type="checkbox" \${checkedSubIds.has(sub.id) ? 'checked' : ''} onclick="toggleSubCheck('\${esc(sub.id)}', event)" style="width:15px;height:15px;cursor:pointer;">
               <div style="min-width:130px;display:flex;align-items:center;gap:7px;">
                 <strong style="font-size:14px;font-family:ui-monospace,monospace;">\${esc(sub.receiptCode || sub.id)}</strong>
@@ -850,7 +877,7 @@ ${studioHtml}
                 ondragleave="this.classList.remove('drag-over-card')"
                 ondrop="handleFileCardDrop(event, '\${esc(f.id)}', '\${esc(selectedSub.id)}')">
                 <div class="insp-file-top">
-                  <span class="drag-grip" title="Drag out to Trash, or drag up/down to reorder">⋮⋮</span>
+                  <span class="drag-grip" title="Drag down to Holding Tray, drag out to Trash, or drag up/down to reorder">⋮⋮</span>
                   <div class="file-type-box \${cls}">\${lbl}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="\${esc(f.originalName)}">\${esc(f.originalName)}</div>
@@ -859,6 +886,7 @@ ${studioHtml}
                       \${isEdited ? '<span class="badge badge-green" style="font-size:10px;padding:1px 6px;">✓ Edited</span>' : (f.conversionStatus === 'converted' ? '<span>• PDF Ready</span>' : '')}
                     </div>
                   </div>
+                  <button class="card-pin-btn" title="Keep a copy in Holding Tray (or drag card down to Tray)" onclick="pinFileToTray('\${esc(f.id)}', '\${esc(f.originalName)}')">📌</button>
                   <button class="card-trash-btn" title="Move to Trash (or drag card out)" onclick="trashFile('\${esc(f.id)}', '\${esc(f.originalName)}')">🗑</button>
                 </div>
                 <div class="insp-file-actions">
@@ -1189,6 +1217,7 @@ ${studioHtml}
       };
       restoreScroll();
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restoreScroll);
+      if (typeof renderHoldingTray === 'function') renderHoldingTray();
     }
 
 ${studioJs}
