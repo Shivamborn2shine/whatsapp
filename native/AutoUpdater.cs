@@ -26,7 +26,7 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "4.7.0";
+        public const string CurrentVersion = "4.8.0";
         private const string CloudOrigin = "https://scandrop-xi.vercel.app";
         private const string PrimaryManifestUrl = CloudOrigin + "/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";
@@ -356,7 +356,8 @@ namespace ScanDrop.Native
                 string wsPath = Path.Combine(rootDir, "workspace", "index.html");
                 string shopPath = Path.Combine(rootDir, "shop", "index.html");
                 string heroPath = Path.Combine(rootDir, "assets", "scandrop-logo-hero.png");
-                if (!File.Exists(wsPath) || !File.Exists(shopPath) || !File.Exists(heroPath))
+                string qrPosterPath = Path.Combine(rootDir, "assets", "scandrop-qr-poster.png");
+                if (!File.Exists(wsPath) || !File.Exists(shopPath) || !File.Exists(heroPath) || !File.Exists(qrPosterPath))
                 {
                     SyncWorkspaceUi(rootDir, false);
                 }
@@ -436,7 +437,7 @@ namespace ScanDrop.Native
 
         private static void EnsureBrandAssets(string assetsDir)
         {
-            string[] names = new[] { "scandrop-logo-hero.png", "scandrop-icon-96.png", "favicon-32.png", "scandrop-pill-web.png" };
+            string[] names = new[] { "scandrop-logo-hero.png", "scandrop-icon-96.png", "favicon-32.png", "scandrop-pill-web.png", "scandrop-qr-poster.png" };
             try
             {
                 if (!Directory.Exists(assetsDir)) Directory.CreateDirectory(assetsDir);

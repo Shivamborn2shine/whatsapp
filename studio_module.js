@@ -2971,6 +2971,196 @@ const studioJs = `
         if (btn) { btn.disabled = false; btn.textContent = origTxt; }
       }
     }
+
+    // ------------------------------------------------------------------------
+    // 8. BRANDED COUNTER QR POSTER GENERATOR (Engraved Shop Name + Live QR)
+    // ------------------------------------------------------------------------
+    let qrPosterState = {
+      shopName: '',
+      customNameTouched: false,
+      mode: 'permanent',
+      lastUrl: '',
+      templateImg: null
+    };
+
+    function qrPosterUpdateName(val, permUrl, directUrl) {
+      qrPosterState.shopName = val;
+      qrPosterState.customNameTouched = true;
+      const targetUrl = qrPosterState.mode === 'direct' && directUrl ? directUrl : permUrl;
+      renderQrPosterCanvas(val, targetUrl);
+    }
+
+    function qrPosterUpdateMode(mode, permUrl, directUrl) {
+      qrPosterState.mode = mode;
+      const targetUrl = mode === 'direct' && directUrl ? directUrl : permUrl;
+      renderQrPosterCanvas(qrPosterState.shopName, targetUrl);
+    }
+
+    async function loadQrPosterTemplateImage() {
+      if (qrPosterState.templateImg && qrPosterState.templateImg.complete && qrPosterState.templateImg.naturalWidth > 0) {
+        return qrPosterState.templateImg;
+      }
+      const urls = ['/assets/scandrop-qr-poster.png', 'https://scandrop-xi.vercel.app/assets/scandrop-qr-poster.png'];
+      for (const u of urls) {
+        try {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = u; });
+          qrPosterState.templateImg = img;
+          return img;
+        } catch {}
+      }
+      throw new Error('Could not load QR poster template image.');
+    }
+
+    async function renderQrPosterCanvas(shopName, qrUrl) {
+      const canvas = document.getElementById('qrPosterCanvas');
+      if (!canvas) return;
+      qrPosterState.lastUrl = qrUrl || qrPosterState.lastUrl;
+      const W = 1448, H = 2048;
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+
+      try {
+        const tpl = await loadQrPosterTemplateImage();
+        ctx.drawImage(tpl, 0, 0, W, H);
+      } catch {
+        ctx.fillStyle = '#EAF5FF';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // 1. Engrave Shop Name centered cleanly inside the ice-blue pill (413/724, 149/1024, max width 344/724)
+      const label = String(shopName || 'YOUR SHOP NAME').trim().toUpperCase() || 'YOUR SHOP NAME';
+      const pillCx = (413 / 724) * W;
+      const pillCy = (149.5 / 1024) * H;
+      const maxTextW = (338 / 724) * W;
+      let fontSize = 58;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      while (fontSize > 24) {
+        ctx.font = 'italic 900 ' + fontSize + 'px "Segoe UI", "Inter", Arial, sans-serif';
+        if (ctx.measureText(label).width <= maxTextW) break;
+        fontSize -= 2;
+      }
+      // Subtle engraved bevel highlight + crisp deep-navy lettering
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+      ctx.fillText(label, pillCx + 1.5, pillCy + 2.5, maxTextW);
+      ctx.fillStyle = '#0B2545';
+      ctx.fillText(label, pillCx, pillCy, maxTextW);
+
+      // 2. Render vector-crisp QR code centered inside the white SCAN HERE card (361.5/724, 541/1024)
+      const qrBoxSize = Math.round((252 / 724) * W);
+      const qrLeft = Math.round((361.5 / 724) * W - qrBoxSize / 2);
+      const qrTop = Math.round((541 / 1024) * H - qrBoxSize / 2);
+
+      // Pure white quiet zone
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(qrLeft - 14, qrTop - 14, qrBoxSize + 28, qrBoxSize + 28);
+
+      const urlToEncode = qrUrl || 'https://scandrop-xi.vercel.app';
+      if (typeof window.qrcode === 'function') {
+        const qr = window.qrcode(0, 'M');
+        qr.addData(urlToEncode);
+        qr.make();
+        const count = qr.getModuleCount();
+        const cell = qrBoxSize / count;
+        ctx.fillStyle = '#071426';
+        for (let r = 0; r < count; r++) {
+          for (let c = 0; c < count; c++) {
+            if (qr.isDark(r, c)) {
+              const x = Math.floor(qrLeft + c * cell);
+              const y = Math.floor(qrTop + r * cell);
+              const cw = Math.ceil(qrLeft + (c + 1) * cell) - x;
+              const ch = Math.ceil(qrTop + (r + 1) * cell) - y;
+              ctx.fillRect(x, y, cw, ch);
+            }
+          }
+        }
+      } else {
+        // Fallback if offline before CDN loaded
+        try {
+          const qrImg = new Image();
+          qrImg.crossOrigin = 'anonymous';
+          await new Promise((res, rej) => {
+            qrImg.onload = res;
+            qrImg.onerror = rej;
+            qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=0&data=' + encodeURIComponent(urlToEncode);
+          });
+          ctx.drawImage(qrImg, qrLeft, qrTop, qrBoxSize, qrBoxSize);
+        } catch {}
+      }
+    }
+
+    function getCleanPosterFileBase() {
+      const raw = (qrPosterState.shopName || 'ScanDrop_Shop').trim();
+      const safe = raw.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'ScanDrop_Shop';
+      return safe + '_ScanDrop_QR_Poster';
+    }
+
+    async function downloadQrPoster(format) {
+      const canvas = document.getElementById('qrPosterCanvas');
+      if (!canvas) return;
+      const base = getCleanPosterFileBase();
+
+      if (format === 'png') {
+        const dataUrl = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = base + '.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        showToast('✓ Downloaded ' + base + '.png (High-Res 1448×2048)!', null, null, 4500);
+        return;
+      }
+
+      // Print-ready A4 PDF via pdf-lib
+      if (!window.PDFLib) { alert('PDF library still loading — try PNG download or refresh.'); return; }
+      const jpgUrl = canvas.toDataURL('image/jpeg', 0.96);
+      const jpgBytes = Uint8Array.from(atob(jpgUrl.split(',')[1]), c => c.charCodeAt(0));
+      const doc = await window.PDFLib.PDFDocument.create();
+      const pageW = 595.28, pageH = 841.89; // A4 pt
+      const page = doc.addPage([pageW, pageH]);
+      const embedded = await doc.embedJpg(jpgBytes);
+      const scale = Math.min(pageW / canvas.width, pageH / canvas.height);
+      const drawW = canvas.width * scale;
+      const drawH = canvas.height * scale;
+      page.drawImage(embedded, {
+        x: (pageW - drawW) / 2,
+        y: (pageH - drawH) / 2,
+        width: drawW,
+        height: drawH
+      });
+      const pdfBytes = await doc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = base + '_A4.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch {} }, 30000);
+      showToast('✓ Downloaded A4 Print PDF (' + base + '_A4.pdf)!', null, null, 4500);
+    }
+
+    async function printQrPoster() {
+      const canvas = document.getElementById('qrPosterCanvas');
+      if (!canvas) return;
+      const dataUrl = canvas.toDataURL('image/png');
+      const frame = document.getElementById('directPrintFrame');
+      if (!frame) return;
+      frame.onload = () => {
+        setTimeout(() => {
+          try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch {}
+        }, 120);
+      };
+      frame.srcdoc = '<!doctype html><html><head><style>@page{size:A4 portrait;margin:0;}html,body{margin:0;padding:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff;}img{max-width:100%;max-height:100vh;width:auto;height:100vh;object-fit:contain;display:block;}</style></head><body><img src="' + dataUrl + '"></body></html>';
+      showToast('🖨 Sending branded QR poster to print dialog...', null, null, 3500);
+    }
 `;
 
 module.exports = { studioCss, studioHtml, studioJs };

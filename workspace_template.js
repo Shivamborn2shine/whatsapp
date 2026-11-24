@@ -24,6 +24,7 @@ module.exports = `<!DOCTYPE html>
   <link rel="icon" type="image/png" href="${FAVICON_URI || '/assets/favicon-32.png'}">
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
   <style>
     :root {
       --primary: #0078FF;
@@ -1324,30 +1325,75 @@ ${studioHtml}
       else if (currentTab === 'qr') {
         const displayQrUrl = permanentUrl;
         const devQrUrl = directTunnelUrl || permanentUrl;
+        const defaultEngraveName = (currentSettings.shopName || shop.name || 'MY PRINT SHOP').trim();
+        if (typeof qrPosterState !== 'undefined' && !qrPosterState.customNameTouched) {
+          qrPosterState.shopName = defaultEngraveName;
+        }
+        const curPosterName = (typeof qrPosterState !== 'undefined' && qrPosterState.shopName) ? qrPosterState.shopName : defaultEngraveName;
+        const curPosterMode = (typeof qrPosterState !== 'undefined' && qrPosterState.mode === 'direct' && directTunnelUrl) ? 'direct' : 'permanent';
+        const activePosterUrl = curPosterMode === 'direct' ? devQrUrl : displayQrUrl;
         container.innerHTML = \`
-          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;">
-            <div class="list-panel" style="padding:22px;text-align:center;">
-              <h3 style="margin-bottom:4px;">Permanent Shop QR Code</h3>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Print this once for your counter — automatically routes to your PC tunnel.</p>
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=\${encodeURIComponent(displayQrUrl)}" style="width:220px;height:220px;border:1px solid var(--border);border-radius:12px;padding:10px;background:#fff;margin:0 auto 12px;display:block;">
-              <input class="field-input" value="\${esc(displayQrUrl)}" readonly style="text-align:center;color:var(--primary);margin-bottom:12px;">
-              <div style="display:flex;gap:8px;justify-content:center;">
-                <button class="btn" onclick="navigator.clipboard.writeText('\${esc(displayQrUrl)}');alert('Copied shop link!')">📋 Copy Link</button>
-                <button class="btn btn-outline" onclick="window.print()">🖨 Print Poster</button>
+          <div style="display:grid;grid-template-columns:minmax(360px, 1.15fr) minmax(320px, 1fr);gap:18px;align-items:start;">
+            <div class="list-panel" style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div>
+                  <h3 style="font-size:15.5px;">🏪 Branded Counter QR Poster</h3>
+                  <p style="font-size:12px;color:var(--muted);margin-top:2px;">Your shop name &amp; unique QR engraved onto the official ScanDrop counter standee — ready to download &amp; laminate.</p>
+                </div>
+                <span class="badge badge-gold">Print-Ready 300 DPI</span>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:10px;">
+                <div>
+                  <label style="font-size:11.5px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Shop Name Engraved on Poster</label>
+                  <input id="qrPosterShopNameInput" class="field-input" value="\${esc(curPosterName)}" placeholder="e.g. BLACKTHRONE XEROX" oninput="qrPosterUpdateName(this.value, '\${esc(displayQrUrl)}', '\${esc(devQrUrl)}')">
+                </div>
+                <div>
+                  <label style="font-size:11.5px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">QR Target</label>
+                  <select id="qrPosterModeSelect" class="field-input" onchange="qrPosterUpdateMode(this.value, '\${esc(displayQrUrl)}', '\${esc(devQrUrl)}')">
+                    <option value="permanent" \${curPosterMode === 'permanent' ? 'selected' : ''}>Permanent Shop Link (Best)</option>
+                    \${directTunnelUrl ? \`<option value="direct" \${curPosterMode === 'direct' ? 'selected' : ''}>Direct Live Tunnel</option>\` : ''}
+                  </select>
+                </div>
+              </div>
+
+              <div style="background:var(--surface-alt);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;justify-content:center;align-items:center;">
+                <canvas id="qrPosterCanvas" width="1448" height="2048" style="max-height:520px;max-width:100%;width:auto;height:auto;border-radius:12px;box-shadow:0 12px 32px rgba(11,37,69,0.18);background:#fff;"></canvas>
+              </div>
+
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                <button class="btn" onclick="downloadQrPoster('png')">⬇ Download Poster (PNG)</button>
+                <button class="btn btn-sync" onclick="downloadQrPoster('pdf')">📄 Download A4 PDF</button>
+                <button class="btn" style="background:linear-gradient(180deg,#22c55e,#16a34a);" onclick="printQrPoster()">🖨 Direct Print Poster</button>
               </div>
             </div>
 
-            <div class="list-panel" style="padding:22px;text-align:center;">
-              <h3 style="margin-bottom:4px;">Direct Tunnel QR (Live Now)</h3>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Connects customer smartphone directly to this PC's isolated port :\${lastMeta.receiverPort || 8787}.</p>
-              \${directTunnelUrl
-                ? \`<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=\${encodeURIComponent(devQrUrl)}" style="width:220px;height:220px;border:1px solid var(--border);border-radius:12px;padding:10px;background:#fff;margin:0 auto 12px;display:block;">
-                   <input class="field-input" value="\${esc(directTunnelUrl)}" readonly style="text-align:center;margin-bottom:12px;">
-                   <button class="btn btn-outline" onclick="navigator.clipboard.writeText('\${esc(directTunnelUrl)}');alert('Copied direct tunnel URL!')">📋 Copy Direct URL</button>\`
-                : '<div style="padding:60px 20px;color:var(--muted);font-size:13px;">Tunnel connecting...</div>'}
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div class="list-panel" style="padding:20px;">
+                <h3 style="margin-bottom:4px;">🔗 Permanent Shop Upload Link</h3>
+                <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Print &amp; laminate the poster once — this permanent link automatically routes customers to your PC even when the Cloudflare tunnel refreshes.</p>
+                <input class="field-input" value="\${esc(displayQrUrl)}" readonly style="color:var(--primary);font-weight:700;margin-bottom:12px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn" onclick="navigator.clipboard.writeText('\${esc(displayQrUrl)}');showToast('📋 Copied permanent shop link!')">📋 Copy Shop Link</button>
+                  <a class="btn btn-outline" href="\${esc(displayQrUrl)}" target="_blank" style="text-decoration:none;">↗ Open Upload Page</a>
+                </div>
+              </div>
+
+              <div class="list-panel" style="padding:20px;text-align:center;">
+                <h3 style="margin-bottom:4px;">⚡ Direct Tunnel QR (Live Now)</h3>
+                <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Direct link to this PC's isolated upload receiver on port :\${lastMeta.receiverPort || 8787}.</p>
+                \${directTunnelUrl
+                  ? \`<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=\${encodeURIComponent(devQrUrl)}" style="width:190px;height:190px;border:1px solid var(--border);border-radius:12px;padding:8px;background:#fff;margin:0 auto 12px;display:block;">
+                     <input class="field-input" value="\${esc(directTunnelUrl)}" readonly style="text-align:center;margin-bottom:10px;font-size:12px;">
+                     <button class="btn btn-outline" onclick="navigator.clipboard.writeText('\${esc(directTunnelUrl)}');showToast('📋 Copied direct tunnel URL!')">📋 Copy Direct URL</button>\`
+                  : '<div style="padding:46px 20px;color:var(--muted);font-size:13px;">Cloudflare Tunnel connecting...</div>'}
+              </div>
             </div>
           </div>
         \`;
+        if (typeof renderQrPosterCanvas === 'function') {
+          setTimeout(() => renderQrPosterCanvas(curPosterName, activePosterUrl), 10);
+        }
       }
       else if (currentTab === 'activity') {
         container.innerHTML = \`<div class="list-panel" style="padding:20px;">

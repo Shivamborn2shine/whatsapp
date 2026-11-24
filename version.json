@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.7.0",
+    "version":  "4.8.0",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Automatic SHA-256 verified self-update on every ScanDrop.exe launch (with sleek progress splash, automatic Dashboard UI + brand asset sync, zero manual Check Updates click required, and periodic idle background updates when no uploads are active).",
-    "sha256":  "3396ab8752c68f9b6ac35f0a0513b810a5ed02eb24240dae15b3847fae882221",
+    "releaseNotes":  "Branded Counter QR Poster Studio in QR \u0026 Sharing tab: automatically engraves your Shop Name and high-resolution permanent Shop QR onto the official ScanDrop poster template with 1-click High-Res PNG download, A4 Print PDF download, and direct poster print.",
+    "sha256":  "5d7055959009b205ea53a6c795f0412104bcd7779e5bb5ae9c13feee90974816",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
