@@ -418,6 +418,23 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (path == "/api/file/reset-edited" && req.HttpMethod == "POST")
+                {
+                    var body = HttpHelpers.ReadJsonBody(req);
+                    string fid = HttpHelpers.GetStr(body, "fileId");
+                    var f = _db.GetFileById(fid);
+                    if (f == null)
+                    {
+                        HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "File not found." } });
+                        return;
+                    }
+                    _db.UpdateFileConversion(f.FileId, "none", null);
+                    _db.AddActivity("FILE_RESET_ORIGINAL", "shopkeeper", f.SubmissionId, "Reverted " + f.OriginalFilename + " back to original version.");
+                    FireStateChanged();
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+                    return;
+                }
+
                 if (path == "/api/file/prepare-pdf" && req.HttpMethod == "POST")
                 {
                     HandlePreparePdf(req, res);

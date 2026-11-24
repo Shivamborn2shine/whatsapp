@@ -78,8 +78,31 @@ const studioCss = `
     .tray-chip-actions { display:flex; gap:4px; align-items:center; }
     .card-pin-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:12.5px; padding:3px 5px; border-radius:6px; transition:all 0.12s; flex-shrink:0; }
     .card-pin-btn:hover { background:var(--primary-soft); color:var(--primary); }
-    body.dragging-tray-active .drop-in-zone, body.dragging-tray-active #inspectorFilesScroll { outline:2px dashed #2563eb; background:var(--primary-soft); border-radius:10px; }
-    .sub-row.tray-drop-hover { background:rgba(37,99,235,0.18) !important; outline:2px dashed #2563eb; outline-offset:-2px; }
+    body.dragging-tray-active .drop-in-zone, body.dragging-tray-active #inspectorFilesScroll { outline:2px dashed #0078FF; background:var(--primary-soft); border-radius:10px; }
+    .sub-row.tray-drop-hover { background:rgba(0,120,255,0.16) !important; outline:2px dashed #0078FF; outline-offset:-2px; }
+    .tray-shelf-wrap { display:flex; align-items:center; gap:6px; }
+    .tray-nav-btn { width:26px; height:64px; flex-shrink:0; border:1px solid var(--border); background:var(--surface); color:var(--primary); border-radius:9px; cursor:pointer; font-size:17px; font-weight:800; display:flex; align-items:center; justify-content:center; transition:all 0.14s; }
+    .tray-nav-btn:hover { background:var(--primary-soft); border-color:var(--primary); }
+
+    /* Visual Page Manager Studio (PDF & Word Docs) */
+    .pm-toolbar { padding:10px 18px; border-bottom:1px solid var(--border); background:var(--surface-alt); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; flex-shrink:0; }
+    .pm-grid { flex:1; overflow-y:auto; padding:18px; display:grid; grid-template-columns:repeat(auto-fill, minmax(172px, 1fr)); gap:14px; align-content:start; background:var(--bg); }
+    .pm-card { background:var(--surface); border:2px solid var(--border); border-radius:12px; padding:9px; display:flex; flex-direction:column; gap:7px; cursor:grab; transition:all 0.14s; position:relative; box-shadow:0 4px 12px rgba(0,120,255,0.06); }
+    .pm-card:hover { border-color:rgba(0,120,255,0.55); transform:translateY(-1px); }
+    .pm-card.selected { border-color:#0078FF; box-shadow:0 6px 18px rgba(0,120,255,0.16); }
+    .pm-card.excluded { opacity:0.46; border-style:dashed; border-color:var(--border); filter:grayscale(0.5); }
+    .pm-card.pm-drag-over { border-left:4px solid #FFC107; }
+    .pm-thumb-box { width:100%; aspect-ratio:210/297; background:#fff; border:1px solid var(--border); border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; }
+    .pm-thumb-box canvas { max-width:100%; max-height:100%; display:block; transition:transform 0.16s; }
+    .pm-page-pill { position:absolute; left:6px; top:6px; background:#0B2545; color:#fff; font-size:10px; font-weight:800; padding:2px 7px; border-radius:999px; }
+    .pm-card.selected .pm-page-pill { background:#0078FF; }
+    .pm-excl-pill { position:absolute; right:6px; top:6px; background:#ef4444; color:#fff; font-size:9.5px; font-weight:800; padding:2px 6px; border-radius:999px; display:none; }
+    .pm-card.excluded .pm-excl-pill { display:inline-block; }
+    .pm-card-bar { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+    .pm-icon-btn { border:1px solid var(--border); background:var(--surface-alt); color:var(--text-secondary); border-radius:6px; padding:3px 6px; font-size:11px; cursor:pointer; font-weight:700; }
+    .pm-icon-btn:hover { background:var(--primary-soft); color:var(--primary); border-color:rgba(0,120,255,0.35); }
+    .pm-zoom-overlay { display:none; position:fixed; inset:0; background:rgba(11,37,69,0.82); backdrop-filter:blur(4px); z-index:320; align-items:center; justify-content:center; padding:20px; }
+    .pm-zoom-overlay.open { display:flex; }
 `;
 
 const studioHtml = `
@@ -268,6 +291,8 @@ const studioHtml = `
           <span id="imgCanvasStatus" class="badge badge-blue">A4 Portrait</span>
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <button class="btn btn-outline" id="icUndoBtn" onclick="icUndo()" disabled>↩ Undo</button>
+          <button class="btn btn-outline" id="icRedoBtn" onclick="icRedo()" disabled>↪ Redo</button>
           <button class="btn" onclick="imgCanvasExport(false)">💾 Save as PDF (Ready to Merge)</button>
           <button class="btn" style="background:#16a34a;" onclick="imgCanvasExport(true)">🖨 Direct Print Canvas</button>
           <button class="btn btn-outline" onclick="closeStudioModal('imageStudioModal')">✕ Close</button>
@@ -359,17 +384,20 @@ const studioHtml = `
 
   <!-- 4. MERGE & PRINT ALL MODAL -->
   <div id="mergePrintModal" class="studio-overlay">
-    <div class="studio-shell" style="max-width:780px;height:auto;max-height:88vh;">
+    <div class="studio-shell" style="max-width:860px;height:auto;max-height:88vh;">
       <div class="studio-topbar">
         <div>
           <strong style="font-size:16px;">📑 Merge &amp; Print All Files (1 Print Job)</strong>
           <div id="mergeSubTitle" style="font-size:12px;color:var(--muted);"></div>
         </div>
-        <button class="btn btn-outline" onclick="closeStudioModal('mergePrintModal')">✕ Close</button>
+        <div style="display:flex;gap:7px;align-items:center;">
+          <button class="btn btn-outline" id="mergeUndoBtn" onclick="mergeUndo()" disabled>↩ Undo</button>
+          <button class="btn btn-outline" onclick="closeStudioModal('mergePrintModal')">✕ Close</button>
+        </div>
       </div>
       <div style="padding:18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
         <p style="font-size:12.5px;color:var(--text-secondary);">
-          Reorder, uncheck, or move unwanted files to Trash. Drop any newly edited Word (.docx), PDF, or Image files below to include them in this single print job.
+          Reorder, pick exact page ranges per file (e.g. <code>1-3, 5</code>), or move unwanted files to Trash. Drop any newly edited Word (.docx), PDF, or Image files below to include them in this single print job.
         </p>
         <div id="mergeDropZone" class="drop-in-zone"
           onclick="document.getElementById('mergeAddFileInput').click()"
@@ -385,6 +413,62 @@ const studioHtml = `
           <button class="btn btn-outline" id="mergeSaveOnlyBtn" onclick="executeMergeAndPrint(false)">💾 Merge &amp; Preview PDF</button>
           <button class="btn" id="mergeDirectPrintBtn" style="background:#16a34a;" onclick="executeMergeAndPrint(true)">🖨 Merge All &amp; Direct Print (1 Job)</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. VISUAL PAGE MANAGER STUDIO (PDF & WORD DOCS — Select, Reorder, Rotate, Duplicate, Delete) -->
+  <div id="pageManagerModal" class="studio-overlay">
+    <div class="studio-shell">
+      <div class="studio-topbar">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap;">
+          <strong style="font-size:15.5px;">📑 Page Manager</strong>
+          <span id="pmFileName" class="badge badge-blue" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;"></span>
+          <span id="pmSelectionBadge" class="badge badge-gold">0 / 0 selected</span>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-outline" id="pmUndoBtn" onclick="pmUndo()" disabled>↩ Undo</button>
+          <button class="btn btn-outline" id="pmRedoBtn" onclick="pmRedo()" disabled>↪ Redo</button>
+          <button class="btn btn-outline" onclick="pmResetAll()" title="Restore all original pages">↻ Reset</button>
+          <button class="btn btn-sync" id="pmToTrayBtn" onclick="pmSendToTray()">📌 Send to Tray</button>
+          <button class="btn" id="pmSaveBtn" onclick="pmSaveOutput(false)">💾 Save Pages</button>
+          <button class="btn" id="pmPrintBtn" style="background:#16a34a;" onclick="pmSaveOutput(true)">🖨 Print Selected</button>
+          <button class="btn btn-outline" onclick="closeStudioModal('pageManagerModal')">✕ Close</button>
+        </div>
+      </div>
+
+      <div class="pm-toolbar">
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <strong style="font-size:12px;">Page Range:</strong>
+          <input id="pmRangeInput" class="field-input" placeholder="e.g. 1-3, 5, 8-12" style="width:175px;padding:6px 10px;font-size:12px;" onkeydown="if(event.key==='Enter'){event.preventDefault();pmApplyRange();}">
+          <button class="btn" style="padding:6px 11px;font-size:11.5px;" onclick="pmApplyRange()">Apply Range</button>
+          <span style="color:var(--border);">|</span>
+          <button class="mini-btn" onclick="pmPreset('all')">✓ All</button>
+          <button class="mini-btn" onclick="pmPreset('none')">✕ None</button>
+          <button class="mini-btn" onclick="pmPreset('odd')">Odd (1,3,5)</button>
+          <button class="mini-btn" onclick="pmPreset('even')">Even (2,4,6)</button>
+          <button class="mini-btn" onclick="pmPreset('first')">1st Page</button>
+          <button class="mini-btn" onclick="pmPreset('invert')">⇄ Invert</button>
+          <button class="mini-btn" style="color:var(--danger);" onclick="pmRemoveUnselected()" title="Delete all unchecked pages from grid">🗑 Remove Unchecked</button>
+        </div>
+        <span id="pmStatusHint" style="font-size:11.5px;color:var(--muted);">Click pages to include/exclude • Drag thumbnails to reorder • Use ↺↻⧉🗑 per page</span>
+      </div>
+
+      <div id="pmGrid" class="pm-grid">
+        <div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--muted);">Loading document pages...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE MANAGER FULL-SIZE ZOOM LIGHTBOX -->
+  <div id="pmZoomOverlay" class="pm-zoom-overlay" onclick="if(event.target===this)this.classList.remove('open')">
+    <div style="background:var(--surface);border-radius:14px;padding:14px;max-width:90vw;max-height:90vh;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <strong id="pmZoomTitle" style="font-size:14px;">Page Preview</strong>
+        <button class="btn btn-outline" style="padding:5px 10px;" onclick="document.getElementById('pmZoomOverlay').classList.remove('open')">✕ Close</button>
+      </div>
+      <div style="overflow:auto;display:flex;justify-content:center;background:#e2e8f0;padding:12px;border-radius:10px;max-height:78vh;">
+        <canvas id="pmZoomCanvas" style="background:#fff;box-shadow:0 6px 24px rgba(0,0,0,0.25);"></canvas>
       </div>
     </div>
   </div>
@@ -1171,8 +1255,42 @@ const studioJs = `
       submissionId: null,
       items: [], // { id, url, name, natW, natH, xCm, yCm, wCm, hCm, rot, bright, contrast, gray }
       selectedId: null,
-      pxPerCm: 22
+      pxPerCm: 22,
+      undoStack: [],
+      redoStack: []
     };
+
+    function icSnapshot() { return JSON.stringify({ items: icState.items, selectedId: icState.selectedId }); }
+    function icPushUndo() {
+      icState.undoStack.push(icSnapshot());
+      if (icState.undoStack.length > 35) icState.undoStack.shift();
+      icState.redoStack = [];
+      icUpdateUndoButtons();
+    }
+    function icUpdateUndoButtons() {
+      const u = document.getElementById('icUndoBtn');
+      const r = document.getElementById('icRedoBtn');
+      if (u) { u.disabled = icState.undoStack.length === 0; u.textContent = icState.undoStack.length > 0 ? ('↩ Undo (' + icState.undoStack.length + ')') : '↩ Undo'; }
+      if (r) { r.disabled = icState.redoStack.length === 0; }
+    }
+    function icUndo() {
+      if (icState.undoStack.length === 0) return;
+      icState.redoStack.push(icSnapshot());
+      const prev = JSON.parse(icState.undoStack.pop());
+      icState.items = prev.items || [];
+      icState.selectedId = prev.selectedId || null;
+      icUpdateUndoButtons();
+      imgCanvasRenderPaper();
+    }
+    function icRedo() {
+      if (icState.redoStack.length === 0) return;
+      icState.undoStack.push(icSnapshot());
+      const next = JSON.parse(icState.redoStack.pop());
+      icState.items = next.items || [];
+      icState.selectedId = next.selectedId || null;
+      icUpdateUndoButtons();
+      imgCanvasRenderPaper();
+    }
 
     function icGetPaperCm() {
       const sz = PAPER_CM[document.getElementById('icPaperSize').value] || PAPER_CM.A4;
@@ -1186,6 +1304,9 @@ const studioJs = `
       icState.submissionId = submissionId;
       icState.items = [];
       icState.selectedId = null;
+      icState.undoStack = [];
+      icState.redoStack = [];
+      icUpdateUndoButtons();
 
       const sel = document.getElementById('icSubImgSelect');
       sel.innerHTML = '<option value="">+ Add from Submission...</option>';
@@ -1273,7 +1394,9 @@ const studioJs = `
           const ox = item.xCm, oy = item.yCm, ow = item.wCm, oh = item.hCm;
           const aspect = oh / Math.max(0.1, ow);
 
+          let movedOnce = false;
           const onMove = (mv) => {
+            if (!movedOnce) { icPushUndo(); movedOnce = true; }
             const dxCm = (mv.clientX - sx) / icState.pxPerCm;
             const dyCm = (mv.clientY - sy) / icState.pxPerCm;
             if (isResize) {
@@ -1317,6 +1440,7 @@ const studioJs = `
     function icApplyDimInput(axis) {
       const it = icGetSelected();
       if (!it) return;
+      icPushUndo();
       const ratio = it.natH / Math.max(1, it.natW);
       if (axis === 'w') {
         it.wCm = Math.max(1, Number(document.getElementById('icWidthCm').value || it.wCm));
@@ -1328,10 +1452,11 @@ const studioJs = `
       imgCanvasRenderPaper();
     }
 
-    function icSetRotation(deg) { const it = icGetSelected(); if (!it) return; it.rot = deg; imgCanvasRenderPaper(); }
-    function icRotateStep(delta) { const it = icGetSelected(); if (!it) return; it.rot = ((it.rot + delta + 540) % 360) - 180; imgCanvasRenderPaper(); }
+    function icSetRotation(deg) { const it = icGetSelected(); if (!it) return; icPushUndo(); it.rot = deg; imgCanvasRenderPaper(); }
+    function icRotateStep(delta) { const it = icGetSelected(); if (!it) return; icPushUndo(); it.rot = ((it.rot + delta + 540) % 360) - 180; imgCanvasRenderPaper(); }
     function icSetFilter() {
       const it = icGetSelected(); if (!it) return;
+      icPushUndo();
       it.bright = Number(document.getElementById('icBright').value || 100);
       it.contrast = Number(document.getElementById('icContrast').value || 100);
       it.gray = document.getElementById('icGrayscale').checked;
@@ -1339,6 +1464,7 @@ const studioJs = `
     }
     function icCenterSelected() {
       const it = icGetSelected(); if (!it) return;
+      icPushUndo();
       const paper = icGetPaperCm();
       it.xCm = (paper.w - it.wCm) / 2;
       it.yCm = (paper.h - it.hCm) / 2;
@@ -1346,6 +1472,7 @@ const studioJs = `
     }
     function icDuplicateSelected() {
       const it = icGetSelected(); if (!it) return;
+      icPushUndo();
       const copy = { ...it, id: 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5), xCm: it.xCm + 1.0, yCm: it.yCm + 1.0 };
       icState.items.push(copy);
       icState.selectedId = copy.id;
@@ -1353,6 +1480,7 @@ const studioJs = `
     }
     function icDeleteSelected() {
       if (!icState.selectedId) return;
+      icPushUndo();
       icState.items = icState.items.filter(i => i.id !== icState.selectedId);
       icState.selectedId = icState.items[0] ? icState.items[0].id : null;
       imgCanvasRenderPaper();
@@ -1360,6 +1488,7 @@ const studioJs = `
 
     function icPreset(kind) {
       const it = icGetSelected(); if (!it) return;
+      if (icState.items.length > 0 && icState.undoStack.length > 0 || kind !== 'fit') icPushUndo();
       const paper = icGetPaperCm();
       const aspect = it.natH / Math.max(1, it.natW);
       if (kind === 'fit') {
@@ -1460,23 +1589,48 @@ const studioJs = `
     }
 
     // ------------------------------------------------------------------------
-    // 4. MERGE & PRINT ALL QUEUE (Mixed Edited/Original DOCX + PDF + Images)
+    // 4. MERGE & PRINT ALL QUEUE (Mixed Edited/Original DOCX + PDF + Images + Per-File Pages)
     // ------------------------------------------------------------------------
-    let mergeQueue = { submissionId: null, receiptCode: '', items: [] };
+    let mergeQueue = { submissionId: null, receiptCode: '', items: [], undoStack: [] };
+
+    function mergePushUndo() {
+      mergeQueue.undoStack.push(JSON.stringify(mergeQueue.items.map(i => ({ fileId: i.file.id, checked: i.checked, pageRange: i.pageRange || '' }))));
+      if (mergeQueue.undoStack.length > 25) mergeQueue.undoStack.shift();
+      mergeUpdateUndoBtn();
+    }
+    function mergeUpdateUndoBtn() {
+      const b = document.getElementById('mergeUndoBtn');
+      if (b) {
+        b.disabled = mergeQueue.undoStack.length === 0;
+        b.textContent = mergeQueue.undoStack.length > 0 ? ('↩ Undo (' + mergeQueue.undoStack.length + ')') : '↩ Undo';
+      }
+    }
+    function mergeUndo() {
+      if (mergeQueue.undoStack.length === 0) return;
+      const snap = JSON.parse(mergeQueue.undoStack.pop());
+      const sub = (cloudState.submissions || []).find(s => s.id === mergeQueue.submissionId || s.receiptCode === mergeQueue.submissionId);
+      const map = new Map(((sub && sub.files) || []).map(f => [f.id, f]));
+      mergeQueue.items = snap.map(x => map.get(x.fileId) ? { file: map.get(x.fileId), checked: x.checked, pageRange: x.pageRange } : null).filter(Boolean);
+      mergeUpdateUndoBtn();
+      renderMergeQueue();
+    }
 
     function openMergeModal(submissionId) {
       const sub = (cloudState.submissions || []).find(s => s.id === submissionId || s.receiptCode === submissionId);
       if (!sub) return;
       const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
+      const prevRanges = new Map((mergeQueue.submissionId === sub.id ? mergeQueue.items : []).map(i => [i.file.id, i.pageRange || '']));
       mergeQueue.submissionId = sub.id;
       mergeQueue.receiptCode = sub.receiptCode || sub.id;
+      mergeQueue.undoStack = [];
       mergeQueue.items = (sub.files || [])
         .filter(f => printableExts.includes((f.fileExtension || '').toLowerCase()))
-        .map(f => ({ file: f, checked: true }));
+        .map(f => ({ file: f, checked: true, pageRange: prevRanges.get(f.id) || '' }));
 
       document.getElementById('mergeSubTitle').textContent =
         (sub.receiptCode || sub.id) + ' • ' + (sub.customerName || 'Customer') + ' • ' + mergeQueue.items.length + ' printable file(s)';
       document.getElementById('mergeProgressMsg').style.display = 'none';
+      mergeUpdateUndoBtn();
       renderMergeQueue();
       document.getElementById('mergePrintModal').classList.add('open');
     }
@@ -1489,17 +1643,23 @@ const studioJs = `
       }
       box.innerHTML = mergeQueue.items.map((entry, idx) => {
         const f = entry.file;
+        const fExt = (f.fileExtension || '').toLowerCase();
         const isEdited = f.conversionStatus === 'edited' && f.convertedUrl;
+        const canPickPages = ['.pdf', '.docx', '.doc'].includes(fExt);
         const [cls, lbl] = getFileBadge(f.fileExtension);
         return '<div class="merge-row">' +
-          '<input type="checkbox" ' + (entry.checked ? 'checked' : '') + ' onchange="mergeQueue.items[' + idx + '].checked=this.checked" style="width:16px;height:16px;cursor:pointer;">' +
+          '<input type="checkbox" ' + (entry.checked ? 'checked' : '') + ' onchange="mergePushUndo();mergeQueue.items[' + idx + '].checked=this.checked" style="width:16px;height:16px;cursor:pointer;">' +
           '<div class="file-type-box ' + cls + '">' + lbl + '</div>' +
           '<div style="flex:1;min-width:0;">' +
             '<div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(f.originalName) + '</div>' +
             '<div style="font-size:11px;color:var(--muted);">' + formatSize(f.sizeBytes) + ' • ' +
-              (isEdited ? '<span style="color:var(--success);font-weight:700;">✓ Using Edited PDF Version</span>' : 'Original (auto-converted if needed)') +
+              (isEdited ? '<span style="color:var(--success);font-weight:700;">✓ Using Saved Pages / Edited PDF</span>' : 'Original (auto-converted if needed)') +
             '</div>' +
           '</div>' +
+          (canPickPages
+            ? '<input class="field-input" style="width:128px;padding:5px 8px;font-size:11.5px;" placeholder="All (e.g. 1-3, 5)" title="Optional page range for this file" value="' + esc(entry.pageRange || '') + '" onchange="mergePushUndo();mergeQueue.items[' + idx + '].pageRange=this.value.trim()">' +
+              '<button class="mini-btn mini-btn-edit" onclick="closeStudioModal(\\'mergePrintModal\\');openPageManager(\\'' + esc(f.id) + '\\',true)" title="Open Visual Page Picker">📑 Pages</button>'
+            : '') +
           '<div style="display:flex;gap:4px;">' +
             '<button class="mini-btn" onclick="mergeMove(' + idx + ',-1)" title="Move Up">↑</button>' +
             '<button class="mini-btn" onclick="mergeMove(' + idx + ',1)" title="Move Down">↓</button>' +
@@ -1584,7 +1744,41 @@ const studioJs = `
       } catch {}
     }
 
-    async function trashFile(fileId, fileName) {
+    // Global Undo Stack (Trash, Restore, Status, Rename, Reorder, Pin, Page Save)
+    const globalUndoStack = [];
+
+    function pushGlobalUndo(label, undoFn) {
+      globalUndoStack.push({ label, undoFn });
+      if (globalUndoStack.length > 25) globalUndoStack.shift();
+      updateGlobalUndoBtn();
+    }
+
+    function updateGlobalUndoBtn() {
+      const btn = document.getElementById('globalUndoBtn');
+      if (!btn) return;
+      if (globalUndoStack.length === 0) {
+        btn.style.display = 'none';
+      } else {
+        const top = globalUndoStack[globalUndoStack.length - 1];
+        btn.style.display = 'inline-flex';
+        btn.title = 'Undo: ' + top.label + ' (Ctrl+Z)';
+        btn.textContent = '↩ Undo';
+      }
+    }
+
+    async function performGlobalUndo() {
+      if (globalUndoStack.length === 0) return;
+      const top = globalUndoStack.pop();
+      updateGlobalUndoBtn();
+      try {
+        await top.undoFn();
+        showToast('↩ Undid: ' + top.label, null, null, 3200);
+      } catch (err) {
+        alert('Undo failed: ' + err.message);
+      }
+    }
+
+    async function trashFile(fileId, fileName, skipUndoPush) {
       const res = await fetch('/api/file/trash', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1592,11 +1786,12 @@ const studioJs = `
       });
       const data = await res.json();
       if (!res.ok || !data.success) { alert('Could not move file to Trash: ' + (data.error || 'error')); return; }
+      if (!skipUndoPush) pushGlobalUndo('Trash "' + (fileName || 'file') + '"', () => restoreFile(fileId, fileName, true));
       await fetchCloudState(true);
-      showToast('🗑️ Moved "' + (fileName || 'file') + '" to Trash', '↩ Undo', () => restoreFile(fileId, fileName), 7000);
+      showToast('🗑️ Moved "' + (fileName || 'file') + '" to Trash', '↩ Undo', () => restoreFile(fileId, fileName, true), 7000);
     }
 
-    async function restoreFile(fileId, fileName) {
+    async function restoreFile(fileId, fileName, skipUndoPush) {
       const res = await fetch('/api/file/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1604,6 +1799,7 @@ const studioJs = `
       });
       const data = await res.json();
       if (!res.ok || !data.success) { alert('Restore failed: ' + (data.error || 'error')); return; }
+      if (!skipUndoPush) pushGlobalUndo('Restore "' + (fileName || 'file') + '"', () => trashFile(fileId, fileName, true));
       await fetchCloudState(true);
       showToast('↩ Restored "' + (fileName || 'file') + '" back to submission', null, null, 3500);
     }
@@ -1746,7 +1942,8 @@ const studioJs = `
       draggingFileState.handled = true;
       const sub = (cloudState.submissions || []).find(s => s.id === subId || s.receiptCode === subId);
       if (!sub) return;
-      const ids = (sub.files || []).map(f => f.id);
+      const prevIds = (sub.files || []).map(f => f.id);
+      const ids = prevIds.slice();
       const fromIdx = ids.indexOf(draggingFileState.fileId);
       const toIdx = ids.indexOf(targetFileId);
       if (fromIdx < 0 || toIdx < 0) return;
@@ -1756,6 +1953,14 @@ const studioJs = `
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ submissionId: sub.id, fileIds: ids })
+      });
+      pushGlobalUndo('Reorder files in ' + (sub.receiptCode || sub.id), async () => {
+        await fetch('/api/submission/reorder-files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ submissionId: sub.id, fileIds: prevIds })
+        });
+        await fetchCloudState(true);
       });
       await fetchCloudState(true);
     }
@@ -1838,7 +2043,7 @@ const studioJs = `
       const countEl = document.getElementById('trayCountBadge');
       if (countEl) {
         countEl.textContent = items.length;
-        countEl.className = 'badge ' + (items.length > 0 ? 'badge-blue' : 'badge-gray');
+        countEl.className = 'badge ' + (items.length > 0 ? 'badge-gold' : 'badge-gray');
       }
       const toggleBtn = document.getElementById('trayToggleBtn');
       if (toggleBtn) toggleBtn.textContent = trayCollapsed ? '▴ Expand' : '▾ Minimize';
@@ -1883,6 +2088,7 @@ const studioJs = `
           '</div>' +
           '<div class="tray-chip-actions">' +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="previewUrl(\\'' + esc(it.url) + '\\',\\'' + safeName + '\\',\\'' + esc(it.fileExtension) + '\\',null)" title="Preview">👁</button>' +
+            (['.pdf', '.docx', '.doc'].includes((it.fileExtension || '').toLowerCase()) ? '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="openTrayPageManager(\\'' + safeId + '\\')" title="Pick / Manage Pages">📑</button>' : '') +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="openTrayFileNative(\\'' + safeId + '\\')" title="Open in Windows App">↗</button>' +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="directPrint(\\'' + esc(it.url) + '\\',\\'' + safeName + '\\')" title="Print">🖨</button>' +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="downloadFile(null,\\'' + safeName + '\\',\\'' + esc(it.url) + '\\')" title="Download">⬇</button>' +
@@ -2126,13 +2332,43 @@ const studioJs = `
       }
     }
 
+    function scrollTrayShelf(delta) {
+      const shelf = document.getElementById('trayShelfItems');
+      if (shelf) shelf.scrollBy({ left: delta, behavior: 'smooth' });
+    }
+
     function mergeMove(idx, delta) {
       const target = idx + delta;
       if (target < 0 || target >= mergeQueue.items.length) return;
+      mergePushUndo();
       const tmp = mergeQueue.items[idx];
       mergeQueue.items[idx] = mergeQueue.items[target];
       mergeQueue.items[target] = tmp;
       renderMergeQueue();
+    }
+
+    function parsePageRangeSpec(spec, maxPages) {
+      const clean = String(spec || '').trim();
+      if (!clean) return Array.from({ length: maxPages }, (_, i) => i);
+      const out = [];
+      for (const part of clean.split(',')) {
+        const p = part.trim();
+        if (!p) continue;
+        if (p.includes('-')) {
+          const [aRaw, bRaw] = p.split('-');
+          let a = parseInt(aRaw, 10), b = parseInt(bRaw, 10);
+          if (isNaN(a)) a = 1;
+          if (isNaN(b)) b = maxPages;
+          const step = a <= b ? 1 : -1;
+          for (let n = a; step > 0 ? n <= b : n >= b; n += step) {
+            if (n >= 1 && n <= maxPages) out.push(n - 1);
+          }
+        } else {
+          const n = parseInt(p, 10);
+          if (!isNaN(n) && n >= 1 && n <= maxPages) out.push(n - 1);
+        }
+      }
+      return out;
     }
 
     async function executeMergeAndPrint(andPrint) {
@@ -2149,7 +2385,8 @@ const studioJs = `
         let totalPages = 0;
 
         for (let i = 0; i < selected.length; i++) {
-          const f = selected[i].file;
+          const entry = selected[i];
+          const f = entry.file;
           msg.textContent = 'Preparing (' + (i + 1) + '/' + selected.length + '): ' + f.originalName + '...';
           const prepRes = await fetch('/api/file/prepare-pdf', {
             method: 'POST',
@@ -2165,7 +2402,10 @@ const studioJs = `
           if (!pdfRes.ok) throw new Error('Could not read prepared PDF for ' + f.originalName);
           const bytes = await pdfRes.arrayBuffer();
           const srcDoc = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
-          const copiedPages = await mergedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
+          const allCount = srcDoc.getPageCount();
+          const indices = parsePageRangeSpec(entry.pageRange, allCount);
+          if (indices.length === 0) throw new Error(f.originalName + ': Page range "' + entry.pageRange + '" matched 0 pages (doc has ' + allCount + ').');
+          const copiedPages = await mergedPdf.copyPages(srcDoc, indices);
           copiedPages.forEach(p => mergedPdf.addPage(p));
           totalPages += copiedPages.length;
         }
@@ -2195,6 +2435,471 @@ const studioJs = `
         alert('Merge & Print failed: ' + err.message);
       } finally {
         b1.disabled = false; b2.disabled = false;
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 7. VISUAL PAGE MANAGER STUDIO (PDFs & Word Docs — Full Page Control + Undo/Redo)
+    // ------------------------------------------------------------------------
+    let pmState = {
+      mode: 'file', // 'file' | 'tray'
+      fileId: null,
+      trayId: null,
+      fileName: '',
+      returnToMerge: false,
+      pdfBytes: null,
+      pdfJsDoc: null,
+      totalSourcePages: 0,
+      pages: [], // [{ uid, srcIndex (0-based), selected, rot (0|90|180|270) }]
+      undoStack: [],
+      redoStack: [],
+      thumbCache: new Map(), // srcIndex -> dataURL
+      dragUid: null
+    };
+
+    function pmSnapshot() {
+      return JSON.stringify(pmState.pages);
+    }
+
+    function pmPushUndo() {
+      pmState.undoStack.push(pmSnapshot());
+      if (pmState.undoStack.length > 40) pmState.undoStack.shift();
+      pmState.redoStack = [];
+      pmUpdateButtons();
+    }
+
+    function pmUpdateButtons() {
+      const u = document.getElementById('pmUndoBtn');
+      const r = document.getElementById('pmRedoBtn');
+      if (u) {
+        u.disabled = pmState.undoStack.length === 0;
+        u.textContent = pmState.undoStack.length > 0 ? ('↩ Undo (' + pmState.undoStack.length + ')') : '↩ Undo';
+      }
+      if (r) r.disabled = pmState.redoStack.length === 0;
+      const selCount = pmState.pages.filter(p => p.selected).length;
+      const badge = document.getElementById('pmSelectionBadge');
+      if (badge) badge.textContent = selCount + ' / ' + pmState.pages.length + ' selected';
+    }
+
+    function pmUndo() {
+      if (pmState.undoStack.length === 0) return;
+      pmState.redoStack.push(pmSnapshot());
+      pmState.pages = JSON.parse(pmState.undoStack.pop());
+      pmRenderGrid();
+    }
+
+    function pmRedo() {
+      if (pmState.redoStack.length === 0) return;
+      pmState.undoStack.push(pmSnapshot());
+      pmState.pages = JSON.parse(pmState.redoStack.pop());
+      pmRenderGrid();
+    }
+
+    function pmResetAll() {
+      pmPushUndo();
+      pmState.pages = Array.from({ length: pmState.totalSourcePages }, (_, i) => ({
+        uid: 'pg_' + i + '_' + Date.now(),
+        srcIndex: i,
+        selected: true,
+        rot: 0
+      }));
+      document.getElementById('pmRangeInput').value = '';
+      pmRenderGrid();
+    }
+
+    async function openPageManager(fileId, returnToMerge) {
+      if (!ensurePdfJsWorker() || !window.PDFLib) {
+        alert('PDF libraries are still loading. Check connection or refresh.');
+        return;
+      }
+      let targetFile = null;
+      for (const s of (cloudState && cloudState.submissions) || []) {
+        const hit = (s.files || []).find(f => f.id === fileId);
+        if (hit) { targetFile = hit; break; }
+      }
+      if (!targetFile) { alert('File not found.'); return; }
+
+      pmState.mode = 'file';
+      pmState.fileId = targetFile.id;
+      pmState.trayId = null;
+      pmState.fileName = targetFile.originalName;
+      pmState.returnToMerge = !!returnToMerge;
+      pmState.undoStack = [];
+      pmState.redoStack = [];
+      pmState.thumbCache.clear();
+
+      document.getElementById('pmFileName').textContent = targetFile.originalName;
+      document.getElementById('pmRangeInput').value = '';
+      document.getElementById('pmGrid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--muted);font-weight:600;">⏳ Loading &amp; rendering pages for <strong>' + esc(targetFile.originalName) + '</strong>...</div>';
+      document.getElementById('pageManagerModal').classList.add('open');
+
+      try {
+        const ext = (targetFile.fileExtension || '').toLowerCase();
+        let pdfUrl;
+        if (ext === '.pdf') {
+          // Always open the original full PDF so shopkeeper can see & toggle ALL pages!
+          pdfUrl = '/api/file?id=' + encodeURIComponent(targetFile.id);
+        } else {
+          // Convert Word doc (.docx/.doc) to PDF so we can pick/reorder/rotate exact pages!
+          const prepRes = await fetch('/api/file/prepare-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: targetFile.id })
+          });
+          const prep = await prepRes.json();
+          if (!prepRes.ok || !prep.success) throw new Error(prep.error || 'Could not convert Word document to pages.');
+          pdfUrl = prep.url;
+        }
+        await pmLoadPdfFromUrl(pdfUrl);
+      } catch (err) {
+        alert('Page Manager error: ' + err.message);
+        closeStudioModal('pageManagerModal');
+      }
+    }
+
+    async function openTrayPageManager(trayId) {
+      if (!ensurePdfJsWorker() || !window.PDFLib) {
+        alert('PDF libraries are still loading.');
+        return;
+      }
+      const item = ((cloudState && cloudState.trayItems) || []).find(t => t.id === trayId);
+      if (!item) return;
+
+      pmState.mode = 'tray';
+      pmState.fileId = null;
+      pmState.trayId = item.id;
+      pmState.fileName = item.originalName;
+      pmState.returnToMerge = false;
+      pmState.undoStack = [];
+      pmState.redoStack = [];
+      pmState.thumbCache.clear();
+
+      document.getElementById('pmFileName').textContent = item.originalName + ' (Tray)';
+      document.getElementById('pmRangeInput').value = '';
+      document.getElementById('pmGrid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--muted);font-weight:600;">⏳ Loading pages...</div>';
+      document.getElementById('pageManagerModal').classList.add('open');
+
+      try {
+        const prepRes = await fetch('/api/tray/prepare-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trayId: item.id })
+        });
+        const prep = await prepRes.json();
+        if (!prepRes.ok || !prep.success) throw new Error(prep.error || 'Could not prepare pages.');
+        await pmLoadPdfFromUrl(prep.url);
+      } catch (err) {
+        alert('Page Manager error: ' + err.message);
+        closeStudioModal('pageManagerModal');
+      }
+    }
+
+    async function pmLoadPdfFromUrl(pdfUrl) {
+      const res = await fetch(pdfUrl + (pdfUrl.includes('?') ? '&' : '?') + 't=' + Date.now());
+      if (!res.ok) throw new Error('Could not fetch PDF (' + res.status + ')');
+      const buf = new Uint8Array(await res.arrayBuffer());
+      pmState.pdfBytes = buf;
+      pmState.pdfJsDoc = await window.pdfjsLib.getDocument({ data: buf.slice() }).promise;
+      pmState.totalSourcePages = pmState.pdfJsDoc.numPages;
+      pmState.pages = Array.from({ length: pmState.totalSourcePages }, (_, i) => ({
+        uid: 'pg_' + i + '_' + Date.now(),
+        srcIndex: i,
+        selected: true,
+        rot: 0
+      }));
+      pmRenderGrid();
+    }
+
+    function pmRenderGrid() {
+      pmUpdateButtons();
+      const grid = document.getElementById('pmGrid');
+      if (!grid) return;
+      if (pmState.pages.length === 0) {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:50px;color:var(--muted);">No pages left. Click <strong>↩ Undo</strong> or <strong>↻ Reset</strong> to restore pages.</div>';
+        return;
+      }
+
+      grid.innerHTML = pmState.pages.map((p, idx) => {
+        const cls = 'pm-card ' + (p.selected ? 'selected' : 'excluded');
+        return '<div class="' + cls + '" draggable="true" data-uid="' + p.uid + '" ' +
+          'ondragstart="pmDragStart(event,\\'' + p.uid + '\\')" ' +
+          'ondragover="pmDragOver(event,\\'' + p.uid + '\\')" ' +
+          'ondragleave="this.classList.remove(\\'pm-drag-over\\')" ' +
+          'ondrop="pmDrop(event,\\'' + p.uid + '\\')">' +
+          '<div class="pm-thumb-box" onclick="pmTogglePage(\\'' + p.uid + '\\')" title="Click to include/exclude Page ' + (p.srcIndex + 1) + '">' +
+            '<canvas id="pm_cv_' + p.uid + '" style="transform:rotate(' + p.rot + 'deg);"></canvas>' +
+            '<span class="pm-page-pill">#' + (idx + 1) + (p.srcIndex !== idx ? ' (orig p.' + (p.srcIndex + 1) + ')' : '') + '</span>' +
+            '<span class="pm-excl-pill">Excluded</span>' +
+          '</div>' +
+          '<div class="pm-card-bar">' +
+            '<label style="display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;cursor:pointer;">' +
+              '<input type="checkbox" ' + (p.selected ? 'checked' : '') + ' onchange="pmTogglePage(\\'' + p.uid + '\\')" style="width:14px;height:14px;cursor:pointer;"> p.' + (p.srcIndex + 1) +
+            '</label>' +
+            '<div style="display:flex;gap:3px;">' +
+              '<button class="pm-icon-btn" onclick="pmZoomPage(' + p.srcIndex + ',' + p.rot + ')" title="Inspect full page">🔍</button>' +
+              '<button class="pm-icon-btn" onclick="pmRotatePage(\\'' + p.uid + '\\',90)" title="Rotate 90°">↻</button>' +
+              '<button class="pm-icon-btn" onclick="pmDuplicatePage(\\'' + p.uid + '\\')" title="Duplicate page">⧉</button>' +
+              '<button class="pm-icon-btn" style="color:var(--danger);" onclick="pmDeletePage(\\'' + p.uid + '\\')" title="Remove page">🗑</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      pmRenderThumbnailsAsync();
+    }
+
+    async function pmRenderThumbnailsAsync() {
+      const doc = pmState.pdfJsDoc;
+      if (!doc) return;
+      const snapshotPages = pmState.pages.slice();
+      for (const p of snapshotPages) {
+        const cv = document.getElementById('pm_cv_' + p.uid);
+        if (!cv) continue;
+        if (pmState.thumbCache.has(p.srcIndex)) {
+          const cached = pmState.thumbCache.get(p.srcIndex);
+          cv.width = cached.width;
+          cv.height = cached.height;
+          cv.getContext('2d').drawImage(cached, 0, 0);
+          continue;
+        }
+        try {
+          const page = await doc.getPage(p.srcIndex + 1);
+          const vp1 = page.getViewport({ scale: 1 });
+          const scale = Math.min(220 / vp1.width, 300 / vp1.height);
+          const vp = page.getViewport({ scale });
+          const off = document.createElement('canvas');
+          off.width = Math.round(vp.width);
+          off.height = Math.round(vp.height);
+          await page.render({ canvasContext: off.getContext('2d'), viewport: vp }).promise;
+          pmState.thumbCache.set(p.srcIndex, off);
+          const liveCv = document.getElementById('pm_cv_' + p.uid);
+          if (liveCv) {
+            liveCv.width = off.width;
+            liveCv.height = off.height;
+            liveCv.getContext('2d').drawImage(off, 0, 0);
+          }
+        } catch {}
+      }
+    }
+
+    function pmTogglePage(uid) {
+      pmPushUndo();
+      const item = pmState.pages.find(p => p.uid === uid);
+      if (item) item.selected = !item.selected;
+      pmRenderGrid();
+    }
+
+    function pmRotatePage(uid, delta) {
+      pmPushUndo();
+      const item = pmState.pages.find(p => p.uid === uid);
+      if (item) item.rot = (item.rot + delta + 360) % 360;
+      pmRenderGrid();
+    }
+
+    function pmDuplicatePage(uid) {
+      pmPushUndo();
+      const idx = pmState.pages.findIndex(p => p.uid === uid);
+      if (idx < 0) return;
+      const orig = pmState.pages[idx];
+      pmState.pages.splice(idx + 1, 0, {
+        uid: 'pg_dup_' + orig.srcIndex + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+        srcIndex: orig.srcIndex,
+        selected: true,
+        rot: orig.rot
+      });
+      pmRenderGrid();
+    }
+
+    function pmDeletePage(uid) {
+      pmPushUndo();
+      pmState.pages = pmState.pages.filter(p => p.uid !== uid);
+      pmRenderGrid();
+    }
+
+    function pmRemoveUnselected() {
+      const kept = pmState.pages.filter(p => p.selected);
+      if (kept.length === pmState.pages.length) return;
+      pmPushUndo();
+      pmState.pages = kept;
+      pmRenderGrid();
+    }
+
+    function pmApplyRange() {
+      const spec = (document.getElementById('pmRangeInput').value || '').trim();
+      if (!spec) { pmPreset('all'); return; }
+      const matched = new Set(parsePageRangeSpec(spec, pmState.pages.length));
+      if (matched.size === 0) {
+        alert('No pages matched "' + spec + '". Try e.g. 1-3, 5, 8-10');
+        return;
+      }
+      pmPushUndo();
+      pmState.pages.forEach((p, idx) => { p.selected = matched.has(idx); });
+      pmRenderGrid();
+    }
+
+    function pmPreset(kind) {
+      pmPushUndo();
+      pmState.pages.forEach((p, idx) => {
+        if (kind === 'all') p.selected = true;
+        else if (kind === 'none') p.selected = false;
+        else if (kind === 'odd') p.selected = ((idx + 1) % 2 === 1);
+        else if (kind === 'even') p.selected = ((idx + 1) % 2 === 0);
+        else if (kind === 'first') p.selected = (idx === 0);
+        else if (kind === 'invert') p.selected = !p.selected;
+      });
+      pmRenderGrid();
+    }
+
+    function pmDragStart(ev, uid) {
+      pmState.dragUid = uid;
+      ev.dataTransfer.effectAllowed = 'move';
+      try { ev.dataTransfer.setData('text/plain', uid); } catch {}
+    }
+
+    function pmDragOver(ev, targetUid) {
+      if (pmState.dragUid && pmState.dragUid !== targetUid) {
+        ev.preventDefault();
+        if (ev.currentTarget) ev.currentTarget.classList.add('pm-drag-over');
+      }
+    }
+
+    function pmDrop(ev, targetUid) {
+      if (ev.currentTarget) ev.currentTarget.classList.remove('pm-drag-over');
+      if (!pmState.dragUid || pmState.dragUid === targetUid) return;
+      ev.preventDefault();
+      const fromIdx = pmState.pages.findIndex(p => p.uid === pmState.dragUid);
+      const toIdx = pmState.pages.findIndex(p => p.uid === targetUid);
+      pmState.dragUid = null;
+      if (fromIdx < 0 || toIdx < 0) return;
+      pmPushUndo();
+      const [moved] = pmState.pages.splice(fromIdx, 1);
+      pmState.pages.splice(toIdx, 0, moved);
+      pmRenderGrid();
+    }
+
+    async function pmZoomPage(srcIndex, rot) {
+      if (!pmState.pdfJsDoc) return;
+      document.getElementById('pmZoomTitle').textContent = pmState.fileName + ' — Page ' + (srcIndex + 1);
+      document.getElementById('pmZoomOverlay').classList.add('open');
+      const page = await pmState.pdfJsDoc.getPage(srcIndex + 1);
+      const vp = page.getViewport({ scale: 1.5, rotation: (page.rotate + rot) % 360 });
+      const cv = document.getElementById('pmZoomCanvas');
+      cv.width = vp.width;
+      cv.height = vp.height;
+      await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    }
+
+    async function pmBuildSelectedPdfBytes() {
+      const chosen = pmState.pages.filter(p => p.selected);
+      if (chosen.length === 0) throw new Error('Select at least 1 page first.');
+      const srcDoc = await window.PDFLib.PDFDocument.load(pmState.pdfBytes, { ignoreEncryption: true });
+      const outDoc = await window.PDFLib.PDFDocument.create();
+      for (const p of chosen) {
+        const [copied] = await outDoc.copyPages(srcDoc, [p.srcIndex]);
+        if (p.rot) {
+          const curRot = copied.getRotation().angle || 0;
+          copied.setRotation(window.PDFLib.degrees((curRot + p.rot) % 360));
+        }
+        outDoc.addPage(copied);
+      }
+      return { bytes: await outDoc.save(), count: chosen.length };
+    }
+
+    async function pmSaveOutput(andPrint) {
+      const btn = document.getElementById(andPrint ? 'pmPrintBtn' : 'pmSaveBtn');
+      const origTxt = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Building PDF...'; }
+      try {
+        const { bytes, count } = await pmBuildSelectedPdfBytes();
+        const base = (pmState.fileName || 'document').replace(/\\.[^.]+$/, '');
+        const outName = base + '_p' + count + '_' + Date.now().toString().slice(-4) + '.pdf';
+
+        if (pmState.mode === 'tray') {
+          const res = await fetch('/api/tray/add-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/pdf', 'X-File-Name': encodeURIComponent(outName) },
+            body: bytes
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || 'Could not save to Tray');
+          await fetchCloudState(true);
+          closeStudioModal('pageManagerModal');
+          if (andPrint) {
+            directPrint('/api/tray/file?id=' + encodeURIComponent(data.item.id), outName);
+          } else {
+            showToast('✓ Saved ' + count + ' selected page(s) to Holding Tray (' + outName + ')', null, null, 5000);
+          }
+          return;
+        }
+
+        const res = await fetch('/api/file/save-edited-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            'X-File-Id': pmState.fileId || '',
+            'X-Output-Name': outName
+          },
+          body: bytes
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+
+        const savedFileId = pmState.fileId;
+        const savedFileName = pmState.fileName;
+        pushGlobalUndo('Page Selection on "' + savedFileName + '"', async () => {
+          await fetch('/api/file/reset-edited', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: savedFileId })
+          });
+          await fetchCloudState(true);
+        });
+
+        await fetchCloudState(true);
+        closeStudioModal('pageManagerModal');
+        if (andPrint) {
+          directPrint(data.url, data.filename);
+          showToast('🖨 Printing ' + count + ' selected page(s) of ' + savedFileName, '↩ Revert Original', async () => {
+            await fetch('/api/file/reset-edited', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: savedFileId }) });
+            await fetchCloudState(true);
+          }, 8000);
+        } else {
+          showToast('✓ Saved ' + count + ' selected page(s) for ' + savedFileName + ' (used in Print & Merge)', '↩ Undo', async () => {
+            await fetch('/api/file/reset-edited', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: savedFileId }) });
+            await fetchCloudState(true);
+          }, 8000);
+          if (pmState.returnToMerge && mergeQueue.submissionId) openMergeModal(mergeQueue.submissionId);
+        }
+      } catch (err) {
+        alert('Page Manager error: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origTxt; }
+      }
+    }
+
+    async function pmSendToTray() {
+      const btn = document.getElementById('pmToTrayBtn');
+      const origTxt = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending...'; }
+      try {
+        const { bytes, count } = await pmBuildSelectedPdfBytes();
+        const base = (pmState.fileName || 'document').replace(/\\.[^.]+$/, '');
+        const outName = base + '_selected_' + count + 'p.pdf';
+        const res = await fetch('/api/tray/add-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/pdf', 'X-File-Name': encodeURIComponent(outName) },
+          body: bytes
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Could not send to Holding Tray');
+        trayCollapsed = false;
+        await fetchCloudState(true);
+        closeStudioModal('pageManagerModal');
+        showToast('📌 Sent ' + count + ' selected page(s) to Holding Tray (' + outName + ')', null, null, 5000);
+      } catch (err) {
+        alert('Send to Tray failed: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origTxt; }
       }
     }
 `;

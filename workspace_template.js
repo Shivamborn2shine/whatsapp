@@ -26,128 +26,229 @@ module.exports = `<!DOCTYPE html>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     :root {
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --primary-soft: #eff6ff;
-      --bg: #f4f7fb;
-      --surface: #ffffff;
-      --surface-alt: #f8fafc;
-      --border: #e2e8f0;
-      --text: #0f172a;
-      --text-secondary: #475569;
-      --muted: #64748b;
+      --primary: #0078FF;
+      --primary-hover: #0060D1;
+      --primary-soft: #EBF5FF;
+      --navy: #0B2545;
+      --sky: #58C3FF;
+      --gold: #FFC107;
+      --bg: #EAF5FF;
+      --surface: #FFFFFF;
+      --surface-alt: #F4F9FF;
+      --border: #D2E6FA;
+      --text: #0B2545;
+      --text-secondary: #334E68;
+      --muted: #627D98;
       --success: #16a34a;
       --warning: #d97706;
       --danger: #dc2626;
-      --row-hover: #f8fafc;
-      --row-selected: #eff6ff;
+      --row-hover: #F0F7FF;
+      --row-selected: #DFF0FF;
+      --card-shadow: 0 8px 26px rgba(0, 120, 255, 0.085);
     }
     body.dark {
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
-      --primary-soft: rgba(59,130,246,0.16);
-      --bg: #0b1120;
-      --surface: #111827;
-      --surface-alt: #1e293b;
-      --border: #1f2937;
-      --text: #f1f5f9;
-      --text-secondary: #cbd5e1;
-      --muted: #94a3b8;
-      --row-hover: #1e293b;
-      --row-selected: rgba(59,130,246,0.18);
+      --primary: #218BFF;
+      --primary-hover: #0078FF;
+      --primary-soft: rgba(33,139,255,0.16);
+      --navy: #061326;
+      --sky: #58C3FF;
+      --gold: #FFC107;
+      --bg: #071426;
+      --surface: #0D1F38;
+      --surface-alt: #132A4A;
+      --border: #1E3A5F;
+      --text: #F0F6FF;
+      --text-secondary: #C6DCF5;
+      --muted: #84A5C8;
+      --row-hover: #142D50;
+      --row-selected: rgba(0,120,255,0.22);
+      --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
 
-    .sidebar { width: 224px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
-    .sidebar-brand { padding: 18px 16px; display: flex; align-items: center; gap: 10px; }
-    .brand-icon { width: 34px; height: 34px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; font-size: 18px; }
-    .nav-list { padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
-    .nav-item { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 10px; color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; border: none; background: none; width: 100%; text-align: left; transition: all 0.15s; }
-    .nav-item:hover { background: var(--surface-alt); color: var(--text); }
-    .nav-item.active { background: var(--primary-soft); color: var(--primary); }
+    /* Deep Navy Brand Sidebar with Blue + Golden Bolt Sweep */
+    .sidebar {
+      width: 228px;
+      background:
+        radial-gradient(ellipse 140% 42% at 22% 72%, rgba(0, 120, 255, 0.34) 0%, rgba(0, 120, 255, 0) 68%),
+        radial-gradient(ellipse 120% 20% at 75% 74%, rgba(255, 193, 7, 0.32) 0%, rgba(255, 193, 7, 0) 70%),
+        linear-gradient(180deg, #0B2545 0%, #091E3A 56%, #07162C 100%);
+      border-right: 1px solid rgba(88, 195, 255, 0.16);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      color: #E2EEFF;
+      position: relative;
+      overflow: hidden;
+    }
+    .sidebar::after {
+      content: "";
+      position: absolute;
+      left: -30px; right: -30px; bottom: 118px; height: 90px;
+      background: linear-gradient(162deg, transparent 26%, rgba(0,120,255,0.36) 46%, rgba(255,193,7,0.52) 52%, transparent 64%);
+      filter: blur(8px);
+      pointer-events: none;
+    }
+    .sidebar-brand { padding: 18px 16px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(88, 195, 255, 0.12); position: relative; z-index: 1; }
+    .brand-title { font-weight: 900; font-size: 18px; letter-spacing: -0.02em; line-height: 1.1; }
+    .brand-title .scan { color: #FFFFFF; }
+    .brand-title .drop { color: #58C3FF; }
+    .brand-sub { font-size: 10.5px; color: #8FB8E8; font-weight: 600; margin-top: 2px; }
+    .nav-list { padding: 12px 10px; flex: 1; display: flex; flex-direction: column; gap: 5px; overflow-y: auto; position: relative; z-index: 1; }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 13px; border-radius: 12px; color: #C6DCF7; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; background: transparent; width: 100%; text-align: left; transition: all 0.16s; }
+    .nav-item:hover { background: rgba(88, 195, 255, 0.12); color: #FFFFFF; }
+    .nav-item.active {
+      background: linear-gradient(90deg, #0078FF 0%, #2496FF 100%);
+      color: #FFFFFF;
+      box-shadow: 0 6px 18px rgba(0, 120, 255, 0.42);
+      border-color: rgba(88, 195, 255, 0.45);
+    }
     .nav-left { display: flex; align-items: center; gap: 10px; }
-    .badge { padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .badge { padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .badge-gold { background: #FFC107; color: #0B2545; min-width: 22px; text-align: center; box-shadow: 0 2px 6px rgba(255, 193, 7, 0.35); }
     .badge-red { background: #ef4444; color: #fff; }
-    .badge-amber { background: #f59e0b; color: #fff; }
-    .badge-blue { background: #dbeafe; color: #1d4ed8; }
-    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-amber { background: #FFC107; color: #0B2545; }
+    .badge-blue { background: #DCEEFF; color: #0060D1; }
+    .badge-green { background: #DCFCE7; color: #15803d; }
     .badge-gray { background: var(--surface-alt); color: var(--muted); border: 1px solid var(--border); }
-    .nav-divider { height: 1px; background: var(--border); margin: 8px 6px; }
-    .station-box { margin: 12px; padding: 12px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 12px; font-size: 11px; color: var(--muted); }
+    .nav-divider { height: 1px; background: rgba(88, 195, 255, 0.14); margin: 8px 6px; }
+    .station-box {
+      margin: 12px;
+      padding: 12px 13px;
+      background: rgba(8, 25, 48, 0.72);
+      border: 1px solid rgba(88, 195, 255, 0.22);
+      border-radius: 13px;
+      font-size: 11.5px;
+      color: #A7C7EA;
+      backdrop-filter: blur(8px);
+      position: relative;
+      z-index: 1;
+    }
+    .station-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; margin-right: 5px; box-shadow: 0 0 8px #22c55e; }
 
-    .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-    .topbar { height: 68px; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+    /* Flowing Ice-Blue Wave Main Area */
+    .main-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse 70% 45% at 88% 12%, rgba(88, 195, 255, 0.22) 0%, transparent 70%),
+        radial-gradient(ellipse 65% 50% at 18% 82%, rgba(0, 120, 255, 0.14) 0%, transparent 70%),
+        linear-gradient(155deg, #F3F9FF 0%, #E7F3FF 48%, #D9ECFF 100%);
+    }
+    body.dark .main-area {
+      background-image:
+        radial-gradient(ellipse 70% 45% at 88% 12%, rgba(0, 120, 255, 0.16) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 50% at 15% 85%, rgba(88, 195, 255, 0.10) 0%, transparent 70%),
+        linear-gradient(155deg, #071426 0%, #091B33 55%, #071428 100%);
+    }
+
+    .topbar {
+      height: 66px;
+      background: rgba(255, 255, 255, 0.90);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(0, 120, 255, 0.14);
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 14px rgba(0, 120, 255, 0.05);
+    }
+    body.dark .topbar { background: rgba(11, 29, 53, 0.92); border-bottom-color: rgba(88, 195, 255, 0.16); }
     .search-wrap { position: relative; display: flex; align-items: center; }
-    .search-input { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; padding: 8px 56px 8px 32px; color: var(--text); font-size: 13px; width: 240px; outline: none; }
-    .search-input:focus { border-color: var(--primary); }
-    .kbd-pill { position: absolute; right: 8px; font-size: 10px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); padding: 2px 5px; border-radius: 5px; font-weight: 600; }
+    .search-input { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 7px 56px 7px 32px; color: var(--text); font-size: 12.5px; width: 225px; outline: none; transition: all 0.15s; }
+    .search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0, 120, 255, 0.14); }
+    .kbd-pill { position: absolute; right: 9px; font-size: 10px; color: var(--muted); background: var(--surface-alt); border: 1px solid var(--border); padding: 2px 6px; border-radius: 999px; font-weight: 700; }
 
-    .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 13px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.15s; white-space: nowrap; }
-    .btn:hover { background: var(--primary-hover); }
-    .btn-outline { background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border); }
-    .btn-outline:hover { background: var(--surface-alt); color: var(--text); }
-    .btn-sync { background: var(--primary-soft); color: var(--primary); border: 1px solid rgba(37,99,235,0.25); }
-    .btn-danger-soft { background: rgba(220,38,38,0.1); color: #dc2626; border: 1px solid rgba(220,38,38,0.25); }
-    .btn-amber-soft { background: rgba(217,119,6,0.14); color: #b45309; border: 1px solid rgba(217,119,6,0.3); }
+    .btn { background: linear-gradient(180deg, #1687FF 0%, #0070F0 100%); color: #fff; border: none; border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.15s; white-space: nowrap; box-shadow: 0 3px 10px rgba(0, 120, 255, 0.24); }
+    .btn:hover { background: linear-gradient(180deg, #0078FF 0%, #005CC8 100%); transform: translateY(-0.5px); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-outline { background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(11, 37, 69, 0.05); }
+    .btn-outline:hover { background: var(--primary-soft); color: var(--primary); border-color: rgba(0, 120, 255, 0.35); transform: none; }
+    .btn-sync { background: var(--primary-soft); color: var(--primary); border: 1px solid rgba(0, 120, 255, 0.28); box-shadow: none; }
+    .btn-sync:hover { background: #DCEEFF; color: #005CC8; }
+    .btn-sync-solid { background: linear-gradient(180deg, #1687FF 0%, #0070F0 100%); color: #fff; border: none; border-radius: 999px; padding: 7px 15px; box-shadow: 0 4px 12px rgba(0, 120, 255, 0.32); }
+    .btn-undo-gold { background: rgba(255, 193, 7, 0.18); color: #8A5A00; border: 1px solid rgba(255, 193, 7, 0.55); box-shadow: none; border-radius: 999px; padding: 6px 12px; font-size: 11.5px; }
+    body.dark .btn-undo-gold { color: #FFD54F; background: rgba(255, 193, 7, 0.15); }
+    .btn-undo-gold:hover { background: #FFC107; color: #0B2545; }
+    .btn-danger-soft { background: #FFF1F2; color: #DC2626; border: 1px solid #FECDD3; box-shadow: none; }
+    body.dark .btn-danger-soft { background: rgba(220, 38, 38, 0.14); color: #F87171; border-color: rgba(220, 38, 38, 0.35); }
+    .btn-danger-soft:hover { background: #FFE4E6; color: #B91C1C; }
+    .btn-amber-soft { background: rgba(255, 193, 7, 0.20); color: #92400E; border: 1px solid rgba(255, 193, 7, 0.5); box-shadow: none; }
 
-    .workspace-scroll { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 16px; }
+    .workspace-scroll { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; }
     .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; }
-    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-    .stat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: var(--primary-soft); }
+    .stat-card { background: rgba(255, 255, 255, 0.94); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; box-shadow: var(--card-shadow); }
+    body.dark .stat-card { background: var(--surface); }
+    .stat-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: var(--primary-soft); }
     .stat-num { font-size: 20px; font-weight: 800; line-height: 1.15; color: var(--text); }
     .stat-lbl { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-top: 2px; }
 
-    .split-grid { display: flex; gap: 16px; flex: 1; min-height: 460px; align-items: flex-start; }
-    .list-panel { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-    .inspector-panel { width: 380px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+    .split-grid { display: flex; gap: 16px; flex: 1; min-height: 0; align-items: stretch; }
+    .inbox-left-col { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .list-panel { background: rgba(255, 255, 255, 0.95); border: 1px solid var(--border); border-radius: 18px; display: flex; flex-direction: column; overflow: hidden; min-width: 0; box-shadow: var(--card-shadow); }
+    body.dark .list-panel { background: var(--surface); }
+    .inbox-brand-stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18px 16px; min-height: 120px; pointer-events: none; user-select: none; }
+    .inbox-brand-stage img { max-width: 300px; width: 46%; min-width: 170px; height: auto; opacity: 0.94; filter: drop-shadow(0 12px 24px rgba(0, 120, 255, 0.16)); }
+    .inspector-panel { width: 396px; background: rgba(255, 255, 255, 0.96); border: 1px solid var(--border); border-radius: 18px; padding: 16px 18px; flex-shrink: 0; display: flex; flex-direction: column; gap: 11px; box-shadow: var(--card-shadow); align-self: flex-start; max-height: 100%; overflow-y: auto; }
+    body.dark .inspector-panel { background: var(--surface); }
 
-    .filter-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; }
-    .filter-tabs { display: flex; gap: 14px; }
-    .filter-tab { padding: 13px 2px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; }
+    .filter-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; background: var(--surface); }
+    .filter-tabs { display: flex; gap: 16px; }
+    .filter-tab { padding: 12px 2px; font-size: 12.5px; font-weight: 700; color: var(--muted); background: none; border: none; border-bottom: 2.5px solid transparent; cursor: pointer; transition: all 0.14s; }
+    .filter-tab:hover { color: var(--text); }
     .filter-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-    .sub-row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
+    .sub-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; border-left: 3.5px solid transparent; }
     .sub-row:hover { background: var(--row-hover); }
-    .sub-row.selected { background: var(--row-selected); }
+    .sub-row.selected { background: var(--row-selected); border-left-color: #0078FF; }
     .sub-row-main { flex: 1; min-width: 0; }
     .sub-row-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
-    .bulk-bar { padding: 12px 16px; background: var(--surface-alt); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .bulk-bar { padding: 10px 16px; background: var(--surface-alt); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 
     .insp-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--border); }
-    .insp-tab { padding: 8px 2px; font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; }
+    .insp-tab { padding: 7px 2px; font-size: 12.5px; font-weight: 700; color: var(--muted); background: none; border: none; border-bottom: 2.5px solid transparent; cursor: pointer; }
     .insp-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-    .insp-file-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); padding: 10px; margin-bottom: 8px; }
+    .insp-file-card { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 10px 11px; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(0, 120, 255, 0.05); }
     .insp-file-top { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
     .insp-file-actions { display: flex; gap: 5px; flex-wrap: wrap; }
-    .mini-btn { padding: 4px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); cursor: pointer; font-weight: 600; }
-    .mini-btn:hover { background: var(--primary-soft); color: var(--primary); border-color: rgba(37,99,235,0.3); }
-    .file-type-box { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; }
-    .ft-pdf { background: #ef4444; }
-    .ft-img { background: #10b981; }
-    .ft-doc { background: #3b82f6; }
+    .mini-btn { padding: 4px 8px; font-size: 11px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-alt); color: var(--text-secondary); cursor: pointer; font-weight: 700; transition: all 0.12s; }
+    .mini-btn:hover { background: var(--primary-soft); color: var(--primary); border-color: rgba(0, 120, 255, 0.35); }
+    .mini-btn-edit { background: var(--primary-soft); color: var(--primary); border-color: rgba(0, 120, 255, 0.35); }
+    .mini-btn-edit:hover { background: var(--primary); color: #fff; }
+    .mini-btn-pages { background: rgba(255, 193, 7, 0.16); color: #8A5A00; border-color: rgba(255, 193, 7, 0.55); }
+    body.dark .mini-btn-pages { color: #FFD54F; }
+    .mini-btn-pages:hover { background: #FFC107; color: #0B2545; border-color: #FFC107; }
+    .file-type-box { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+    .ft-pdf { background: linear-gradient(135deg, #F43F5E, #DC2626); }
+    .ft-img { background: linear-gradient(135deg, #10B981, #059669); }
+    .ft-doc { background: linear-gradient(135deg, #218BFF, #0060D1); }
     .ft-other { background: #64748b; }
 
-    .field-input { width: 100%; padding: 9px 11px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; }
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.55); backdrop-filter: blur(3px); align-items: center; justify-content: center; z-index: 100; }
+    .field-input { width: 100%; padding: 9px 11px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font-size: 13px; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(11, 37, 69, 0.62); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 100; }
     .modal-overlay.open { display: flex; }
-    .modal-box { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 16px; padding: 22px; width: 92%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25); }
+    .modal-box { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 16px; padding: 22px; width: 92%; max-width: 500px; box-shadow: 0 20px 35px rgba(11, 37, 69, 0.30); }
     table { width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; }
-    th { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; }
+    th { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 700; }
     td { padding: 10px; border-bottom: 1px solid var(--border); }
-    code { background: var(--surface-alt); padding: 2px 5px; border-radius: 5px; font-size: 11.5px; }
-    .mini-btn-edit { background: var(--primary-soft); color: var(--primary); border-color: rgba(37,99,235,0.35); }
-    .mini-btn-edit:hover { background: var(--primary); color: #fff; }
+    code { background: var(--surface-alt); padding: 2px 6px; border-radius: 6px; font-size: 11.5px; border: 1px solid var(--border); }
 ${studioCss}
   </style>
 </head>
 <body>
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <img src="${ICON_URI || '/assets/scandrop-icon-96.png'}" alt="ScanDrop" style="width:36px;height:36px;border-radius:9px;display:block;flex-shrink:0;">
+      <img src="${ICON_URI || '/assets/scandrop-icon-96.png'}" alt="ScanDrop" style="width:38px;height:38px;border-radius:10px;display:block;flex-shrink:0;box-shadow:0 4px 12px rgba(0,120,255,0.4);">
       <div>
-        <div style="font-weight:800;font-size:16px;">ScanDrop</div>
-        <div style="font-size:11px;color:var(--muted);">Instant File Drop</div>
+        <div class="brand-title"><span class="scan">Scan</span><span class="drop">Drop</span></div>
+        <div class="brand-sub">Instant File Drop</div>
       </div>
     </div>
 
@@ -157,14 +258,14 @@ ${studioCss}
       </button>
       <button class="nav-item active" id="nav-inbox" onclick="setTab('inbox', this)">
         <span class="nav-left"><span>📥</span><span>Inbox</span></span>
-        <span class="badge badge-red" id="badgeInbox">0</span>
+        <span class="badge badge-gold" id="badgeInbox">0</span>
       </button>
       <button class="nav-item" id="nav-fileManager" onclick="setTab('fileManager', this)">
         <span class="nav-left"><span>📁</span><span>File Manager</span></span>
       </button>
       <button class="nav-item" id="nav-trash" onclick="setTab('trash', this)" ondragover="handleTrashZoneDragOver(event)" ondragleave="this.classList.remove('drag-active')" ondrop="handleTrashZoneDrop(event)">
         <span class="nav-left"><span>🗑️</span><span>Trash</span></span>
-        <span class="badge badge-amber" id="badgeTrash" style="display:none;">0</span>
+        <span class="badge badge-gold" id="badgeTrash" style="display:none;">0</span>
       </button>
       <button class="nav-item" id="nav-qr" onclick="setTab('qr', this)">
         <span class="nav-left"><span>⊞</span><span>QR &amp; Sharing</span></span>
@@ -178,30 +279,36 @@ ${studioCss}
     </nav>
 
     <div class="station-box">
-      <div style="font-weight:700;color:var(--text);margin-bottom:4px;" id="sidebarShopName">Local PC Station</div>
-      <div id="sidebarReceiverStatus">Receiver: Checking...</div>
-      <div id="sidebarStorageMini" style="margin-top:3px;">Storage: --</div>
+      <div style="font-weight:800;color:#FFFFFF;font-size:12.5px;margin-bottom:5px;display:flex;align-items:center;gap:6px;">
+        <span>🏪</span><span id="sidebarShopName">Local PC Station</span>
+      </div>
+      <div><span class="station-dot"></span><span id="sidebarReceiverStatus">Receiver: Checking...</span></div>
+      <div id="sidebarStorageMini" style="margin-top:4px;color:#8FB8E8;">Storage: --</div>
     </div>
   </aside>
 
   <main class="main-area">
     <header class="topbar">
-      <div>
-        <h1 id="viewTitle" style="font-size:17px;font-weight:800;">File Inbox</h1>
-        <p id="viewSubtitle" style="font-size:12px;color:var(--muted);margin-top:2px;">Customer submissions stored locally on your Windows PC</p>
+      <div style="display:flex;align-items:center;gap:11px;min-width:0;">
+        <div style="width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#FFF4CC,#FFE082);display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 3px 10px rgba(255,193,7,0.28);flex-shrink:0;" id="viewIcon">📂</div>
+        <div style="min-width:0;">
+          <h1 id="viewTitle" style="font-size:17.5px;font-weight:900;letter-spacing:-0.01em;">File Inbox</h1>
+          <p id="viewSubtitle" style="font-size:11.5px;color:var(--muted);margin-top:1px;">Customer submissions stored locally on your Windows PC</p>
+        </div>
       </div>
 
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span id="storageTunnelBadge" class="badge badge-blue" style="font-size:11px;padding:5px 10px;">Connecting...</span>
-        <button id="pauseToggleBtn" class="btn btn-outline" onclick="togglePauseReceiving()" style="padding:6px 10px;font-size:11px;">⏸ Pause</button>
-        <button id="topbarStorageBtn" class="btn btn-outline" onclick="setTab('fileManager')" title="Inspect & Free Up Storage" style="padding:6px 10px;font-size:11px;">🧹 Storage</button>
+        <button id="globalUndoBtn" class="btn btn-undo-gold" style="display:none;" onclick="performGlobalUndo()" title="Undo last action (Ctrl+Z)">↩ Undo</button>
+        <span id="storageTunnelBadge" class="badge badge-blue" style="font-size:11px;padding:6px 11px;">Connecting...</span>
+        <button id="pauseToggleBtn" class="btn btn-outline" onclick="togglePauseReceiving()" style="padding:6px 11px;font-size:11.5px;border-radius:999px;">⏸ Pause</button>
+        <button id="topbarStorageBtn" class="btn btn-outline" onclick="setTab('fileManager')" title="Inspect & Free Up Storage" style="padding:6px 11px;font-size:11.5px;border-radius:999px;">🧹 Storage</button>
         <div class="search-wrap">
-          <span style="position:absolute;left:10px;color:var(--muted);font-size:12px;">🔍</span>
+          <span style="position:absolute;left:11px;color:var(--primary);font-size:12px;">🔍</span>
           <input type="text" id="searchInput" class="search-input" placeholder="Search receipt, name, file..." oninput="renderCurrentView()">
           <span class="kbd-pill">Ctrl+F</span>
         </div>
-        <button id="themeToggleBtn" class="btn btn-outline" onclick="toggleTheme()" title="Toggle Light / Dark Mode" style="padding:7px 9px;">🌙</button>
-        <button class="btn btn-sync" onclick="fetchCloudState(true)" title="Sync Now (F5)">↻ Sync</button>
+        <button id="themeToggleBtn" class="btn btn-outline" onclick="toggleTheme()" title="Toggle Light / Dark Mode" style="padding:7px 10px;border-radius:999px;">🌙</button>
+        <button class="btn btn-sync-solid" onclick="fetchCloudState(true)" title="Sync Now (F5)">↻ Sync</button>
       </div>
     </header>
 
@@ -216,20 +323,24 @@ ${studioCss}
       ondrop="handleTrayBarDrop(event)">
       <div class="tray-header">
         <div class="tray-header-left">
-          <strong style="font-size:12.5px;">📌 Holding Tray</strong>
-          <span id="trayCountBadge" class="badge badge-gray">0</span>
+          <strong style="font-size:13px;">📌 Holding Tray</strong>
+          <span id="trayCountBadge" class="badge badge-gold">0</span>
           <span style="font-size:11px;color:var(--muted);">Keep files temporarily • Drag from any job or PC • Drag out to any job or Merge &amp; Print</span>
         </div>
         <div class="tray-header-actions">
           <input type="file" id="trayAddFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){uploadFilesToTray(this.files);this.value='';}">
-          <button class="btn btn-outline" style="padding:4px 9px;font-size:11px;" onclick="document.getElementById('trayAddFileInput').click()">+ Add Files</button>
-          <button class="btn btn-sync" id="trayCopyToSubBtn" style="padding:4px 9px;font-size:11px;display:none;" onclick="copyAllTrayToSelectedJob()">📥 Add All to Job</button>
-          <button class="btn" id="trayMergeBtn" style="padding:4px 10px;font-size:11px;background:#16a34a;display:none;" onclick="mergeAndPrintTray()">📑 Merge &amp; Print Tray</button>
-          <button class="btn btn-danger-soft" id="trayClearBtn" style="padding:4px 9px;font-size:11px;display:none;" onclick="clearHoldingTray()">🧹 Clear</button>
-          <button class="btn btn-outline" id="trayToggleBtn" style="padding:4px 8px;font-size:11px;" onclick="toggleHoldingTray()">▾ Minimize</button>
+          <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;border-radius:8px;" onclick="document.getElementById('trayAddFileInput').click()">+ Add Files</button>
+          <button class="btn btn-sync" id="trayCopyToSubBtn" style="padding:5px 10px;font-size:11px;border-radius:8px;display:none;" onclick="copyAllTrayToSelectedJob()">📥 Add All to Job</button>
+          <button class="btn" id="trayMergeBtn" style="padding:5px 11px;font-size:11px;border-radius:8px;background:linear-gradient(180deg,#22c55e,#16a34a);display:none;" onclick="mergeAndPrintTray()">📑 Merge &amp; Print Tray</button>
+          <button class="btn btn-danger-soft" id="trayClearBtn" style="padding:5px 10px;font-size:11px;border-radius:8px;display:none;" onclick="clearHoldingTray()">🧹 Clear</button>
+          <button class="btn btn-outline" id="trayToggleBtn" style="padding:5px 9px;font-size:11px;border-radius:8px;" onclick="toggleHoldingTray()">▾ Minimize</button>
         </div>
       </div>
-      <div id="trayShelfItems" class="tray-shelf"></div>
+      <div class="tray-shelf-wrap">
+        <button class="tray-nav-btn" onclick="scrollTrayShelf(-260)" title="Scroll Left">‹</button>
+        <div id="trayShelfItems" class="tray-shelf" style="flex:1;"></div>
+        <button class="tray-nav-btn" onclick="scrollTrayShelf(260)" title="Scroll Right">›</button>
+      </div>
     </section>
   </main>
 
@@ -270,20 +381,22 @@ ${studioHtml}
     let lastStateRenderKey = '';
 
     const TAB_META = {
-      dashboard: ['Dashboard', 'Station status, tunnel health, daily volume, and recent uploads'],
-      inbox: ['File Inbox', 'Grouped customer submissions received on your Windows PC'],
-      fileManager: ['File Manager', 'Local storage breakdown, cleanup, and PDF / Word conversion outputs'],
-      trash: ['Trash', 'Individual files dragged out of submissions — restore anytime or delete permanently'],
-      qr: ['QR & Sharing', 'Customer QR code and upload links for your shop counter'],
-      activity: ['Activity Log', 'Operational events recorded in local SQLite database'],
-      settings: ['Settings', 'Shop name, storage folder, retention, upload limits, printers & updates']
+      dashboard: ['Dashboard', 'Station status, tunnel health, daily volume, and recent uploads', '📊'],
+      inbox: ['File Inbox', 'Grouped customer submissions received on your Windows PC', '📂'],
+      fileManager: ['File Manager', 'Local storage breakdown, cleanup, and PDF / Word conversion outputs', '📁'],
+      trash: ['Trash', 'Individual files dragged out of submissions — restore anytime or delete permanently', '🗑️'],
+      qr: ['QR & Sharing', 'Customer QR code and upload links for your shop counter', '⊞'],
+      activity: ['Activity Log', 'Operational events recorded in local SQLite database', '🕒'],
+      settings: ['Settings', 'Shop name, storage folder, retention, upload limits, printers & updates', '⚙️']
     };
 
     function setTab(tab, btn) {
       currentTab = tab;
-      const meta = TAB_META[tab] || ['Workspace', ''];
+      const meta = TAB_META[tab] || ['Workspace', '', '⚡'];
       document.getElementById('viewTitle').textContent = meta[0];
       document.getElementById('viewSubtitle').textContent = meta[1];
+      const ic = document.getElementById('viewIcon');
+      if (ic) ic.textContent = meta[2] || '⚡';
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
       const targetBtn = btn || document.getElementById('nav-' + tab);
       if (targetBtn) targetBtn.classList.add('active');
@@ -437,24 +550,46 @@ ${studioHtml}
       await fetchCloudState(true);
     }
 
-    async function updateSubStatus(subId, newStatus, e) {
+    async function updateSubStatus(subId, newStatus, e, skipUndo) {
       if (e) e.stopPropagation();
+      const prevSub = ((cloudState && cloudState.submissions) || []).find(s => s.id === subId || s.receiptCode === subId);
+      const prevStatus = prevSub ? prevSub.status : 'received';
       await fetch('/api/submission/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ submissionId: subId, status: newStatus })
       });
+      if (!skipUndo && prevStatus && prevStatus !== newStatus) {
+        pushGlobalUndo('Mark ' + subId + ' as ' + newStatus, () => updateSubStatus(subId, prevStatus, null, true));
+        showToast('Updated ' + subId + ' → ' + newStatus, '↩ Undo', () => updateSubStatus(subId, prevStatus, null, true), 5500);
+      }
       await fetchCloudState(true);
     }
 
-    async function bulkUpdateSubStatus(ids, newStatus) {
+    async function bulkUpdateSubStatus(ids, newStatus, skipUndo) {
       if (!ids || ids.length === 0) return;
+      const prevPairs = ids.map(id => {
+        const s = ((cloudState && cloudState.submissions) || []).find(x => x.id === id || x.receiptCode === id);
+        return { id, status: s ? s.status : 'received' };
+      });
       await Promise.all(ids.map(id => fetch('/api/submission/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ submissionId: id, status: newStatus })
       })));
       checkedSubIds.clear();
+      if (!skipUndo) {
+        const revertAll = async () => {
+          await Promise.all(prevPairs.map(p => fetch('/api/submission/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ submissionId: p.id, status: p.status })
+          })));
+          await fetchCloudState(true);
+        };
+        pushGlobalUndo('Mark ' + ids.length + ' job(s) as ' + newStatus, revertAll);
+        showToast('Updated ' + ids.length + ' job(s) → ' + newStatus, '↩ Undo', revertAll, 6000);
+      }
       await fetchCloudState(true);
     }
 
@@ -495,7 +630,15 @@ ${studioHtml}
       });
       const data = await res.json();
       if (!res.ok || !data.success) alert(data.error || 'Rename failed');
-      else await fetchCloudState(true);
+      else {
+        const revertRename = async () => {
+          await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId, newName: currentName }) });
+          await fetchCloudState(true);
+        };
+        pushGlobalUndo('Rename "' + currentName + '"', revertRename);
+        await fetchCloudState(true);
+        showToast('Renamed to "' + (data.newName || next.trim()) + '"', '↩ Undo', revertRename, 6000);
+      }
     }
 
     async function exportFilePermanent(fileId) {
@@ -892,6 +1035,7 @@ ${studioHtml}
                 <div class="insp-file-actions">
                   \${isPdf ? \`<button class="mini-btn mini-btn-edit" onclick="convertPdfToWord('\${esc(f.id)}', '\${esc(f.originalName)}', this)" title="Convert PDF to editable Word (.docx) and download">📝 To Word</button>\` : ''}
                   \${isWord ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open directly in Microsoft Word">↗ Edit in Word</button>\` : ''}
+                  \${(isPdf || isWord) ? \`<button class="mini-btn mini-btn-pages" onclick="openPageManager('\${esc(f.id)}', false)" title="Choose exact pages, reorder, rotate, duplicate or delete pages">📑 Pages</button>\` : ''}
                   \${isImg ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>\` : ''}
                   \${isEdited
                     ? \`<button class="mini-btn" onclick="previewUrl('\${esc(f.convertedUrl)}', '\${esc(f.originalName)} (Edited)', '.pdf', '\${esc(f.id)}')">👁 Preview</button>
@@ -901,6 +1045,7 @@ ${studioHtml}
                   <button class="mini-btn" onclick="downloadFile('\${esc(f.id)}', '\${esc(f.originalName)}')" title="Download file">⬇ Save</button>
                   <button class="mini-btn" onclick="toggleCardMore('\${esc(f.id)}', event)" title="More actions">⋯</button>
                   <div class="more-actions-drawer" id="more_\${esc(f.id)}">
+                    \${isEdited ? \`<button class="mini-btn" style="color:var(--warning);" onclick="fetch('/api/file/reset-edited',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:'\${esc(f.id)}'})}).then(()=>{fetchCloudState(true);showToast('↩ Reverted to original file');})">↩ Revert Original</button>\` : ''}
                     \${!isWord ? \`<button class="mini-btn" onclick="openFileNative('\${esc(f.id)}')">↗ Open</button>\` : ''}
                     <button class="mini-btn" onclick="openFileWithNative('\${esc(f.id)}')">📂 Open With</button>
                     \${!isPdf ? \`<button class="mini-btn" onclick="convertFileToPdfServer('\${esc(f.id)}')">📄 To PDF</button>\` : ''}
@@ -1003,32 +1148,39 @@ ${studioHtml}
 
         container.innerHTML = \`
           <div class="split-grid">
-            <div class="list-panel" ondragover="handleTrashZoneDragOver(event)" ondrop="handleTrashZoneDrop(event)">
-              <div class="filter-bar">
-                <div class="filter-tabs">
-                  <button class="filter-tab \${subFilter === 'all' ? 'active' : ''}" onclick="subFilter='all';renderCurrentView()">All (\${allSubs.length})</button>
-                  <button class="filter-tab \${subFilter === 'received' ? 'active' : ''}" onclick="subFilter='received';renderCurrentView()">Received (\${recSubs.length})</button>
-                  <button class="filter-tab \${subFilter === 'processing' ? 'active' : ''}" onclick="subFilter='processing';renderCurrentView()">Processing (\${procSubs.length})</button>
-                  <button class="filter-tab \${subFilter === 'printed' ? 'active' : ''}" onclick="subFilter='printed';renderCurrentView()">Printed (\${printedSubs.length})</button>
-                  <button class="filter-tab \${subFilter === 'archived' ? 'active' : ''}" onclick="subFilter='archived';renderCurrentView()">Archived (\${archivedSubs.length})</button>
+            <div class="inbox-left-col" ondragover="handleTrashZoneDragOver(event)" ondrop="handleTrashZoneDrop(event)">
+              <div class="list-panel" style="\${filtered.length > 5 ? 'flex:1;' : ''}">
+                <div class="filter-bar">
+                  <div class="filter-tabs">
+                    <button class="filter-tab \${subFilter === 'all' ? 'active' : ''}" onclick="subFilter='all';renderCurrentView()">All (\${allSubs.length})</button>
+                    <button class="filter-tab \${subFilter === 'received' ? 'active' : ''}" onclick="subFilter='received';renderCurrentView()">Received (\${recSubs.length})</button>
+                    <button class="filter-tab \${subFilter === 'processing' ? 'active' : ''}" onclick="subFilter='processing';renderCurrentView()">Processing (\${procSubs.length})</button>
+                    <button class="filter-tab \${subFilter === 'printed' ? 'active' : ''}" onclick="subFilter='printed';renderCurrentView()">Printed (\${printedSubs.length})</button>
+                    <button class="filter-tab \${subFilter === 'archived' ? 'active' : ''}" onclick="subFilter='archived';renderCurrentView()">Archived (\${archivedSubs.length})</button>
+                  </div>
+                  <select onchange="sortOrder=this.value;renderCurrentView()" style="padding:5px 9px;border:1px solid var(--border);border-radius:9px;font-size:12px;background:var(--surface);color:var(--text);font-weight:600;">
+                    <option value="newest" \${sortOrder === 'newest' ? 'selected' : ''}>Newest First</option>
+                    <option value="oldest" \${sortOrder === 'oldest' ? 'selected' : ''}>Oldest First</option>
+                  </select>
                 </div>
-                <select onchange="sortOrder=this.value;renderCurrentView()" style="padding:5px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);">
-                  <option value="newest" \${sortOrder === 'newest' ? 'selected' : ''}>Newest First</option>
-                  <option value="oldest" \${sortOrder === 'oldest' ? 'selected' : ''}>Oldest First</option>
-                </select>
-              </div>
-              <div id="subRowsScroll" style="flex:1;overflow-y:auto;">\${rowsHtml}</div>
-              <div class="bulk-bar">
-                <label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;cursor:pointer;">
-                  <input type="checkbox" \${allChecked ? 'checked' : ''} onchange='toggleSelectAll(\${JSON.stringify(allFilteredIds)})'> Select All
-                </label>
-                <div style="display:flex;gap:7px;flex-wrap:wrap;">
-                  <button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'printed')">✓ Mark Printed</button>
-                  \${subFilter !== 'archived' ? \`<button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'archived')">📦 Archive</button>\` : ''}
-                  \${(subFilter === 'archived' || subFilter === 'all') ? \`<button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'received')">📤 Unarchive</button>\` : ''}
-                  <button class="btn btn-danger-soft" onclick="deleteSubmissions(Array.from(checkedSubIds))">🗑 Delete Selected</button>
+                <div id="subRowsScroll" style="\${filtered.length > 5 ? 'flex:1;' : ''}overflow-y:auto;">\${rowsHtml}</div>
+                <div class="bulk-bar">
+                  <label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;cursor:pointer;">
+                    <input type="checkbox" \${allChecked ? 'checked' : ''} onchange='toggleSelectAll(\${JSON.stringify(allFilteredIds)})'> Select All
+                  </label>
+                  <div style="display:flex;gap:7px;flex-wrap:wrap;">
+                    <button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'printed')">✓ Mark Printed</button>
+                    \${subFilter !== 'archived' ? \`<button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'archived')">📦 Archive</button>\` : ''}
+                    \${(subFilter === 'archived' || subFilter === 'all') ? \`<button class="btn btn-outline" onclick="bulkUpdateSubStatus(Array.from(checkedSubIds),'received')">📤 Unarchive</button>\` : ''}
+                    <button class="btn btn-danger-soft" onclick="deleteSubmissions(Array.from(checkedSubIds))">🗑 Delete Selected</button>
+                  </div>
                 </div>
               </div>
+              \${filtered.length <= 5 ? \`
+                <div class="inbox-brand-stage">
+                  <img src="/assets/scandrop-logo-hero.png" alt="ScanDrop — Instant File Drop for Shops">
+                </div>
+              \` : ''}
             </div>
             \${inspectorHtml}
           </div>
@@ -1223,9 +1375,27 @@ ${studioHtml}
 ${studioJs}
 
     window.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+      const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+      const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
+      if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
       else if (e.key === 'F5') { e.preventDefault(); fetchCloudState(true); }
-      else if (e.key === 'Escape') { closePreview(); closeStudioModal('mergePrintModal'); }
+      else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing) {
+        if (document.getElementById('pageManagerModal').classList.contains('open')) { e.preventDefault(); pmUndo(); }
+        else if (document.getElementById('imageStudioModal').classList.contains('open')) { e.preventDefault(); icUndo(); }
+        else if (document.getElementById('pdfStudioModal').classList.contains('open')) { e.preventDefault(); pdfStudioUndo(); }
+        else if (document.getElementById('mergePrintModal').classList.contains('open')) { e.preventDefault(); mergeUndo(); }
+        else if (globalUndoStack.length > 0) { e.preventDefault(); performGlobalUndo(); }
+      }
+      else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z')) && !typing) {
+        if (document.getElementById('pageManagerModal').classList.contains('open')) { e.preventDefault(); pmRedo(); }
+        else if (document.getElementById('imageStudioModal').classList.contains('open')) { e.preventDefault(); icRedo(); }
+      }
+      else if (e.key === 'Escape') {
+        const zoom = document.getElementById('pmZoomOverlay');
+        if (zoom && zoom.classList.contains('open')) { zoom.classList.remove('open'); return; }
+        closePreview();
+        closeStudioModal('mergePrintModal');
+      }
     });
 
     fetchCloudState(true);
