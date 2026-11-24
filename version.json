@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.6.1",
+    "version":  "4.6.2",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Page Manager now persistently remembers excluded pages, rotations, reorders, and duplicates in SQLite when revisiting any PDF or Word file, and shows exact selected page counts (e.g. 9/12 pages) directly on file cards and Merge \u0026 Print rows.",
-    "sha256":  "818be8eb58254a3bb9ab5b393f283c423d1fcc96077d8a2a1e68d01a738245fb",
+    "releaseNotes":  "Saving an edited image from Image Print Canvas or converting a file via To PDF now automatically adds the resulting PDF directly into the currently opened customer submission (as well as File Manager), and File Manager outputs now include 1-click + Add to Job and Pin to Tray buttons.",
+    "sha256":  "9715ad2bc31fe79f732e4b2b08c525af8a76767bc635912ebf9d874ecf5173f6",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

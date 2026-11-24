@@ -293,7 +293,7 @@ const studioHtml = `
         <div style="display:flex;gap:7px;flex-wrap:wrap;">
           <button class="btn btn-outline" id="icUndoBtn" onclick="icUndo()" disabled>↩ Undo</button>
           <button class="btn btn-outline" id="icRedoBtn" onclick="icRedo()" disabled>↪ Redo</button>
-          <button class="btn" onclick="imgCanvasExport(false)">💾 Save as PDF (Ready to Merge)</button>
+          <button class="btn" onclick="imgCanvasExport(false)">💾 Save PDF to Job</button>
           <button class="btn" style="background:#16a34a;" onclick="imgCanvasExport(true)">🖨 Direct Print Canvas</button>
           <button class="btn btn-outline" onclick="closeStudioModal('imageStudioModal')">✕ Close</button>
         </div>
@@ -1569,22 +1569,52 @@ const studioJs = `
       const pdfBytes = await doc.save();
 
       const base = (icState.primaryFileName || 'canvas').replace(/\\.[^.]+$/, '') + '_canvas_' + Date.now().toString().slice(-4) + '.pdf';
+      // 1. Save a copy in File Manager (Converted Outputs)
       const res = await fetch('/api/file/save-edited-pdf', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/pdf',
-          'X-File-Id': icState.primaryFileId || '',
           'X-Output-Name': base
         },
         body: pdfBytes
       });
       const data = await res.json();
       if (!res.ok || !data.success) { alert('Save failed: ' + (data.error || 'Error')); return; }
+
+      // 2. Also add the generated PDF directly into the currently opened submission!
+      const targetSubId = icState.submissionId || selectedSubId;
+      let addedFileId = null;
+      if (targetSubId) {
+        try {
+          const addRes = await fetch('/api/submission/add-file', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/pdf',
+              'X-Submission-Id': targetSubId,
+              'X-File-Name': encodeURIComponent(data.filename || base)
+            },
+            body: pdfBytes
+          });
+          const addData = await addRes.json();
+          if (addRes.ok && addData.success && addData.file) {
+            addedFileId = addData.file.id;
+            pushGlobalUndo('Add canvas PDF "' + (data.filename || base) + '"', () => trashFile(addedFileId, data.filename || base, true));
+          }
+        } catch {}
+      }
+
       await fetchCloudState(true);
       if (andPrint) {
         directPrint(data.url, data.filename);
+        showToast('🖨 Printing & added "' + data.filename + '"' + (targetSubId ? (' to ' + targetSubId) : ''), null, null, 5500);
       } else {
-        alert('Canvas saved as PDF (' + data.filename + ')! Marked ✓ Edited for Merge & Print.');
+        closeStudioModal('imageStudioModal');
+        showToast(
+          '✓ Added "' + data.filename + '"' + (targetSubId ? (' to ' + targetSubId + ' & File Manager') : ' to File Manager'),
+          addedFileId ? '↩ Undo' : null,
+          addedFileId ? (() => trashFile(addedFileId, data.filename, true)) : null,
+          7000
+        );
       }
     }
 

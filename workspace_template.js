@@ -664,9 +664,75 @@ ${studioHtml}
         alert('Conversion failed: ' + (data.error || 'Unsupported file'));
         return;
       }
+
+      // Also add the newly generated PDF right into the currently opened submission!
+      let targetSubId = selectedSubId;
+      if (!targetSubId && !Array.isArray(fileIdOrIds)) {
+        for (const s of (cloudState && cloudState.submissions) || []) {
+          if ((s.files || []).some(f => f.id === fileIdOrIds)) { targetSubId = s.id; break; }
+        }
+      }
+      let addedFileId = null;
+      if (targetSubId && data.url) {
+        try {
+          const pdfBytes = await (await fetch(data.url)).arrayBuffer();
+          const addRes = await fetch('/api/submission/add-file', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/pdf',
+              'X-Submission-Id': targetSubId,
+              'X-File-Name': encodeURIComponent(data.outputFilename || 'converted.pdf')
+            },
+            body: pdfBytes
+          });
+          const addData = await addRes.json();
+          if (addRes.ok && addData.success && addData.file) {
+            addedFileId = addData.file.id;
+            pushGlobalUndo('Add converted PDF "' + data.outputFilename + '"', () => trashFile(addedFileId, data.outputFilename, true));
+          }
+        } catch {}
+      }
+
       await fetchCloudState(true);
-      if (confirm('PDF created (' + data.outputFilename + ' via ' + data.engine + '). Preview it now?')) {
-        previewUrl(data.url, data.outputFilename, '.pdf', null);
+      showToast(
+        '✓ Created ' + data.outputFilename + (targetSubId ? (' & added to ' + targetSubId) : ''),
+        '👁 Preview',
+        () => previewUrl(data.url, data.outputFilename, '.pdf', null),
+        7500
+      );
+    }
+
+    async function copyConvertedToTarget(url, fileName, targetKind) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Could not read converted file');
+        const bytes = await res.arrayBuffer();
+        const isDocx = (fileName || '').toLowerCase().endsWith('.docx');
+        const ct = isDocx ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf';
+        if (targetKind === 'tray') {
+          const r = await fetch('/api/tray/add-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': ct, 'X-File-Name': encodeURIComponent(fileName) },
+            body: bytes
+          });
+          const d = await r.json();
+          if (!r.ok || !d.success) throw new Error(d.error || 'Failed');
+          trayCollapsed = false;
+          await fetchCloudState(true);
+          showToast('📌 Added "' + fileName + '" to Holding Tray', null, null, 3500);
+        } else if (selectedSubId) {
+          const r = await fetch('/api/submission/add-file', {
+            method: 'POST',
+            headers: { 'Content-Type': ct, 'X-Submission-Id': selectedSubId, 'X-File-Name': encodeURIComponent(fileName) },
+            body: bytes
+          });
+          const d = await r.json();
+          if (!r.ok || !d.success) throw new Error(d.error || 'Failed');
+          await fetchCloudState(true);
+          showToast('📥 Added "' + fileName + '" to ' + selectedSubId, null, null, 4000);
+        }
+      } catch (err) {
+        alert('Could not copy file: ' + err.message);
       }
     }
 
@@ -1209,7 +1275,9 @@ ${studioHtml}
                 const isDocx = (c.ext === '.docx') || (c.name || '').toLowerCase().endsWith('.docx');
                 return \`<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
                   <div><strong>\${esc(c.name)}</strong> <span style="font-size:11px;color:var(--muted);">(\${formatSize(c.sizeBytes)})</span></div>
-                  <div style="display:flex;gap:6px;">
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    \${selectedSubId ? \`<button class="btn btn-sync" onclick="copyConvertedToTarget('\${esc(c.url)}','\${esc(c.name)}','sub')">+ Add to \${esc(selectedSubId)}</button>\` : ''}
+                    <button class="btn btn-outline" onclick="copyConvertedToTarget('\${esc(c.url)}','\${esc(c.name)}','tray')" title="Add to Holding Tray">📌 Tray</button>
                     \${isDocx
                       ? \`<button class="btn" onclick="openConvertedNative('\${esc(c.name)}')">↗ Open in Word</button>\`
                       : \`<button class="btn btn-outline" onclick="previewUrl('\${esc(c.url)}','\${esc(c.name)}','.pdf',null)">👁 Preview</button>
