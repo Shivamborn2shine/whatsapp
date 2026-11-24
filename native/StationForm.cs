@@ -81,12 +81,17 @@ namespace ScanDrop.Native
             Shown += (s, e) =>
             {
                 RefreshStationMetrics();
-                ThreadPool.QueueUserWorkItem(_ => { Thread.Sleep(3000); RunUpdateCheck(false); });
+                ThreadPool.QueueUserWorkItem(_ => { Thread.Sleep(15000); RunUpdateCheck(false); });
             };
 
             _statusTimer = new System.Windows.Forms.Timer { Interval = 5000 };
             _statusTimer.Tick += (s, e) => RefreshStationMetrics();
             _statusTimer.Start();
+
+            // Periodic background auto-update check every 30 minutes (silently applies when no uploads are active)
+            var autoUpdateTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
+            autoUpdateTimer.Tick += (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(false));
+            autoUpdateTimer.Start();
 
             _tunnel.OnStatusMessage += AppendLog;
             _logger.OnLogLine += AppendLog;
@@ -470,33 +475,54 @@ namespace ScanDrop.Native
                 }
 
                 AppendLog("🔔 Update available: v" + info.LatestVersion + " (current v" + info.CurrentVersion + ")");
-                SafeUi(() =>
-                {
-                    var res = MessageBox.Show(
-                        "Scan Drop v" + info.LatestVersion + " is available!\n\n" +
-                        (string.IsNullOrEmpty(info.ReleaseNotes) ? "" : info.ReleaseNotes + "\n\n") +
-                        "Install and restart ScanDrop.exe now?",
-                        "Scan Drop Update Available",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Information);
 
-                    if (res == DialogResult.Yes)
+                // Automatic silent update when running in background (if no active customer uploads are in progress)
+                if (!interactive)
+                {
+                    if (_db.CountActiveUploadSessions() > 0)
                     {
-                        AppendLog("⬇️ Downloading & verifying ScanDrop v" + info.LatestVersion + "...");
-                        ThreadPool.QueueUserWorkItem(_ =>
+                        AppendLog("⏳ Deferring automatic update to v" + info.LatestVersion + " until active customer upload finishes.");
+                        return;
+                    }
+                    AppendLog("⚡ Automatically installing ScanDrop v" + info.LatestVersion + " (SHA-256 verified)...");
+                    SafeUi(() =>
+                    {
+                        if (_trayIcon != null)
                         {
-                            string err;
-                            if (!AutoUpdater.ApplyUpdate(info, () =>
-                            {
-                                try { _tunnel.Dispose(); } catch { }
-                                try { _publicReceiver.Dispose(); } catch { }
-                                try { _adminServer.Dispose(); } catch { }
-                            }, out err))
-                            {
-                                AppendLog("❌ Update failed: " + err);
-                                SafeUi(() => MessageBox.Show("Update failed: " + err, "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Error));
-                            }
-                        });
+                            _trayIcon.ShowBalloonTip(
+                                3500,
+                                "Updating ScanDrop to v" + info.LatestVersion,
+                                "Downloading verified update and restarting automatically...",
+                                ToolTipIcon.Info);
+                        }
+                    });
+                    string autoErr;
+                    if (!AutoUpdater.ApplyUpdate(info, () =>
+                    {
+                        try { _tunnel.Dispose(); } catch { }
+                        try { _publicReceiver.Dispose(); } catch { }
+                        try { _adminServer.Dispose(); } catch { }
+                    }, out autoErr, "--no-browser --skip-auto-update", _storage.Paths.AppRootDir))
+                    {
+                        AppendLog("⚠️ Automatic update deferred: " + autoErr);
+                    }
+                    return;
+                }
+
+                // Manual click: install immediately with visual log feedback
+                AppendLog("⬇️ Downloading & verifying ScanDrop v" + info.LatestVersion + "...");
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    string err;
+                    if (!AutoUpdater.ApplyUpdate(info, () =>
+                    {
+                        try { _tunnel.Dispose(); } catch { }
+                        try { _publicReceiver.Dispose(); } catch { }
+                        try { _adminServer.Dispose(); } catch { }
+                    }, out err, "--no-browser --skip-auto-update", _storage.Paths.AppRootDir))
+                    {
+                        AppendLog("❌ Update failed: " + err);
+                        SafeUi(() => MessageBox.Show("Update failed: " + err, "Scan Drop Updater", MessageBoxButtons.OK, MessageBoxIcon.Error));
                     }
                 });
             }

@@ -36,6 +36,7 @@ namespace ScanDrop.Native
             bool minimized = false;
             bool noBrowser = false;
             bool resetWizard = false;
+            bool skipAutoUpdate = false;
 
             foreach (var a in args)
             {
@@ -43,6 +44,7 @@ namespace ScanDrop.Native
                 if (a.Equals("--minimized", StringComparison.OrdinalIgnoreCase) || a.Equals("--service", StringComparison.OrdinalIgnoreCase)) minimized = true;
                 if (a.Equals("--no-browser", StringComparison.OrdinalIgnoreCase)) noBrowser = true;
                 if (a.Equals("--reset-wizard", StringComparison.OrdinalIgnoreCase)) resetWizard = true;
+                if (a.Equals("--skip-auto-update", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-auto-update", StringComparison.OrdinalIgnoreCase)) skipAutoUpdate = true;
             }
 
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -98,6 +100,15 @@ namespace ScanDrop.Native
                     var paths = new StoragePaths(appRootDir);
                     var logger = new AppLogger(paths.LogsDir);
                     logger.Info("Startup", "Scan Drop v" + AutoUpdater.CurrentVersion + " starting (DataRoot: " + paths.DataRootDir + ")");
+
+                    // Automatic self-update on launch (no manual "Check Updates" click needed!)
+                    if (!skipAutoUpdate)
+                    {
+                        if (AutoUpdater.TryAutoUpdateOnLaunch(appRootDir, minimized, noBrowser, logger))
+                        {
+                            return 0;
+                        }
+                    }
 
                     using (var db = new SqliteDatabase(paths.DatabaseFile))
                     using (var storage = new StorageManager(paths, db, logger))
@@ -588,10 +599,21 @@ namespace ScanDrop.Native
                             if (fReset == null || !string.IsNullOrEmpty(fReset.PagePlanJson) || fReset.ConversionStatus != "none")
                                 throw new Exception("reset-edited did not clear PagePlanJson!");
                             Console.WriteLine("  [PASS] 18. Persistent Page Manager state (X-Page-Plan) & reset-edited verified");
+
+                            // Test 19: Automatic update semver & SHA-256 loop-prevention guards
+                            if (!AutoUpdater.IsNewerVersion("4.6.2", "4.7.0") ||
+                                AutoUpdater.IsNewerVersion("4.7.0", "4.7.0") ||
+                                AutoUpdater.IsNewerVersion("4.7.0", "4.6.9"))
+                                throw new Exception("AutoUpdater.IsNewerVersion semver logic failed!");
+                            if (AutoUpdater.ShouldApplyUpdate("4.6.2", "4.7.0", "abc123", "abc123"))
+                                throw new Exception("AutoUpdater.ShouldApplyUpdate did not guard identical SHA-256!");
+                            if (!AutoUpdater.ShouldApplyUpdate("4.6.2", "4.7.0", "abc123", "def456"))
+                                throw new Exception("AutoUpdater.ShouldApplyUpdate rejected valid newer update!");
+                            Console.WriteLine("  [PASS] 19. Auto-update on launch semver & identical-SHA loop guard verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 18 PRD v2.0 + CLOUDFLARE + WORKFLOW + TRAY + PAGE-PLAN SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 19 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

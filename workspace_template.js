@@ -1416,7 +1416,7 @@ ${studioHtml}
                   <h3>PC Station Software Updates</h3>
                   <span class="badge badge-blue" id="wsVersionBadge">v\${esc(lastMeta.appVersion || '4.0.0')}</span>
                 </div>
-                <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" id="wsUpdateNote">SHA-256 verified updates for ScanDrop.exe &amp; Workspace UI.</p>
+                <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" id="wsUpdateNote">Automatic SHA-256 verified updates on every launch (and every 30 min when idle) for ScanDrop.exe &amp; Workspace UI.</p>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                   <button class="btn btn-outline" onclick="checkStationUpdates(true)">🔄 Check for Updates</button>
                   <button class="btn" id="wsInstallUpdateBtn" style="display:none;background:#16a34a;" onclick="installStationUpdate()">⚡ Install Update &amp; Restart</button>

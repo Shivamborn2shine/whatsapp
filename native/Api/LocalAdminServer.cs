@@ -701,7 +701,7 @@ namespace ScanDrop.Native.Api
                             try { if (_tunnel != null) _tunnel.Dispose(); } catch { }
                             try { if (_publicReceiver != null) _publicReceiver.Dispose(); } catch { }
                             try { Dispose(); } catch { }
-                        }, out err);
+                        }, out err, "--no-browser --skip-auto-update", _appRootDir);
                         if (!string.IsNullOrEmpty(err)) _logger.Error("Updater", "Auto-update error: " + err);
                     });
                     return;

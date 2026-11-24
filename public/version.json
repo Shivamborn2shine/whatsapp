@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.6.2",
+    "version":  "4.7.0",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Saving an edited image from Image Print Canvas or converting a file via To PDF now automatically adds the resulting PDF directly into the currently opened customer submission (as well as File Manager), and File Manager outputs now include 1-click + Add to Job and Pin to Tray buttons.",
-    "sha256":  "9715ad2bc31fe79f732e4b2b08c525af8a76767bc635912ebf9d874ecf5173f6",
+    "releaseNotes":  "Automatic SHA-256 verified self-update on every ScanDrop.exe launch (with sleek progress splash, automatic Dashboard UI + brand asset sync, zero manual Check Updates click required, and periodic idle background updates when no uploads are active).",
+    "sha256":  "3396ab8752c68f9b6ac35f0a0513b810a5ed02eb24240dae15b3847fae882221",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
