@@ -2,7 +2,7 @@
 ; Generates ScanDropSetup.exe for Windows 10/11 (x64)
 
 #define MyAppName "Scan Drop"
-#define MyAppVersion "4.0.3"
+#define MyAppVersion "4.1.0"
 #define MyAppPublisher "Scan Drop"
 #define MyAppURL "https://scandrop-xi.vercel.app"
 #define MyAppExeName "ScanDrop.exe"
@@ -38,6 +38,7 @@ Name: "autostart"; Description: "Run Scan Drop receiver automatically in backgro
 Source: "..\bin\ScanDrop.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\bin\cloudflared.exe"; DestDir: "{app}\bin"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\index.html"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\shop\index.html"; DestDir: "{app}\shop"; Flags: ignoreversion
 Source: "..\workspace\index.html"; DestDir: "{app}\workspace"; Flags: ignoreversion
 Source: "..\version.json"; DestDir: "{app}"; Flags: ignoreversion
 

@@ -502,6 +502,9 @@ namespace ScanDrop.Native.Api
         {
             string[] candidates = new[]
             {
+                Path.Combine(_appRootDir, "shop", "index.html"),
+                Path.Combine(_appRootDir, "public", "shop", "index.html"),
+                Path.Combine(_appRootDir, "dist_netlify", "shop", "index.html"),
                 Path.Combine(_appRootDir, "index.html"),
                 Path.Combine(_appRootDir, "public", "index.html"),
                 Path.Combine(_appRootDir, "dist_netlify", "index.html")

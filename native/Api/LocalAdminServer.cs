@@ -519,14 +519,53 @@ namespace ScanDrop.Native.Api
                 {
                     var body = HttpHelpers.ReadJsonBody(req);
                     var settings = _db.LoadSettings(_storage.Paths.DataRootDir);
-                    string code = HttpHelpers.GetStr(body, "pairingCode");
-                    if (!string.IsNullOrWhiteSpace(code)) settings.PairingCode = code.Trim();
+                    string code = (HttpHelpers.GetStr(body, "pairingCode") ?? "").Trim().ToUpperInvariant();
+                    if (string.IsNullOrWhiteSpace(code))
+                    {
+                        HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Pairing code is required." } });
+                        return;
+                    }
+
+                    string fp = _db.GetOrCreateMachineFingerprint();
+                    ShopPairResult pairRes;
+                    string pairErr;
+                    if (!ShopPairingClient.PairWithCloud(settings.PublicBaseUrl, code, fp, AutoUpdater.CurrentVersion, out pairRes, out pairErr))
+                    {
+                        HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", pairErr ?? "Pairing failed." } });
+                        return;
+                    }
+
+                    _db.ReplacePrimaryShop(pairRes.ShopId, pairRes.ShopName, pairRes.ShopSlug);
+                    settings.ShopId = pairRes.ShopId;
+                    settings.ShopName = pairRes.ShopName;
+                    settings.ShopSlug = pairRes.ShopSlug;
+                    settings.PairingCode = pairRes.PairingCode;
+                    settings.DeviceId = pairRes.DeviceId;
+                    settings.DeviceSecret = pairRes.DeviceSecret;
+                    settings.IsPaired = true;
+                    settings.FirstRunCompleted = true;
                     _db.SaveSettings(settings);
-                    if (_tunnel != null) _tunnel.UpdateIdentity(settings.ShopId, settings.PairingCode);
+                    _db.AddActivity("SHOP_PAIRED", "shopkeeper", null, "Paired PC to /shop/" + settings.ShopSlug + " (" + settings.ShopName + ")");
+
+                    if (_tunnel != null)
+                    {
+                        _tunnel.UpdateIdentity(settings.ShopId, settings.PairingCode, settings.DeviceId, settings.DeviceSecret);
+                    }
+                    FireStateChanged();
+
                     HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
                     {
                         { "success", true },
-                        { "shop", new Dictionary<string, object> { { "id", settings.ShopId }, { "name", settings.ShopName }, { "slug", settings.ShopSlug }, { "pairingCode", settings.PairingCode } } }
+                        { "deviceId", settings.DeviceId },
+                        { "shop", new Dictionary<string, object>
+                            {
+                                { "id", settings.ShopId },
+                                { "name", settings.ShopName },
+                                { "slug", settings.ShopSlug },
+                                { "pairingCode", settings.PairingCode },
+                                { "publicUrl", settings.PublicBaseUrl.TrimEnd('/') + "/shop/" + settings.ShopSlug }
+                            }
+                        }
                     });
                     return;
                 }
@@ -935,6 +974,8 @@ namespace ScanDrop.Native.Api
                 { "shopName", s.ShopName },
                 { "shopSlug", s.ShopSlug },
                 { "pairingCode", s.PairingCode },
+                { "deviceId", s.DeviceId ?? "" },
+                { "isPaired", s.IsPaired },
                 { "storageRoot", s.StorageRoot },
                 { "retentionHours", s.RetentionHours },
                 { "maxFileSizeMb", s.MaxFileSizeBytes / (1024 * 1024) },

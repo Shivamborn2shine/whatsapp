@@ -2,589 +2,153 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Scan Drop — Send Files</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Drop — Scan. Send. Done.</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <style>
     :root {
       --primary: #2563eb;
-      --primary-hover: #1d4ed8;
+      --primary-dark: #1d4ed8;
       --bg: #f8fafc;
-      --card-bg: #ffffff;
+      --surface: #ffffff;
       --text: #0f172a;
-      --text-muted: #64748b;
+      --muted: #64748b;
       --border: #e2e8f0;
-      --success: #10b981;
+      --success: #16a34a;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: var(--bg); color: var(--text); padding: 16px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
-    .container { width: 100%; max-width: 480px; margin: 12px auto 0; }
-    .header { text-align: center; margin-bottom: 18px; }
-    .logo-badge { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; color: var(--primary); padding: 6px 14px; border-radius: 9999px; font-weight: 700; font-size: 13px; margin-bottom: 10px; }
-    .shop-title { font-size: 22px; font-weight: 800; color: #1e293b; margin-bottom: 4px; }
-    .shop-tagline { font-size: 13px; color: var(--text-muted); }
-    .card { background: var(--card-bg); border-radius: 18px; padding: 22px; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.06); border: 1px solid var(--border); margin-bottom: 16px; }
-    .drop-heading { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 12px; text-align: center; }
-    .dropzone { border: 2px dashed #cbd5e1; border-radius: 14px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: #fafafa; }
-    .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: #f0f7ff; }
-    .dropzone-icon { width: 44px; height: 44px; margin: 0 auto 8px; color: var(--primary); display: block; }
-    .dropzone-text { font-size: 15px; font-weight: 700; color: #334155; }
-    .dropzone-sub { font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
-    .file-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-    .file-item { display: flex; flex-direction: column; gap: 6px; background: #f8fafc; border: 1px solid var(--border); padding: 10px 12px; border-radius: 10px; font-size: 13px; }
-    .file-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .file-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-    .file-size { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-    .file-remove { color: #ef4444; cursor: pointer; font-weight: bold; padding: 2px 6px; border: none; background: none; font-size: 15px; }
-    .file-mini-bar { height: 4px; background: #e2e8f0; border-radius: 99px; overflow: hidden; display: none; }
-    .file-mini-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.15s; }
-    .total-summary { display: none; margin-top: 10px; padding: 8px 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; font-size: 12px; font-weight: 700; color: #1d4ed8; justify-content: space-between; }
-    .warn-banner { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 10px 12px; border-radius: 10px; font-size: 12px; margin-top: 12px; display: none; line-height: 1.4; }
-    .form-group { margin-top: 14px; }
-    label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
-    input, textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: #fff; color: var(--text); outline: none; }
-    input:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
-    .btn-submit { width: 100%; background: var(--primary); color: white; border: none; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 18px; transition: background 0.2s; box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
-    .btn-submit:hover { background: var(--primary-hover); }
-    .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; box-shadow: none; }
-    .progress-bar { width: 100%; height: 9px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; margin-top: 14px; display: none; }
-    .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
-    .progress-label { font-size: 12px; color: #475569; margin-top: 6px; text-align: center; display: none; font-weight: 600; }
-    .receipt-container { display: none; text-align: center; }
-    .receipt-badge { font-size: 36px; font-weight: 900; color: var(--primary); letter-spacing: 3px; margin: 12px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .retention-alert { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.4; margin-top: 16px; text-align: left; }
-    .error-banner { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; display: none; line-height: 1.4; }
-    .footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: auto; padding: 16px 0; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    .nav { background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+    .nav-inner { max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--text); text-decoration: none; }
+    .brand-icon { width: 34px; height: 34px; border-radius: 10px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+    .nav-links { display: flex; align-items: center; gap: 12px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--primary); color: #fff; border: none; padding: 11px 18px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; text-decoration: none; transition: 0.15s; }
+    .btn:hover { background: var(--primary-dark); }
+    .btn-outline { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-outline:hover { background: #f1f5f9; }
+    .hero { max-width: 1080px; margin: 0 auto; padding: 56px 20px 36px; text-align: center; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; color: var(--primary); border: 1px solid #bfdbfe; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 700; margin-bottom: 18px; }
+    h1 { font-size: clamp(32px, 5vw, 52px); line-height: 1.1; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 16px; color: #0f172a; }
+    .sub { max-width: 660px; margin: 0 auto 28px; font-size: 17px; line-height: 1.55; color: var(--muted); }
+    .cta-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
+    .btn-lg { padding: 14px 24px; font-size: 15.5px; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(37,99,235,0.35); }
+    .shop-jump { max-width: 480px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: 0 4px 18px rgba(15,23,42,0.04); text-align: left; }
+    .shop-jump label { display: block; font-size: 12.5px; font-weight: 700; color: #475569; margin-bottom: 8px; }
+    .jump-row { display: flex; gap: 8px; }
+    .jump-input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; outline: none; }
+    .jump-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+    .section { max-width: 1080px; margin: 0 auto; padding: 28px 20px 44px; width: 100%; }
+    .section-title { font-size: 22px; font-weight: 800; text-align: center; margin-bottom: 22px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; box-shadow: 0 2px 10px rgba(15,23,42,0.03); }
+    .step-num { width: 32px; height: 32px; border-radius: 9px; background: #eff6ff; color: var(--primary); font-weight: 800; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px; font-size: 14px; }
+    .card h3 { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
+    .card p { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+    .arch-box { background: #0f172a; color: #e2e8f0; border-radius: 18px; padding: 28px 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-top: 12px; }
+    .arch-item strong { display: block; color: #fff; font-size: 15px; margin-bottom: 6px; }
+    .arch-item span { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+    .footer { margin-top: auto; border-top: 1px solid var(--border); background: var(--surface); padding: 18px 20px; }
+    .footer-inner { max-width: 1080px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--muted); }
+    .footer a { color: #475569; text-decoration: none; font-weight: 600; }
+    .footer a:hover { color: var(--primary); }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="logo-badge">⚡ Scan Drop</div>
-      <h1 class="shop-title" id="shopTitle">Loading...</h1>
-      <p class="shop-tagline" id="shopTagline">Scan. Send. Done.</p>
+  <header class="nav">
+    <div class="nav-inner">
+      <a href="/" class="brand"><span class="brand-icon">⚡</span><span>Scan Drop</span></a>
+      <div class="nav-links">
+        <a href="/downloads/ScanDrop.exe" class="btn">⬇ Download for Windows</a>
+        <a href="/superadmin/" class="btn btn-outline">Admin Login</a>
+      </div>
     </div>
+  </header>
 
-    <div class="error-banner" id="shopUnavailableBanner"></div>
+  <main>
+    <section class="hero">
+      <div class="pill">⚡ Local-First Windows File Receiver • <span id="verTag">v4.1.0</span></div>
+      <h1>Customers scan a QR.<br>Files land straight on your shop PC.</h1>
+      <p class="sub">
+        WhatsApp-simple document transfer for print shops, xerox counters, and studios — without sharing phone numbers, installing phone apps, or storing customer files in the cloud.
+      </p>
 
-    <div class="card" id="uploadCard">
-      <div class="drop-heading">Drop your files here</div>
-      <form id="uploadForm">
-        <input type="file" id="fileInput" multiple style="display:none;">
-        <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-          <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-          </svg>
-          <div class="dropzone-text">Tap to choose files</div>
-          <div class="dropzone-sub" id="supportedFormatsHint">Supported: PDF, DOCX, DOC, XLSX, PPTX, TXT, JPG, PNG, WEBP, BMP</div>
+      <div class="cta-row">
+        <a href="/downloads/ScanDrop.exe" class="btn btn-lg">⬇ Download ScanDrop.exe (Windows 10/11)</a>
+        <a href="#how-it-works" class="btn btn-outline btn-lg">How Setup Works</a>
+      </div>
+
+      <form class="shop-jump" onsubmit="openShopByCode(event)">
+        <label for="shopSlugInput">Sending files to a shop? Enter their Shop Code:</label>
+        <div class="jump-row">
+          <input id="shopSlugInput" class="jump-input" type="text" placeholder="e.g. quickprint" autocomplete="off" required>
+          <button type="submit" class="btn">Open Shop →</button>
         </div>
-
-        <div class="warn-banner" id="inlineWarning"></div>
-        <div class="file-list" id="fileList"></div>
-        <div class="total-summary" id="totalSummary">
-          <span id="totalCountLabel">0 files</span>
-          <span id="totalSizeLabel">0 KB</span>
-        </div>
-
-        <div class="form-group">
-          <label for="customerName">Your Name (Optional)</label>
-          <input type="text" id="customerName" placeholder="e.g. Rahul Sharma">
-        </div>
-
-        <div class="form-group">
-          <label for="instructions">Instructions / Message (Optional)</label>
-          <textarea id="instructions" rows="2" placeholder="e.g. Print two copies, color, A4"></textarea>
-        </div>
-
-        <div class="progress-bar" id="progressBar">
-          <div class="progress-fill" id="progressFill"></div>
-        </div>
-        <div class="progress-label" id="progressLabel"></div>
-
-        <button type="submit" class="btn-submit" id="submitBtn" disabled>Send Files</button>
       </form>
-    </div>
+    </section>
 
-    <!-- Receipt Display -->
-    <div class="card receipt-container" id="receiptCard">
-      <div style="font-size: 46px; color: var(--success); margin-bottom: 6px;">✓</div>
-      <h2 style="font-size: 20px; font-weight: 800;">Files sent successfully!</h2>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Show this receipt code to the shopkeeper</p>
-      
-      <div class="receipt-badge" id="receiptIdText">------</div>
-
-      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: left; font-size: 13px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span style="color: var(--text-muted);">Shop:</span>
-          <strong id="receiptShopName">-</strong>
+    <section class="section" id="how-it-works">
+      <h2 class="section-title">How New Shops Go Live in 2 Minutes</h2>
+      <div class="grid-3">
+        <div class="card">
+          <div class="step-num">1</div>
+          <h3>Get Your Shop Pairing Code</h3>
+          <p>Contact the Scan Drop administrator to register your shop URL (<code>/shop/your-shop</code>) and receive your unique Pairing Code (<code>SD-XXXX-XXXX</code>).</p>
         </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span style="color: var(--text-muted);">Files Sent:</span>
-          <strong id="receiptFileCount">0</strong>
+        <div class="card">
+          <div class="step-num">2</div>
+          <h3>Install &amp; Pair on Windows PC</h3>
+          <p>Run <code>ScanDrop.exe</code> on your counter PC, paste your Pairing Code in the setup wizard, and your PC locks securely to your shop URL.</p>
         </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span style="color: var(--text-muted);">Total Size:</span>
-          <strong id="receiptTotalSize">0 KB</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span style="color: var(--text-muted);">Timestamp:</span>
-          <strong id="receiptTimestamp">-</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between;">
-          <span style="color: var(--text-muted);">Status:</span>
-          <strong id="receiptStatus" style="color: var(--success);">Received on Shop PC</strong>
+        <div class="card">
+          <div class="step-num">3</div>
+          <h3>Print Your Counter QR Code</h3>
+          <p>Print your permanent shop QR once. Customers scan with any Android or iPhone camera — files arrive directly in your local dashboard ready to preview, convert to PDF, and print.</p>
         </div>
       </div>
+    </section>
 
-      <div class="retention-alert">
-        <strong>🔒 24-Hour Privacy Retention:</strong> Your files are stored directly on the shop computer and automatically deleted after retention expiry. No account was created.
+    <section class="section" style="padding-top:0;">
+      <div class="arch-box">
+        <div class="arch-item">
+          <strong>🔒 100% Local PC Storage</strong>
+          <span>Customer PDFs, photos, and Office docs are written directly to the shop PC's SSD — never stored in cloud buckets.</span>
+        </div>
+        <div class="arch-item">
+          <strong>📱 Zero Customer Accounts</strong>
+          <span>No WhatsApp number exchange, no customer app download, no OTPs. Works on Chrome Android and iPhone Safari.</span>
+        </div>
+        <div class="arch-item">
+          <strong>🖨️ Fast Shop Counter Tools</strong>
+          <span>1-click direct printing, Image &amp; Office to PDF conversion, 24-hour auto-cleanup, and Archive/Unarchive workflow.</span>
+        </div>
       </div>
+    </section>
+  </main>
 
-      <button onclick="resetUploadForm()" class="btn-submit" style="background: #f1f5f9; color: #334155; box-shadow: none; margin-top: 16px;">
-        Send More Files
-      </button>
-    </div>
-
-    <!-- Receipt Status Lookup -->
-    <div class="card" id="lookupCard" style="padding: 16px 20px;">
-      <div style="font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 8px;">Check Receipt Status</div>
-      <div style="display: flex; gap: 8px;">
-        <input type="text" id="lookupInput" placeholder="Enter 6-character code (e.g. YG3F9Q)" style="padding: 9px 12px; font-size: 13px; text-transform: uppercase;">
-        <button type="button" onclick="trackReceipt()" style="background: #334155; color: #fff; border: none; border-radius: 10px; padding: 0 16px; font-size: 13px; font-weight: 600; cursor: pointer;">Check</button>
+  <footer class="footer">
+    <div class="footer-inner">
+      <div><strong>Scan Drop</strong> — Scan. Send. Done.</div>
+      <div style="display:flex;gap:16px;">
+        <a href="/downloads/ScanDrop.exe">Download Windows App</a>
+        <a href="/superadmin/">Founder Superadmin</a>
       </div>
-      <div id="lookupResult" style="margin-top: 10px; font-size: 12px; display: none;"></div>
     </div>
-
-    <div class="footer">
-      Powered by <strong>Scan Drop</strong> • Scan. Send. Done.
-    </div>
-  </div>
+  </footer>
 
   <script>
-    const BLOCKED_EXTS = ['.exe', '.dll', '.bat', '.cmd', '.msi', '.vbs', '.js', '.ps1', '.scr', '.com', '.hta', '.jar', '.sh'];
-    let allowedExts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.txt', '.csv', '.rtf', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.heic', '.heif', '.mp4', '.mov', '.m4v', '.zip'];
-    let maxFileBytes = 500 * 1024 * 1024;
-    let maxSubmissionBytes = 500 * 1024 * 1024;
-    let receiverChunkSize = 4 * 1024 * 1024; // 4 MiB (< 8 MiB per PRD Sec 8.5)
-    let selectedFiles = [];
-    let activeShop = null;
-    let activeReceiverBase = '';
-    let isSubmitting = false;
-    let pendingIdempotencyKey = '';
-
-    function fmtSize(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-    }
-
-    function showInlineWarning(msg) {
-      const el = document.getElementById('inlineWarning');
-      if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
-      el.textContent = msg;
-      el.style.display = 'block';
-    }
-
-    function applyReceiverPolicy(info) {
-      if (!info) return;
-      if (info.maxFileSizeBytes) maxFileBytes = Number(info.maxFileSizeBytes);
-      if (info.maxSubmissionBytes) maxSubmissionBytes = Number(info.maxSubmissionBytes);
-      if (info.chunkSizeBytes) receiverChunkSize = Math.min(Number(info.chunkSizeBytes), 7 * 1024 * 1024);
-      if (info.allowedExtensions) {
-        allowedExts = String(info.allowedExtensions).split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-      }
-      const extLabels = allowedExts.map(x => x.replace('.', '').toUpperCase()).join(', ');
-      document.getElementById('supportedFormatsHint').textContent =
-        'Supported: ' + extLabels + ' • Max ' + Math.round(maxFileBytes / (1024 * 1024)) + ' MB / file';
-    }
-
-    function disableUploadUi(reason) {
-      const b = document.getElementById('shopUnavailableBanner');
-      b.style.display = 'block';
-      b.textContent = reason;
-      document.getElementById('submitBtn').disabled = true;
-      document.getElementById('dropzone').style.pointerEvents = 'none';
-      document.getElementById('dropzone').style.opacity = '0.5';
-    }
-
-    async function probeReceiverHealth(baseUrl) {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
-      try {
-        const res = await fetch(baseUrl + '/api/health', {
-          method: 'GET',
-          signal: ctrl.signal,
-          headers: { 'X-Pinggy-No-Screen': 'true', 'Bypass-Tunnel-Reminder': 'true' }
-        });
-        if (!res.ok) return null;
-        return await res.json();
-      } catch {
-        return null;
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-
-    async function resolveCurrentShop() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        let slug = params.get('shop') || '';
-        if (!slug && window.location.pathname.startsWith('/shop/')) {
-          slug = window.location.pathname.replace('/shop/', '').split('/')[0];
-        }
-
-        const res = await fetch('/api/shop?slug=' + encodeURIComponent(slug));
-        const data = await res.json();
-        activeShop = data.shop;
-
-        if (!activeShop) {
-          document.getElementById('shopTitle').textContent = 'Shop Not Found';
-          disableUploadUi('Shop not found. Please scan a valid Scan Drop QR code.');
-          document.getElementById('uploadCard').style.display = 'none';
-          return;
-        }
-
-        document.getElementById('shopTitle').textContent = activeShop.name;
-        document.getElementById('shopTagline').textContent = 'Scan. Send. Done.';
-
-        if (activeShop.directReceiver) {
-          activeReceiverBase = '';
-          applyReceiverPolicy(activeShop);
-          if (activeShop.acceptingUploads === false) {
-            disableUploadUi('This shop is currently paused and not accepting uploads right now.');
-          }
-          return;
-        }
-
-        if (activeShop.subscriptionStatus === 'suspended' || activeShop.subscriptionStatus === 'revoked' || activeShop.subscriptionStatus === 'paused') {
-          disableUploadUi('This shop is currently not accepting uploads.');
-          return;
-        }
-
-        if (activeShop.tunnelOnline && activeShop.tunnelUrl) {
-          const base = activeShop.tunnelUrl.replace(/[/]+$/, '');
-          const health = await probeReceiverHealth(base);
-          if (health && (health.ok || health.success)) {
-            activeReceiverBase = base;
-            applyReceiverPolicy(health);
-            document.getElementById('shopTagline').textContent = 'Scan. Send. Done. • ⚡ Connected to Shop PC';
-            if (health.acceptingUploads === false) {
-              disableUploadUi('This shop has temporarily paused receiving new uploads. Please ask the shopkeeper.');
-            }
-            return;
-          }
-        }
-
-        disableUploadUi('Shop PC is currently offline or unreachable. Please ask the shopkeeper to open Scan Drop.');
-      } catch (err) {
-        document.getElementById('shopTitle').textContent = 'Scan Drop';
-        disableUploadUi('Unable to connect to the shop receiver. Please check your internet connection.');
-      }
-    }
-
-    const fileInput = document.getElementById('fileInput');
-    const dropzone = document.getElementById('dropzone');
-    const fileListEl = document.getElementById('fileList');
-    const submitBtn = document.getElementById('submitBtn');
-
-    fileInput.addEventListener('change', (e) => { handleFiles(Array.from(e.target.files)); fileInput.value = ''; });
-    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
-    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop', (e) => {
+    function openShopByCode(e) {
       e.preventDefault();
-      dropzone.classList.remove('dragover');
-      if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
-    });
-
-    function handleFiles(files) {
-      const warnings = [];
-      for (const f of files) {
-        const ext = f.name.includes('.') ? '.' + f.name.split('.').pop().toLowerCase() : '';
-        if (BLOCKED_EXTS.includes(ext)) {
-          warnings.push('Blocked unsafe file: ' + f.name);
-          continue;
-        }
-        if (allowedExts.length > 0 && !allowedExts.includes(ext)) {
-          warnings.push('Unsupported format: ' + f.name + ' (' + (ext || 'no ext') + ')');
-          continue;
-        }
-        if (f.size <= 0) {
-          warnings.push('Skipped empty file: ' + f.name);
-          continue;
-        }
-        if (f.size > maxFileBytes) {
-          warnings.push(f.name + ' exceeds ' + Math.round(maxFileBytes / (1024 * 1024)) + ' MB per-file limit.');
-          continue;
-        }
-        const currentTotal = selectedFiles.reduce((a, b) => a + b.size, 0);
-        if (currentTotal + f.size > maxSubmissionBytes) {
-          warnings.push('Adding ' + f.name + ' exceeds total ' + Math.round(maxSubmissionBytes / (1024 * 1024)) + ' MB limit.');
-          continue;
-        }
-        if (!selectedFiles.some(item => item.name === f.name && item.size === f.size)) {
-          selectedFiles.push(f);
-        }
-      }
-      pendingIdempotencyKey = '';
-      showInlineWarning(warnings.length > 0 ? warnings.join(' • ') : '');
-      renderFileList();
+      const raw = (document.getElementById('shopSlugInput').value || '').trim().toLowerCase();
+      const slug = raw.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+      if (!slug) return;
+      window.location.href = '/shop/' + encodeURIComponent(slug);
     }
 
-    function removeFile(idx) {
-      if (isSubmitting) return;
-      selectedFiles.splice(idx, 1);
-      pendingIdempotencyKey = '';
-      renderFileList();
-    }
-
-    function renderFileList() {
-      fileListEl.innerHTML = '';
-      const totalBar = document.getElementById('totalSummary');
-      if (selectedFiles.length === 0) {
-        submitBtn.disabled = true;
-        totalBar.style.display = 'none';
-        return;
-      }
-      submitBtn.disabled = false;
-      const totalBytes = selectedFiles.reduce((a, b) => a + b.size, 0);
-      totalBar.style.display = 'flex';
-      document.getElementById('totalCountLabel').textContent = selectedFiles.length + (selectedFiles.length === 1 ? ' file selected' : ' files selected');
-      document.getElementById('totalSizeLabel').textContent = 'Total: ' + fmtSize(totalBytes);
-
-      selectedFiles.forEach((file, idx) => {
-        const item = document.createElement('div');
-        item.className = 'file-item';
-        item.innerHTML = `
-          <div class="file-row-top">
-            <span class="file-name">${file.name}</span>
-            <span class="file-size">${fmtSize(file.size)}</span>
-            <button type="button" class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
-          </div>
-          <div class="file-mini-bar" id="fbar_${idx}"><div class="file-mini-fill" id="ffill_${idx}"></div></div>
-        `;
-        fileListEl.appendChild(item);
-      });
-    }
-
-    function sendChunkWithRetry(url, sessionId, token, fileId, chunkIndex, byteOffset, blob, onProgress) {
-      const maxAttempts = 3;
-      const attemptSend = (attempt) => new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', url, true);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.setRequestHeader('X-Session-Id', sessionId);
-        xhr.setRequestHeader('X-Upload-Token', token);
-        xhr.setRequestHeader('X-File-Id', fileId);
-        xhr.setRequestHeader('X-Chunk-Index', String(chunkIndex));
-        xhr.setRequestHeader('X-Byte-Offset', String(byteOffset));
-        xhr.setRequestHeader('X-Pinggy-No-Screen', 'true');
-        xhr.setRequestHeader('Bypass-Tunnel-Reminder', 'true');
-        xhr.timeout = 90000;
-        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable && onProgress) onProgress(ev.loaded); };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) return resolve();
-          let errMsg = 'Upload error (' + xhr.status + ')';
-          try { const j = JSON.parse(xhr.responseText); if (j && j.error) errMsg = j.error; } catch {}
-          if (xhr.status >= 400 && xhr.status < 500 && xhr.status !== 408 && xhr.status !== 429) {
-            return reject(Object.assign(new Error(errMsg), { fatal: true }));
-          }
-          reject(new Error(errMsg));
-        };
-        xhr.onerror = () => reject(new Error('Network interrupted'));
-        xhr.ontimeout = () => reject(new Error('Chunk timed out'));
-        xhr.send(blob);
-      }).catch(err => {
-        if (err.fatal || attempt >= maxAttempts) throw err;
-        return new Promise(r => setTimeout(r, attempt * 1500)).then(() => attemptSend(attempt + 1));
-      });
-      return attemptSend(1);
-    }
-
-    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (isSubmitting || selectedFiles.length === 0 || !activeShop) return;
-
-      isSubmitting = true;
-      submitBtn.disabled = true;
-      showInlineWarning('');
-      const progressBar = document.getElementById('progressBar');
-      const progressFill = document.getElementById('progressFill');
-      const progressLabel = document.getElementById('progressLabel');
-      progressBar.style.display = 'block';
-      progressLabel.style.display = 'block';
-      progressFill.style.width = '3%';
-      progressLabel.textContent = 'Starting secure upload session...';
-      submitBtn.textContent = 'Sending...';
-
-      if (!pendingIdempotencyKey) {
-        pendingIdempotencyKey = 'sd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
-      }
-
-      try {
-        const base = activeReceiverBase;
-        const headers = {
-          'Content-Type': 'application/json',
-          'X-Pinggy-No-Screen': 'true',
-          'Bypass-Tunnel-Reminder': 'true',
-          'X-Idempotency-Key': pendingIdempotencyKey
-        };
-
-        // 1. Initialize upload session on shop PC
-        const initRes = await fetch(base + '/api/upload/sessions', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            customerName: document.getElementById('customerName').value.trim(),
-            customerNote: document.getElementById('instructions').value.trim(),
-            idempotencyKey: pendingIdempotencyKey,
-            files: selectedFiles.map((f, idx) => ({
-              clientFileId: 'c_' + idx,
-              name: f.name,
-              size: f.size,
-              contentType: f.type || 'application/octet-stream'
-            }))
-          })
-        });
-        const initData = await initRes.json().catch(() => ({}));
-        if (!initRes.ok || !initData.success) {
-          throw new Error(initData.error || 'Shop PC could not start upload session (HTTP ' + initRes.status + ')');
-        }
-
-        // Handle idempotent already-committed submission cleanly
-        if (initData.alreadyCompleted) {
-          showReceipt(initData);
-          return;
-        }
-
-        const chunkSz = Math.min(initData.chunkSizeBytes || receiverChunkSize, 7 * 1024 * 1024);
-        const totalBytes = selectedFiles.reduce((a, b) => a + b.size, 0);
-        let committedBytes = 0;
-
-        // 2. Stream each file in < 8 MiB resumable chunks with automatic retry
-        for (let fi = 0; fi < selectedFiles.length; fi++) {
-          const f = selectedFiles[fi];
-          const serverFile = initData.files[fi];
-          const fBar = document.getElementById('fbar_' + fi);
-          const fFill = document.getElementById('ffill_' + fi);
-          if (fBar) fBar.style.display = 'block';
-
-          const chunkCount = Math.max(1, Math.ceil(f.size / chunkSz));
-          let fileSent = 0;
-
-          for (let ci = 0; ci < chunkCount; ci++) {
-            const start = ci * chunkSz;
-            const end = Math.min(f.size, start + chunkSz);
-            const slice = f.slice(start, end);
-
-            await sendChunkWithRetry(
-              base + '/api/upload/chunk',
-              initData.sessionId,
-              initData.uploadToken,
-              serverFile.fileId,
-              ci,
-              start,
-              slice,
-              (loaded) => {
-                const fPct = Math.min(100, Math.round(((fileSent + loaded) / f.size) * 100));
-                if (fFill) fFill.style.width = fPct + '%';
-                const overall = Math.min(95, Math.round(((committedBytes + loaded) / totalBytes) * 95));
-                progressFill.style.width = Math.max(4, overall) + '%';
-                progressLabel.textContent = 'Uploading ' + f.name + ' (' + overall + '%)';
-              }
-            );
-
-            fileSent += (end - start);
-            committedBytes += (end - start);
-            if (fFill) fFill.style.width = Math.min(100, Math.round((fileSent / f.size) * 100)) + '%';
-          }
-        }
-
-        // 3. Finalize & verify on shop PC (receipt shown ONLY after receiver confirms commit!)
-        progressLabel.textContent = 'Verifying file integrity on Shop PC...';
-        progressFill.style.width = '97%';
-
-        const cmpRes = await fetch(base + '/api/upload/complete', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            sessionId: initData.sessionId,
-            uploadToken: initData.uploadToken
-          })
-        });
-        const cmpData = await cmpRes.json().catch(() => ({}));
-        if (!cmpRes.ok || !cmpData.success) {
-          throw new Error(cmpData.error || 'Receiver could not verify uploaded files.');
-        }
-
-        progressFill.style.width = '100%';
-        showReceipt(cmpData);
-      } catch (err) {
-        showInlineWarning('Upload failed: ' + err.message);
-        isSubmitting = false;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Send Files';
-        progressBar.style.display = 'none';
-        progressLabel.style.display = 'none';
-      }
-    });
-
-    function showReceipt(data) {
-      isSubmitting = false;
-      pendingIdempotencyKey = '';
-      document.getElementById('uploadCard').style.display = 'none';
-      document.getElementById('receiptCard').style.display = 'block';
-      document.getElementById('receiptIdText').textContent = data.receiptCode || data.receiptId || '------';
-      document.getElementById('receiptShopName').textContent = data.shopName || (activeShop && activeShop.name) || 'Shop PC';
-      document.getElementById('receiptFileCount').textContent = data.fileCount || selectedFiles.length;
-      document.getElementById('receiptTotalSize').textContent = fmtSize(data.totalSizeBytes || selectedFiles.reduce((a, b) => a + b.size, 0));
-      const ts = data.submittedAt ? new Date(data.submittedAt) : new Date();
-      document.getElementById('receiptTimestamp').textContent = ts.toLocaleString();
-      document.getElementById('receiptStatus').textContent = 'Received on Shop PC';
-    }
-
-    function resetUploadForm() {
-      selectedFiles = [];
-      pendingIdempotencyKey = '';
-      isSubmitting = false;
-      fileInput.value = '';
-      showInlineWarning('');
-      renderFileList();
-      document.getElementById('progressBar').style.display = 'none';
-      document.getElementById('progressLabel').style.display = 'none';
-      document.getElementById('progressFill').style.width = '0%';
-      submitBtn.textContent = 'Send Files';
-      document.getElementById('uploadCard').style.display = 'block';
-      document.getElementById('receiptCard').style.display = 'none';
-    }
-
-    async function trackReceipt() {
-      const code = document.getElementById('lookupInput').value.trim().toUpperCase();
-      const resEl = document.getElementById('lookupResult');
-      if (!code) return;
-      resEl.style.display = 'block';
-      resEl.textContent = 'Checking...';
-      try {
-        const res = await fetch(activeReceiverBase + '/api/receipt?id=' + encodeURIComponent(code), {
-          headers: { 'X-Pinggy-No-Screen': 'true', 'Bypass-Tunnel-Reminder': 'true' }
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          resEl.innerHTML = '<span style="color:#ef4444;">Receipt not found or expired.</span>';
-          return;
-        }
-        const sub = data.submission;
-        const fCount = sub.fileCount !== undefined ? sub.fileCount : (sub.files || []).length;
-        const remHrs = Math.max(0, (new Date(sub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
-        resEl.innerHTML = `<div style="background:#f1f5f9;padding:10px;border-radius:8px;">
-          <strong>${sub.receiptCode || sub.id}</strong> • Status: <strong style="text-transform:capitalize;color:#2563eb;">${sub.status}</strong><br>
-          Files: ${fCount} • Auto-deletes in ${remHrs} hrs
-        </div>`;
-      } catch (err) {
-        resEl.innerHTML = '<span style="color:#ef4444;">Could not check receipt status.</span>';
-      }
-    }
-
-    resolveCurrentShop();
+    fetch('/version.json')
+      .then(r => r.ok ? r.json() : null)
+      .then(v => { if (v && v.version) document.getElementById('verTag').textContent = 'v' + v.version; })
+      .catch(() => {});
   </script>
 </body>
 </html>

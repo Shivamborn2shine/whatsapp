@@ -1,0 +1,154 @@
+module.exports = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Drop — Scan. Send. Done.</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    .nav { background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+    .nav-inner { max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--text); text-decoration: none; }
+    .brand-icon { width: 34px; height: 34px; border-radius: 10px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+    .nav-links { display: flex; align-items: center; gap: 12px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--primary); color: #fff; border: none; padding: 11px 18px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; text-decoration: none; transition: 0.15s; }
+    .btn:hover { background: var(--primary-dark); }
+    .btn-outline { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-outline:hover { background: #f1f5f9; }
+    .hero { max-width: 1080px; margin: 0 auto; padding: 56px 20px 36px; text-align: center; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; color: var(--primary); border: 1px solid #bfdbfe; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 700; margin-bottom: 18px; }
+    h1 { font-size: clamp(32px, 5vw, 52px); line-height: 1.1; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 16px; color: #0f172a; }
+    .sub { max-width: 660px; margin: 0 auto 28px; font-size: 17px; line-height: 1.55; color: var(--muted); }
+    .cta-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
+    .btn-lg { padding: 14px 24px; font-size: 15.5px; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(37,99,235,0.35); }
+    .shop-jump { max-width: 480px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: 0 4px 18px rgba(15,23,42,0.04); text-align: left; }
+    .shop-jump label { display: block; font-size: 12.5px; font-weight: 700; color: #475569; margin-bottom: 8px; }
+    .jump-row { display: flex; gap: 8px; }
+    .jump-input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; outline: none; }
+    .jump-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+    .section { max-width: 1080px; margin: 0 auto; padding: 28px 20px 44px; width: 100%; }
+    .section-title { font-size: 22px; font-weight: 800; text-align: center; margin-bottom: 22px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; box-shadow: 0 2px 10px rgba(15,23,42,0.03); }
+    .step-num { width: 32px; height: 32px; border-radius: 9px; background: #eff6ff; color: var(--primary); font-weight: 800; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px; font-size: 14px; }
+    .card h3 { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
+    .card p { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+    .arch-box { background: #0f172a; color: #e2e8f0; border-radius: 18px; padding: 28px 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-top: 12px; }
+    .arch-item strong { display: block; color: #fff; font-size: 15px; margin-bottom: 6px; }
+    .arch-item span { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+    .footer { margin-top: auto; border-top: 1px solid var(--border); background: var(--surface); padding: 18px 20px; }
+    .footer-inner { max-width: 1080px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--muted); }
+    .footer a { color: #475569; text-decoration: none; font-weight: 600; }
+    .footer a:hover { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-inner">
+      <a href="/" class="brand"><span class="brand-icon">⚡</span><span>Scan Drop</span></a>
+      <div class="nav-links">
+        <a href="/downloads/ScanDrop.exe" class="btn">⬇ Download for Windows</a>
+        <a href="/superadmin/" class="btn btn-outline">Admin Login</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="pill">⚡ Local-First Windows File Receiver • <span id="verTag">v4.1.0</span></div>
+      <h1>Customers scan a QR.<br>Files land straight on your shop PC.</h1>
+      <p class="sub">
+        WhatsApp-simple document transfer for print shops, xerox counters, and studios — without sharing phone numbers, installing phone apps, or storing customer files in the cloud.
+      </p>
+
+      <div class="cta-row">
+        <a href="/downloads/ScanDrop.exe" class="btn btn-lg">⬇ Download ScanDrop.exe (Windows 10/11)</a>
+        <a href="#how-it-works" class="btn btn-outline btn-lg">How Setup Works</a>
+      </div>
+
+      <form class="shop-jump" onsubmit="openShopByCode(event)">
+        <label for="shopSlugInput">Sending files to a shop? Enter their Shop Code:</label>
+        <div class="jump-row">
+          <input id="shopSlugInput" class="jump-input" type="text" placeholder="e.g. quickprint" autocomplete="off" required>
+          <button type="submit" class="btn">Open Shop →</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="section" id="how-it-works">
+      <h2 class="section-title">How New Shops Go Live in 2 Minutes</h2>
+      <div class="grid-3">
+        <div class="card">
+          <div class="step-num">1</div>
+          <h3>Get Your Shop Pairing Code</h3>
+          <p>Contact the Scan Drop administrator to register your shop URL (<code>/shop/your-shop</code>) and receive your unique Pairing Code (<code>SD-XXXX-XXXX</code>).</p>
+        </div>
+        <div class="card">
+          <div class="step-num">2</div>
+          <h3>Install &amp; Pair on Windows PC</h3>
+          <p>Run <code>ScanDrop.exe</code> on your counter PC, paste your Pairing Code in the setup wizard, and your PC locks securely to your shop URL.</p>
+        </div>
+        <div class="card">
+          <div class="step-num">3</div>
+          <h3>Print Your Counter QR Code</h3>
+          <p>Print your permanent shop QR once. Customers scan with any Android or iPhone camera — files arrive directly in your local dashboard ready to preview, convert to PDF, and print.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:0;">
+      <div class="arch-box">
+        <div class="arch-item">
+          <strong>🔒 100% Local PC Storage</strong>
+          <span>Customer PDFs, photos, and Office docs are written directly to the shop PC's SSD — never stored in cloud buckets.</span>
+        </div>
+        <div class="arch-item">
+          <strong>📱 Zero Customer Accounts</strong>
+          <span>No WhatsApp number exchange, no customer app download, no OTPs. Works on Chrome Android and iPhone Safari.</span>
+        </div>
+        <div class="arch-item">
+          <strong>🖨️ Fast Shop Counter Tools</strong>
+          <span>1-click direct printing, Image &amp; Office to PDF conversion, 24-hour auto-cleanup, and Archive/Unarchive workflow.</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div><strong>Scan Drop</strong> — Scan. Send. Done.</div>
+      <div style="display:flex;gap:16px;">
+        <a href="/downloads/ScanDrop.exe">Download Windows App</a>
+        <a href="/superadmin/">Founder Superadmin</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    function openShopByCode(e) {
+      e.preventDefault();
+      const raw = (document.getElementById('shopSlugInput').value || '').trim().toLowerCase();
+      const slug = raw.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+      if (!slug) return;
+      window.location.href = '/shop/' + encodeURIComponent(slug);
+    }
+
+    fetch('/version.json')
+      .then(r => r.ok ? r.json() : null)
+      .then(v => { if (v && v.version) document.getElementById('verTag').textContent = 'v' + v.version; })
+      .catch(() => {});
+  </script>
+</body>
+</html>`;

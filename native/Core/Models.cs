@@ -84,6 +84,9 @@ namespace ScanDrop.Native.Core
         public string ShopName = "QuickPrint Xerox & Stationery";
         public string ShopSlug = "quickprint";
         public string PairingCode = "SD-PAIR-7890";
+        public string DeviceId = "";
+        public string DeviceSecret = "";
+        public bool IsPaired = false;
         public string StorageRoot = "";
         public int RetentionHours = 24;
         public long MaxFileSizeBytes = 500L * 1024L * 1024L;       // Up to 500 MB per file (configurable)

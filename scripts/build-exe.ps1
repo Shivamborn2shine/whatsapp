@@ -23,6 +23,7 @@ $sources = @(
     Join-Path $repoRoot "native\Core\Models.cs"
     Join-Path $repoRoot "native\Core\SecretProtector.cs"
     Join-Path $repoRoot "native\Core\AppLogger.cs"
+    Join-Path $repoRoot "native\Core\ShopPairingClient.cs"
     Join-Path $repoRoot "native\Storage\StoragePaths.cs"
     Join-Path $repoRoot "native\Storage\SqliteDatabase.cs"
     Join-Path $repoRoot "native\Storage\StorageManager.cs"

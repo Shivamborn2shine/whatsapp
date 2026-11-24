@@ -1,0 +1,567 @@
+module.exports = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Drop — Founder Superadmin</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; }
+    .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 28px; width: 100%; max-width: 440px; box-shadow: 0 10px 30px rgba(15,23,42,0.08); }
+    .auth-card h1 { font-size: 21px; font-weight: 800; margin-bottom: 6px; }
+    .auth-card p { font-size: 13px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 12.5px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+    .input, select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; outline: none; background: #fff; color: var(--text); }
+    .input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--primary); color: #fff; border: none; padding: 9px 14px; border-radius: 9px; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; }
+    .btn:hover { background: var(--primary-hover); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-outline { background: #fff; color: #334155; border: 1px solid var(--border); }
+    .btn-outline:hover { background: #f8fafc; }
+    .btn-danger { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 7px; }
+    .alert { padding: 11px 13px; border-radius: 10px; font-size: 12.5px; margin-bottom: 14px; line-height: 1.45; display: none; }
+    .alert-err { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .alert-ok { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .alert-info { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+    .topbar { background: #0f172a; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .topbar-left { display: flex; align-items: center; gap: 10px; }
+    .topbar-left strong { font-size: 16px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #cbd5e1; }
+    .main { max-width: 1220px; margin: 0 auto; padding: 22px 20px 44px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+    .kpi-lbl { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+    .kpi-val { font-size: 26px; font-weight: 900; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 18px; overflow-x: auto; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .panel-head h2 { font-size: 16px; font-weight: 800; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
+    th, td { text-align: left; padding: 11px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); background: #f8fafc; }
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+    .b-green { background: #dcfce7; color: #166534; }
+    .b-gray { background: #f1f5f9; color: #475569; }
+    .b-amber { background: #fef3c7; color: #92400e; }
+    .b-red { background: #fee2e2; color: #991b1b; }
+    .b-blue { background: #dbeafe; color: #1d4ed8; }
+    .code-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; }
+    .modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,0.55); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+    .modal-bg.open { display: flex; }
+    .modal { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 480px; box-shadow: 0 20px 50px rgba(15,23,42,0.25); }
+    .modal h3 { font-size: 17px; font-weight: 800; margin-bottom: 14px; }
+    .slug-preview { font-size: 12px; color: var(--primary); font-family: ui-monospace, monospace; margin-top: 5px; }
+    .setup-code { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 10px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; overflow-x: auto; margin: 10px 0; }
+  </style>
+</head>
+<body>
+
+  <!-- Login / Setup View -->
+  <div id="authScreen" class="auth-wrap">
+    <div class="auth-card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <span style="width:36px;height:36px;border-radius:10px;background:#2563eb;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:18px;">👑</span>
+        <div>
+          <h1>Scan Drop Superadmin</h1>
+          <div style="font-size:12px;color:var(--muted);">Multi-Shop Provisioning &amp; Control Plane</div>
+        </div>
+      </div>
+
+      <div id="authAlert" class="alert alert-err"></div>
+
+      <div id="setupRequiredBox" style="display:none;">
+        <p><strong>Connect Supabase in Vercel to enable Superadmin Auth &amp; Multi-Shop Registry:</strong></p>
+        <div class="setup-code">SUPABASE_URL=https://yagbslkhttuogbihegwe.supabase.co
+SUPABASE_PUBLISHABLE_KEY=&lt;your publishable key&gt;
+SUPABASE_SECRET_KEY=&lt;your secret key&gt;
+SUPERADMIN_EMAILS=&lt;your-founder-email&gt;</div>
+        <p>Run <code>supabase/schema.sql</code> in Supabase SQL Editor, add the 4 env vars above in Vercel, and redeploy.</p>
+      </div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label for="loginEmail">Founder Email (Supabase Auth)</label>
+          <input id="loginEmail" class="input" type="email" required placeholder="founder@yourdomain.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" class="input" type="password" required placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button id="loginBtn" type="submit" class="btn" style="width:100%;padding:11px;">Sign In to Control Plane</button>
+      </form>
+      <div style="margin-top:16px;text-align:center;">
+        <a href="/" style="font-size:12.5px;color:var(--muted);text-decoration:none;">← Back to Scan Drop Home</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Authenticated Superadmin Dashboard -->
+  <div id="appScreen" style="display:none;">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span>👑</span>
+        <strong>Scan Drop — Founder Control Plane</strong>
+        <span class="badge b-blue" style="margin-left:6px;">Supabase Live</span>
+      </div>
+      <div class="topbar-right">
+        <span id="adminEmailLabel"></span>
+        <button class="btn btn-sm" onclick="openCreateModal()">+ Create New Shop</button>
+        <button class="btn btn-outline btn-sm" onclick="loadDashboard()">↻ Refresh</button>
+        <button class="btn btn-outline btn-sm" onclick="handleLogout()">Sign Out</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div id="bannerAlert" class="alert alert-ok"></div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-lbl">Total Registered Shops</div><div class="kpi-val" id="kpiShops">0</div></div>
+        <div class="kpi"><div class="kpi-lbl">Shop PCs Online Now</div><div class="kpi-val" style="color:var(--success);" id="kpiOnline">0</div></div>
+        <div class="kpi"><div class="kpi-lbl">Active Subscriptions</div><div class="kpi-val" style="color:var(--primary);" id="kpiActive">0</div></div>
+        <div class="kpi"><div class="kpi-lbl">Paired Windows PCs</div><div class="kpi-val" id="kpiDevices">0</div></div>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>🏪 Registered Shops &amp; Pairing Codes</h2>
+          <button class="btn btn-sm" onclick="openCreateModal()">+ Create New Shop</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Shop &amp; Public URL</th>
+              <th>Tunnel Status</th>
+              <th>Pairing Code</th>
+              <th>Plan &amp; Status</th>
+              <th>PCs</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="shopsTbody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>💻 Paired Windows Host PCs</h2></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Device Name</th>
+              <th>Shop</th>
+              <th>Version</th>
+              <th>Last Heartbeat</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTbody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>🕒 Control-Plane Audit Log</h2></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Event</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="auditTbody"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <!-- Create Shop Modal -->
+  <div id="createModal" class="modal-bg">
+    <div class="modal">
+      <h3>🏪 Create New Shop</h3>
+      <form id="createShopForm" onsubmit="submitCreateShop(event)">
+        <div class="form-group">
+          <label>Shop Name *</label>
+          <input id="cName" class="input" required placeholder="e.g. Sharma Xerox & Print" oninput="autoFillSlug()">
+        </div>
+        <div class="form-group">
+          <label>Unique Shop URL Slug *</label>
+          <input id="cSlug" class="input" required placeholder="e.g. sharma-xerox" oninput="slugTouched=true;updateSlugPreview()">
+          <div class="slug-preview" id="slugPreview">https://scandrop-xi.vercel.app/shop/sharma-xerox</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group"><label>Owner Name</label><input id="cOwnerName" class="input" placeholder="e.g. Amit Sharma"></div>
+          <div class="form-group"><label>Owner Phone</label><input id="cOwnerPhone" class="input" placeholder="+91 98765 43210"></div>
+        </div>
+        <div class="form-group"><label>Owner Email</label><input id="cOwnerEmail" class="input" type="email" placeholder="owner@shop.com"></div>
+        <div class="form-group">
+          <label>Subscription Plan</label>
+          <select id="cPlan">
+            <option value="plan_pro_monthly">Pro Shop (1 PC) — ₹499/mo</option>
+            <option value="plan_business_monthly">Business Multi-Counter (5 PCs) — ₹1,499/mo</option>
+            <option value="plan_free_trial">Free / 14-Day Trial (1 PC)</option>
+          </select>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('createModal')">Cancel</button>
+          <button type="submit" class="btn">Create &amp; Generate Pairing Code</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manage Subscription Modal -->
+  <div id="subModal" class="modal-bg">
+    <div class="modal">
+      <h3>💳 Manage Shop Plan &amp; Access</h3>
+      <input type="hidden" id="mShopId">
+      <div class="form-group">
+        <label>Action</label>
+        <select id="mAction">
+          <option value="activate">Activate Shop</option>
+          <option value="extend_30d">Activate + Extend 30 Days</option>
+          <option value="pause">Pause Uploads</option>
+          <option value="suspend">Suspend Shop (Disconnects PC)</option>
+          <option value="revoke">Revoke License</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Plan Tier</label>
+        <select id="mPlan">
+          <option value="plan_pro_monthly">Pro Shop (1 PC)</option>
+          <option value="plan_business_monthly">Business Multi-Counter (5 PCs)</option>
+          <option value="plan_free_trial">Free / Trial (1 PC)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Payment / Note Reference (Optional)</label>
+        <input id="mRef" class="input" placeholder="e.g. UPI Ref #123456">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal('subModal')">Cancel</button>
+        <button type="button" class="btn" onclick="submitSubChange()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let sbConfig = null;
+    let accessToken = sessionStorage.getItem('sd_sa_token') || '';
+    let refreshToken = sessionStorage.getItem('sd_sa_refresh') || '';
+    let slugTouched = false;
+    let pollTimer = null;
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function showAuthErr(msg) {
+      const el = document.getElementById('authAlert');
+      el.textContent = msg;
+      el.style.display = msg ? 'block' : 'none';
+    }
+
+    function showBanner(msg, isErr) {
+      const el = document.getElementById('bannerAlert');
+      el.className = 'alert ' + (isErr ? 'alert-err' : 'alert-ok');
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 7000);
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+    function openCreateModal() {
+      slugTouched = false;
+      document.getElementById('createShopForm').reset();
+      updateSlugPreview();
+      openModal('createModal');
+    }
+
+    function autoFillSlug() {
+      if (slugTouched) return;
+      const name = document.getElementById('cName').value || '';
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+      document.getElementById('cSlug').value = slug;
+      updateSlugPreview();
+    }
+
+    function updateSlugPreview() {
+      const s = (document.getElementById('cSlug').value || 'your-shop').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+      document.getElementById('slugPreview').textContent = window.location.origin + '/shop/' + (s || 'your-shop');
+    }
+
+    async function init() {
+      try {
+        const res = await fetch('/api/config');
+        sbConfig = await res.json();
+      } catch {
+        showAuthErr('Could not load server configuration.');
+        return;
+      }
+
+      if (!sbConfig || !sbConfig.supabaseUrl || !sbConfig.supabasePublishableKey) {
+        document.getElementById('setupRequiredBox').style.display = 'block';
+        document.getElementById('loginForm').style.display = 'none';
+        return;
+      }
+
+      if (accessToken) {
+        const ok = await loadDashboard(true);
+        if (ok) return;
+      }
+      document.getElementById('authScreen').style.display = 'flex';
+      document.getElementById('appScreen').style.display = 'none';
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      showAuthErr('');
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true;
+      btn.textContent = 'Signing in...';
+      try {
+        const email = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        const authRes = await fetch(sbConfig.supabaseUrl + '/auth/v1/token?grant_type=password', {
+          method: 'POST',
+          headers: {
+            apikey: sbConfig.supabasePublishableKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email, password })
+        });
+        const authData = await authRes.json();
+        if (!authRes.ok || !authData.access_token) {
+          showAuthErr(authData.error_description || authData.msg || 'Invalid email or password.');
+          return;
+        }
+        accessToken = authData.access_token;
+        refreshToken = authData.refresh_token || '';
+        sessionStorage.setItem('sd_sa_token', accessToken);
+        sessionStorage.setItem('sd_sa_refresh', refreshToken);
+
+        const ok = await loadDashboard(false);
+        if (!ok) {
+          handleLogout(true);
+        }
+      } catch (err) {
+        showAuthErr('Login failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In to Control Plane';
+      }
+    }
+
+    function handleLogout(keepErr) {
+      accessToken = '';
+      refreshToken = '';
+      sessionStorage.removeItem('sd_sa_token');
+      sessionStorage.removeItem('sd_sa_refresh');
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      document.getElementById('appScreen').style.display = 'none';
+      document.getElementById('authScreen').style.display = 'flex';
+      if (!keepErr) showAuthErr('');
+    }
+
+    async function tryRefreshToken() {
+      if (!refreshToken || !sbConfig || !sbConfig.supabaseUrl) return false;
+      try {
+        const res = await fetch(sbConfig.supabaseUrl + '/auth/v1/token?grant_type=refresh_token', {
+          method: 'POST',
+          headers: { apikey: sbConfig.supabasePublishableKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        });
+        const data = await res.json();
+        if (res.ok && data.access_token) {
+          accessToken = data.access_token;
+          if (data.refresh_token) refreshToken = data.refresh_token;
+          sessionStorage.setItem('sd_sa_token', accessToken);
+          sessionStorage.setItem('sd_sa_refresh', refreshToken);
+          return true;
+        }
+      } catch {}
+      return false;
+    }
+
+    async function apiCall(method, body) {
+      let res = await fetch('/api/superadmin', {
+        method,
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          ...(body ? { 'Content-Type': 'application/json' } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      if (res.status === 401 && await tryRefreshToken()) {
+        res = await fetch('/api/superadmin', {
+          method,
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            ...(body ? { 'Content-Type': 'application/json' } : {})
+          },
+          body: body ? JSON.stringify(body) : undefined
+        });
+      }
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    async function loadDashboard(silent) {
+      const { ok, data } = await apiCall('GET');
+      if (!ok || !data.success) {
+        if (!silent) showAuthErr((data && data.error) || 'Unauthorized.');
+        return false;
+      }
+
+      document.getElementById('authScreen').style.display = 'none';
+      document.getElementById('appScreen').style.display = 'block';
+      document.getElementById('adminEmailLabel').textContent = (data.admin && data.admin.email) || '';
+
+      const shops = data.shops || [];
+      const devices = data.devices || [];
+      const audits = data.auditEvents || [];
+
+      document.getElementById('kpiShops').textContent = shops.length;
+      document.getElementById('kpiOnline').textContent = shops.filter(s => s.tunnelOnline).length;
+      document.getElementById('kpiActive').textContent = shops.filter(s => s.subscriptionStatus === 'active' || s.subscriptionStatus === 'trial').length;
+      document.getElementById('kpiDevices').textContent = devices.filter(d => d.status === 'active').length;
+
+      const origin = window.location.origin;
+      document.getElementById('shopsTbody').innerHTML = shops.length === 0
+        ? '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:26px;">No shops created yet. Click "+ Create New Shop" above.</td></tr>'
+        : shops.map(s => {
+            const shopUrl = origin + '/shop/' + s.slug;
+            const stCls = s.subscriptionStatus === 'active' ? 'b-green' : (s.subscriptionStatus === 'trial' ? 'b-blue' : (s.subscriptionStatus === 'paused' ? 'b-amber' : 'b-red'));
+            const exp = s.expiryDate ? new Date(s.expiryDate).toLocaleDateString() : '—';
+            return '<tr>' +
+              '<td><strong>' + esc(s.name) + '</strong><br><a href="' + esc(shopUrl) + '" target="_blank" style="font-size:12px;color:var(--primary);text-decoration:none;">' + esc(shopUrl) + '</a>' +
+              (s.ownerName ? '<div style="font-size:11.5px;color:var(--muted);">' + esc(s.ownerName) + (s.ownerPhone ? ' • ' + esc(s.ownerPhone) : '') + '</div>' : '') + '</td>' +
+              '<td>' + (s.tunnelOnline ? '<span class="badge b-green">● Online</span>' : '<span class="badge b-gray">○ Offline</span>') + '</td>' +
+              '<td><span class="code-pill">' + esc(s.pairingCode) + '</span> ' +
+                '<button class="btn btn-outline btn-sm" onclick="copyText(\\'' + esc(s.pairingCode) + '\\', \\'Copied pairing code!\\')">Copy</button> ' +
+                '<button class="btn btn-outline btn-sm" onclick="regenCode(\\'' + esc(s.id) + '\\')">↻</button></td>' +
+              '<td><span class="badge ' + stCls + '">' + esc(s.subscriptionStatus) + '</span><div style="font-size:11px;color:var(--muted);margin-top:3px;">Exp: ' + esc(exp) + '</div></td>' +
+              '<td><strong>' + (s.deviceCount || 0) + '</strong> / ' + (s.maxDevices || 1) + '</td>' +
+              '<td><div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+                '<button class="btn btn-outline btn-sm" onclick="copyText(\\'' + esc(shopUrl) + '\\', \\'Copied shop URL!\\')">Copy URL</button>' +
+                '<button class="btn btn-outline btn-sm" onclick="openSubModal(\\'' + esc(s.id) + '\\', \\'' + esc(s.planId) + '\\')">Plan</button>' +
+                (s.slug !== 'quickprint' ? '<button class="btn btn-danger btn-sm" onclick="deleteShop(\\'' + esc(s.id) + '\\', \\'' + esc(s.name) + '\\')">Delete</button>' : '') +
+              '</div></td>' +
+            '</tr>';
+          }).join('');
+
+      document.getElementById('devicesTbody').innerHTML = devices.length === 0
+        ? '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">No Windows PCs paired yet.</td></tr>'
+        : devices.map(d => '<tr>' +
+            '<td><strong>' + esc(d.deviceName) + '</strong><div style="font-size:11px;color:var(--muted);">' + esc(d.id) + '</div></td>' +
+            '<td>' + esc(d.shopName) + ' <code>/shop/' + esc(d.shopSlug) + '</code></td>' +
+            '<td>v' + esc(d.appVersion || '—') + '</td>' +
+            '<td>' + (d.lastHeartbeatAt ? new Date(d.lastHeartbeatAt).toLocaleString() : '—') + '</td>' +
+            '<td><span class="badge ' + (d.status === 'active' ? 'b-green' : 'b-red') + '">' + esc(d.status) + '</span></td>' +
+            '<td>' + (d.status === 'active' ? '<button class="btn btn-danger btn-sm" onclick="revokeDevice(\\'' + esc(d.id) + '\\')">Revoke PC</button>' : '—') + '</td>' +
+          '</tr>').join('');
+
+      document.getElementById('auditTbody').innerHTML = audits.length === 0
+        ? '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">No audit events yet.</td></tr>'
+        : audits.map(a => '<tr>' +
+            '<td style="white-space:nowrap;font-size:12px;color:var(--muted);">' + new Date(a.createdAt).toLocaleString() + '</td>' +
+            '<td>' + esc(a.actor) + '</td>' +
+            '<td><code>' + esc(a.eventType) + '</code></td>' +
+            '<td>' + esc(a.description) + '</td>' +
+          '</tr>').join('');
+
+      if (!pollTimer) pollTimer = setInterval(() => loadDashboard(true), 12000);
+      return true;
+    }
+
+    function copyText(txt, msg) {
+      navigator.clipboard.writeText(txt).then(() => showBanner(msg || 'Copied!', false)).catch(() => alert(txt));
+    }
+
+    async function submitCreateShop(e) {
+      e.preventDefault();
+      const { ok, data } = await apiCall('POST', {
+        action: 'create_shop',
+        name: document.getElementById('cName').value.trim(),
+        slug: document.getElementById('cSlug').value.trim(),
+        ownerName: document.getElementById('cOwnerName').value.trim(),
+        ownerPhone: document.getElementById('cOwnerPhone').value.trim(),
+        ownerEmail: document.getElementById('cOwnerEmail').value.trim(),
+        planId: document.getElementById('cPlan').value
+      });
+      if (!ok || !data.success) {
+        alert((data && data.error) || 'Failed to create shop.');
+        return;
+      }
+      closeModal('createModal');
+      showBanner('Created /shop/' + data.shop.slug + ' — Pairing Code: ' + data.shop.pairingCode, false);
+      await loadDashboard(true);
+    }
+
+    async function regenCode(shopId) {
+      if (!confirm('Generate a new pairing code for this shop?')) return;
+      const { ok, data } = await apiCall('POST', { action: 'regen_code', shopId });
+      if (!ok || !data.success) return alert((data && data.error) || 'Error');
+      showBanner('New Pairing Code: ' + data.pairingCode, false);
+      await loadDashboard(true);
+    }
+
+    function openSubModal(shopId, planId) {
+      document.getElementById('mShopId').value = shopId;
+      document.getElementById('mPlan').value = planId || 'plan_pro_monthly';
+      document.getElementById('mRef').value = '';
+      openModal('subModal');
+    }
+
+    async function submitSubChange() {
+      const { ok, data } = await apiCall('POST', {
+        action: 'update_subscription',
+        shopId: document.getElementById('mShopId').value,
+        subAction: document.getElementById('mAction').value,
+        planId: document.getElementById('mPlan').value,
+        paymentRef: document.getElementById('mRef').value.trim()
+      });
+      if (!ok || !data.success) return alert((data && data.error) || 'Update failed.');
+      closeModal('subModal');
+      showBanner('Subscription updated.', false);
+      await loadDashboard(true);
+    }
+
+    async function revokeDevice(deviceId) {
+      if (!confirm('Revoke this PC immediately? It will no longer be able to publish tunnel updates until re-paired.')) return;
+      const { ok, data } = await apiCall('POST', { action: 'revoke_device', deviceId });
+      if (!ok || !data.success) return alert((data && data.error) || 'Failed to revoke device.');
+      showBanner('Device revoked.', false);
+      await loadDashboard(true);
+    }
+
+    async function deleteShop(shopId, name) {
+      if (!confirm('Permanently delete shop "' + name + '" and revoke all its paired PCs?')) return;
+      const { ok, data } = await apiCall('POST', { action: 'delete_shop', shopId });
+      if (!ok || !data.success) return alert((data && data.error) || 'Delete failed.');
+      showBanner('Shop deleted.', false);
+      await loadDashboard(true);
+    }
+
+    init();
+  </script>
+</body>
+</html>`;

@@ -35,6 +35,8 @@ namespace ScanDrop.Native
         private readonly string _logsDir;
         private string _shopId;
         private string _pairingCode;
+        private string _deviceId;
+        private string _deviceSecret;
         private readonly object _lock = new object();
 
         private Process _tunnelProcess;
@@ -72,6 +74,15 @@ namespace ScanDrop.Native
             _logsDir = logsDir;
             _shopId = string.IsNullOrWhiteSpace(shopId) ? "shop_quickprint_01" : shopId.Trim();
             _pairingCode = string.IsNullOrWhiteSpace(pairingCode) ? "SD-PAIR-7890" : pairingCode.Trim();
+            if (_db != null)
+            {
+                try
+                {
+                    _deviceId = _db.GetSetting("device_id") ?? "";
+                    _deviceSecret = _db.GetSetting("device_secret") ?? "";
+                }
+                catch { }
+            }
 
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
             ServicePointManager.DefaultConnectionLimit = 64;
@@ -139,10 +150,12 @@ namespace ScanDrop.Native
             return !string.IsNullOrEmpty(parsed.Host) && parsed.Host.IndexOf('.') >= 0;
         }
 
-        public void UpdateIdentity(string shopId, string pairingCode)
+        public void UpdateIdentity(string shopId, string pairingCode, string deviceId = null, string deviceSecret = null)
         {
             if (!string.IsNullOrWhiteSpace(shopId)) _shopId = shopId.Trim();
             if (!string.IsNullOrWhiteSpace(pairingCode)) _pairingCode = pairingCode.Trim();
+            if (deviceId != null) _deviceId = deviceId.Trim();
+            if (deviceSecret != null) _deviceSecret = deviceSecret.Trim();
             string url = _liveTunnelUrl;
             if (IsValidPublicTunnelUrl(url))
             {
@@ -990,6 +1003,9 @@ namespace ScanDrop.Native
                     shopSlug = slug,
                     shopName = shopName,
                     pairingCode = _pairingCode,
+                    deviceId = _deviceId ?? "",
+                    deviceSecret = _deviceSecret ?? "",
+                    appVersion = AutoUpdater.CurrentVersion,
                     tunnelUrl = tunnelUrl
                 });
 
@@ -1024,7 +1040,14 @@ namespace ScanDrop.Native
                     }
                     catch { }
                 }
-                string payload = ser.Serialize(new { shopId = _shopId, shopSlug = slug, pairingCode = _pairingCode });
+                string payload = ser.Serialize(new
+                {
+                    shopId = _shopId,
+                    shopSlug = slug,
+                    pairingCode = _pairingCode,
+                    deviceId = _deviceId ?? "",
+                    deviceSecret = _deviceSecret ?? ""
+                });
                 var req = (HttpWebRequest)WebRequest.Create(_cloudUrl + "/api/tunnel/disconnect");
                 req.Method = "POST";
                 req.ContentType = "application/json";

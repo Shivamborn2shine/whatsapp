@@ -584,6 +584,33 @@ module.exports = `<!DOCTYPE html>
         : 'Settings saved cleanly!');
     }
 
+    async function pairShopWithCode(e) {
+      e.preventDefault();
+      const input = document.getElementById('cfgPairingCode');
+      const btn = document.getElementById('pairShopBtn');
+      const code = (input ? input.value : '').trim().toUpperCase();
+      if (!code) { alert('Enter the Pairing Code provided by your Scan Drop admin.'); return; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Pairing...'; }
+      try {
+        const res = await fetch('/api/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pairingCode: code })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          alert('Pairing failed: ' + (data.error || 'Invalid pairing code'));
+          return;
+        }
+        await fetchCloudState(true);
+        alert('Paired! This PC is now linked to ' + data.shop.name + ' (' + data.shop.publicUrl + ').');
+      } catch (err) {
+        alert('Pairing error: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔗 Pair This PC'; }
+      }
+    }
+
     async function checkStationUpdates(interactive) {
       const badge = document.getElementById('wsVersionBadge');
       const note = document.getElementById('wsUpdateNote');
@@ -950,6 +977,22 @@ module.exports = `<!DOCTYPE html>
             </form>
 
             <div style="display:flex;flex-direction:column;gap:16px;">
+              <form class="list-panel" style="padding:22px;gap:10px;" onsubmit="pairShopWithCode(event)">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <h3>🔗 Shop Pairing (Admin Code)</h3>
+                  <span class="badge \${currentSettings.isPaired ? 'badge-green' : 'badge-amber'}">\${currentSettings.isPaired ? 'Paired' : 'Not Paired'}</span>
+                </div>
+                <p style="font-size:12px;color:var(--muted);">Link this Windows PC to your shop using the Pairing Code issued in Scan Drop Superadmin.</p>
+                <div style="font-size:12px;background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;padding:9px 11px;">
+                  <div><strong>Shop URL:</strong> <code>\${esc(permanentUrl)}</code></div>
+                  <div><strong>Device ID:</strong> <code>\${esc(currentSettings.deviceId || 'Legacy / Unpaired')}</code></div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <input id="cfgPairingCode" class="field-input" placeholder="e.g. SD-7K9P-3M2X" value="\${esc(currentSettings.pairingCode || '')}" style="text-transform:uppercase;font-family:ui-monospace,monospace;">
+                  <button id="pairShopBtn" type="submit" class="btn" style="white-space:nowrap;">🔗 Pair This PC</button>
+                </div>
+              </form>
+
               <div class="list-panel" style="padding:22px;">
                 <h3 style="margin-bottom:10px;">🖨️ Installed Windows Printers</h3>
                 \${printers.length === 0 ? '<p style="font-size:12px;color:var(--muted);">No Windows printers detected.</p>' :

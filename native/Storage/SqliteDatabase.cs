@@ -423,6 +423,42 @@ namespace ScanDrop.Native.Storage
             Execute("UPDATE shops SET shop_name = ?, slug = ? WHERE shop_id = ?;", shopName, slug, shopId);
         }
 
+        public void ReplacePrimaryShop(string newShopId, string shopName, string slug)
+        {
+            var cur = GetPrimaryShop();
+            if (cur == null) return;
+            string cleanId = string.IsNullOrWhiteSpace(newShopId) ? cur.ShopId : newShopId.Trim();
+            string cleanName = string.IsNullOrWhiteSpace(shopName) ? cur.ShopName : shopName.Trim();
+            string cleanSlug = string.IsNullOrWhiteSpace(slug) ? cur.Slug : slug.Trim().ToLowerInvariant();
+            if (string.Equals(cur.ShopId, cleanId, StringComparison.Ordinal))
+            {
+                Execute("UPDATE shops SET shop_name = ?, slug = ? WHERE shop_id = ?;", cleanName, cleanSlug, cur.ShopId);
+            }
+            else
+            {
+                RunInTransaction(() =>
+                {
+                    Execute("UPDATE shops SET shop_id = ?, shop_name = ?, slug = ? WHERE shop_id = ?;", cleanId, cleanName, cleanSlug, cur.ShopId);
+                    Execute("UPDATE submissions SET shop_id = ? WHERE shop_id = ?;", cleanId, cur.ShopId);
+                    Execute("UPDATE upload_sessions SET shop_id = ? WHERE shop_id = ?;", cleanId, cur.ShopId);
+                });
+            }
+        }
+
+        public string GetOrCreateMachineFingerprint()
+        {
+            string existing = GetSetting("machine_fingerprint");
+            if (!string.IsNullOrWhiteSpace(existing)) return existing;
+            string raw = Environment.MachineName + "|" + Environment.UserDomainName + "|" + Guid.NewGuid().ToString("N");
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] h = sha.ComputeHash(Encoding.UTF8.GetBytes(raw));
+                string hex = BitConverter.ToString(h).Replace("-", "").ToLowerInvariant();
+                SetSetting("machine_fingerprint", hex);
+                return hex;
+            }
+        }
+
         public string GetSetting(string key, string defaultValue = null)
         {
             var rows = Query("SELECT value, is_secret FROM app_settings WHERE key = ?;", key);
@@ -457,6 +493,24 @@ namespace ScanDrop.Native.Storage
 
             string pair = GetSetting("pairing_code");
             if (!string.IsNullOrWhiteSpace(pair)) m.PairingCode = pair;
+
+            string devId = GetSetting("device_id");
+            if (!string.IsNullOrWhiteSpace(devId)) m.DeviceId = devId;
+
+            string devSec = GetSetting("device_secret");
+            if (!string.IsNullOrWhiteSpace(devSec)) m.DeviceSecret = devSec;
+
+            string paired = GetSetting("is_paired");
+            if (paired != null)
+            {
+                m.IsPaired = (paired == "1" || paired.Equals("true", StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                // Preserve seamless paired state for existing upgraded installations
+                m.IsPaired = !string.IsNullOrWhiteSpace(m.DeviceSecret) ||
+                             string.Equals(m.ShopSlug, "quickprint", StringComparison.OrdinalIgnoreCase);
+            }
 
             string ret = GetSetting("retention_hours");
             int retVal;
@@ -507,6 +561,9 @@ namespace ScanDrop.Native.Storage
             UpdateShop(shop.ShopId, cleanName, cleanSlug);
 
             SetSetting("pairing_code", string.IsNullOrWhiteSpace(s.PairingCode) ? "SD-PAIR-7890" : s.PairingCode.Trim());
+            if (!string.IsNullOrWhiteSpace(s.DeviceId)) SetSetting("device_id", s.DeviceId.Trim());
+            if (!string.IsNullOrWhiteSpace(s.DeviceSecret)) SetSetting("device_secret", s.DeviceSecret.Trim(), true);
+            SetSetting("is_paired", s.IsPaired ? "1" : "0");
             SetSetting("retention_hours", Math.Max(1, Math.Min(720, s.RetentionHours)).ToString(CultureInfo.InvariantCulture));
             SetSetting("max_file_size_bytes", Math.Max(5L * 1024L * 1024L, s.MaxFileSizeBytes).ToString(CultureInfo.InvariantCulture));
             SetSetting("max_submission_bytes", Math.Max(s.MaxFileSizeBytes, s.MaxSubmissionBytes).ToString(CultureInfo.InvariantCulture));

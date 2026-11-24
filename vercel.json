@@ -18,7 +18,8 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index?route=/$1" },
-    { "source": "/shop/(.*)", "destination": "/index.html" },
+    { "source": "/shop/(.*)", "destination": "/shop/index.html" },
+    { "source": "/shop", "destination": "/shop/index.html" },
     { "source": "/workspace/(.*)", "destination": "/workspace/index.html" },
     { "source": "/superadmin/(.*)", "destination": "/superadmin/index.html" }
   ]
