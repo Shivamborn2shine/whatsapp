@@ -43,6 +43,49 @@ namespace ScanDrop.Native.Api
             res.Close();
         }
 
+        public static bool TryServeBrandAsset(HttpListenerResponse res, string appRootDir, string requestPath)
+        {
+            if (string.IsNullOrEmpty(requestPath)) return false;
+            string fileName = null;
+            if (requestPath.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
+            {
+                fileName = "scandrop.ico";
+            }
+            else if (requestPath.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase))
+            {
+                string rawName = requestPath.Substring("/assets/".Length);
+                if (string.IsNullOrEmpty(rawName) || rawName.IndexOf('/') >= 0 || rawName.IndexOf('\\') >= 0 || rawName.IndexOf("..", StringComparison.Ordinal) >= 0)
+                    return false;
+                fileName = Path.GetFileName(rawName);
+            }
+            if (string.IsNullOrEmpty(fileName)) return false;
+
+            string[] dirs = new[]
+            {
+                Path.Combine(appRootDir, "assets"),
+                Path.Combine(appRootDir, "dist_netlify", "assets"),
+                Path.Combine(appRootDir, "public", "assets")
+            };
+            string found = null;
+            foreach (var d in dirs)
+            {
+                string candidate = Path.Combine(d, fileName);
+                if (File.Exists(candidate)) { found = candidate; break; }
+            }
+            if (found == null) return false;
+
+            string ext = Path.GetExtension(found).ToLowerInvariant();
+            string ct = ext == ".ico" ? "image/x-icon" : (ext == ".png" ? "image/png" : (ext == ".jpg" || ext == ".jpeg" ? "image/jpeg" : "application/octet-stream"));
+            byte[] bytes = File.ReadAllBytes(found);
+            res.StatusCode = 200;
+            res.ContentType = ct;
+            res.AddHeader("Cache-Control", "public, max-age=86400");
+            res.ContentLength64 = bytes.Length;
+            res.OutputStream.Write(bytes, 0, bytes.Length);
+            res.Close();
+            return true;
+        }
+
         public static void WriteHtml(HttpListenerResponse res, int status, string html)
         {
             byte[] buf = Encoding.UTF8.GetBytes(html ?? "");

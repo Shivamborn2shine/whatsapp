@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.2.0",
+    "version":  "4.2.1",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Cloudflare-only single tunnel supervisor (STOPPED/CONNECTING/CONNECTED/DEGRADED/COOLDOWN/RECONNECTING/OFFLINE) with zero OpenSSH/third-party fallback, endpoint health verification, exponential backoff with jitter, rate-limit COOLDOWN compliance, Windows Service Named Tunnel preference, and mid-upload resumable recovery.",
-    "sha256":  "4ddd6154fceb60e274b4129bb3e8c863795fc6ef26851bc220bcac783f76aa58",
+    "releaseNotes":  "Applied official ScanDrop logo, app icon, banner, and multi-resolution Windows EXE/Tray/Installer icon across desktop app and all web portals.",
+    "sha256":  "54a5f21792aec419c8906f10fa47d9a346a94ffa2568754b827ffb320d3e13bd",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

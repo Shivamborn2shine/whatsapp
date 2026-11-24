@@ -42,14 +42,24 @@ $sources = @(
 )
 
 Write-Host "=== Compiling ScanDrop.exe (PRD v2.0 Local-First Windows Station) ===" -ForegroundColor Cyan
-& $csc /nologo /target:winexe /platform:x64 /optimize+ /out:$outExe `
-    /r:System.dll `
-    /r:System.Core.dll `
-    /r:System.Drawing.dll `
-    /r:System.Security.dll `
-    /r:System.Web.Extensions.dll `
-    /r:System.Windows.Forms.dll `
-    $sources
+$iconFile = Join-Path $repoRoot "assets\scandrop.ico"
+$cscArgs = @(
+    "/nologo",
+    "/target:winexe",
+    "/platform:x64",
+    "/optimize+",
+    "/out:$outExe",
+    "/r:System.dll",
+    "/r:System.Core.dll",
+    "/r:System.Drawing.dll",
+    "/r:System.Security.dll",
+    "/r:System.Web.Extensions.dll",
+    "/r:System.Windows.Forms.dll"
+)
+if (Test-Path $iconFile) {
+    $cscArgs += "/win32icon:$iconFile"
+}
+& $csc @cscArgs $sources
 
 if ($LASTEXITCODE -ne 0) {
     throw "Compilation failed with exit code $LASTEXITCODE"

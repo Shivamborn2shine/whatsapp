@@ -2,7 +2,7 @@
 ; Generates ScanDropSetup.exe for Windows 10/11 (x64)
 
 #define MyAppName "Scan Drop"
-#define MyAppVersion "4.2.0"
+#define MyAppVersion "4.2.1"
 #define MyAppPublisher "Scan Drop"
 #define MyAppURL "https://scandrop-xi.vercel.app"
 #define MyAppExeName "ScanDrop.exe"
@@ -15,6 +15,8 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
+SetupIconFile=..\assets\scandrop.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 DefaultDirName={autopf}\Scan Drop
 DisableProgramGroupPage=yes
 OutputDir=..\dist\installer
@@ -40,6 +42,7 @@ Source: "..\bin\cloudflared.exe"; DestDir: "{app}\bin"; Flags: ignoreversion ski
 Source: "..\index.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\shop\index.html"; DestDir: "{app}\shop"; Flags: ignoreversion
 Source: "..\workspace\index.html"; DestDir: "{app}\workspace"; Flags: ignoreversion
+Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\version.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]

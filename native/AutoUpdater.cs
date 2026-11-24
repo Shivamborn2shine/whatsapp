@@ -22,7 +22,7 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "4.2.0";
+        public const string CurrentVersion = "4.2.1";
         private const string PrimaryManifestUrl = "https://scandrop-xi.vercel.app/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";
         private const string PrimaryExeFallback = "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe";
@@ -190,7 +190,7 @@ namespace ScanDrop.Native
                     if (!File.Exists(wsPath) || !missingLocal)
                     {
                         string remoteHtml = wc.DownloadString("https://scandrop-xi.vercel.app/workspace/index.html");
-                        if (!string.IsNullOrWhiteSpace(remoteHtml) && remoteHtml.Contains("Scan Drop"))
+                        if (!string.IsNullOrWhiteSpace(remoteHtml) && (remoteHtml.Contains("ScanDrop") || remoteHtml.Contains("Scan Drop")))
                         {
                             if (!Directory.Exists(wsDir)) Directory.CreateDirectory(wsDir);
                             string existing = File.Exists(wsPath) ? File.ReadAllText(wsPath, Encoding.UTF8) : "";
@@ -206,7 +206,7 @@ namespace ScanDrop.Native
                         try
                         {
                             string remoteShop = wc.DownloadString("https://scandrop-xi.vercel.app/shop/index.html");
-                            if (!string.IsNullOrWhiteSpace(remoteShop) && remoteShop.Contains("Scan Drop"))
+                            if (!string.IsNullOrWhiteSpace(remoteShop) && (remoteShop.Contains("ScanDrop") || remoteShop.Contains("Scan Drop")))
                             {
                                 if (!Directory.Exists(shopDir)) Directory.CreateDirectory(shopDir);
                                 string existingShop = File.Exists(shopPath) ? File.ReadAllText(shopPath, Encoding.UTF8) : "";

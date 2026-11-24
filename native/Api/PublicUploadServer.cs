@@ -113,6 +113,13 @@ namespace ScanDrop.Native.Api
 
             try
             {
+                // 0. Brand icon & favicon assets (strictly allowlisted from assets/)
+                if (req.HttpMethod == "GET" &&
+                    (path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (HttpHelpers.TryServeBrandAsset(res, _appRootDir, path)) return;
+                }
+
                 // 1. Public Customer Upload Page (GET / or GET /shop/{slug})
                 if ((path == "/" || path.StartsWith("/shop/", StringComparison.OrdinalIgnoreCase)) && req.HttpMethod == "GET")
                 {

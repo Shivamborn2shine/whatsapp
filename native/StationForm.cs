@@ -61,6 +61,7 @@ namespace ScanDrop.Native
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(244, 247, 251);
             Font = new Font("Segoe UI", 9.5f);
+            Icon = LoadAppIcon();
 
             BuildUi();
             SetupTray();
@@ -99,24 +100,42 @@ namespace ScanDrop.Native
             _tunnel.OnTunnelUrlCaptured += url => SafeUi(() => RefreshStationMetrics());
         }
 
+        private static Icon LoadAppIcon()
+        {
+            try
+            {
+                Icon extracted = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (extracted != null) return extracted;
+            }
+            catch { }
+            return SystemIcons.Application;
+        }
+
         private void BuildUi()
         {
             var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Color.White, Padding = new Padding(20, 14, 20, 10) };
+            var logoBox = new PictureBox
+            {
+                Location = new Point(18, 15),
+                Size = new Size(42, 42),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Image = LoadAppIcon().ToBitmap()
+            };
             var title = new Label
             {
-                Text = "⚡ Scan Drop — Local-First PC Station",
+                Text = "ScanDrop — Local-First PC Station",
                 Font = new Font("Segoe UI", 14f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(15, 23, 42),
                 AutoSize = true,
-                Location = new Point(20, 12)
+                Location = new Point(68, 12)
             };
             _statusBadge = new Label
             {
-                Text = "● Starting Isolated Receiver & Tunnel...",
+                Text = "● Starting Isolated Receiver & Cloudflare Tunnel...",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(217, 119, 6),
                 AutoSize = true,
-                Location = new Point(22, 42)
+                Location = new Point(70, 42)
             };
             var headerUpdateBtn = new Button
             {
@@ -133,6 +152,7 @@ namespace ScanDrop.Native
             headerUpdateBtn.FlatAppearance.BorderColor = Color.FromArgb(191, 219, 254);
             headerUpdateBtn.Click += (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(true));
 
+            header.Controls.Add(logoBox);
             header.Controls.Add(title);
             header.Controls.Add(_statusBadge);
             header.Controls.Add(headerUpdateBtn);
@@ -246,8 +266,8 @@ namespace ScanDrop.Native
 
             _trayIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
-                Text = "Scan Drop Station",
+                Icon = LoadAppIcon(),
+                Text = "ScanDrop Station",
                 ContextMenuStrip = menu,
                 Visible = true
             };

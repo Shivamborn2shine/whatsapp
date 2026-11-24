@@ -1,10 +1,26 @@
+const fs = require('fs');
+const path = require('path');
+
+function loadDataUri(relPath, mime) {
+  try {
+    const p = path.resolve(__dirname, relPath);
+    if (fs.existsSync(p)) {
+      return 'data:' + mime + ';base64,' + fs.readFileSync(p).toString('base64');
+    }
+  } catch {}
+  return '';
+}
+
+const FAVICON_URI = loadDataUri('assets/favicon-32.png', 'image/png');
+const ICON_URI = loadDataUri('assets/scandrop-icon-96.png', 'image/png');
+
 module.exports = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scan Drop — Shopkeeper Workspace</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <title>ScanDrop — Shopkeeper Workspace</title>
+  <link rel="icon" type="image/png" href="${FAVICON_URI || '/assets/favicon-32.png'}">
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <style>
     :root {
@@ -123,10 +139,10 @@ module.exports = `<!DOCTYPE html>
 <body>
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="brand-icon">S</div>
+      <img src="${ICON_URI || '/assets/scandrop-icon-96.png'}" alt="ScanDrop" style="width:36px;height:36px;border-radius:9px;display:block;flex-shrink:0;">
       <div>
-        <div style="font-weight:800;font-size:16px;">Scan Drop</div>
-        <div style="font-size:11px;color:var(--muted);">Scan. Send. Done.</div>
+        <div style="font-weight:800;font-size:16px;">ScanDrop</div>
+        <div style="font-size:11px;color:var(--muted);">Instant File Drop</div>
       </div>
     </div>
 

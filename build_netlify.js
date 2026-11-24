@@ -16,16 +16,29 @@ for (const baseDir of outDirs) {
   fs.mkdirSync(path.join(baseDir, 'workspace'), { recursive: true });
 }
 
+function loadAssetDataUri(relPath, mime) {
+  try {
+    const p = path.resolve(__dirname, relPath);
+    if (fs.existsSync(p)) return 'data:' + mime + ';base64,' + fs.readFileSync(p).toString('base64');
+  } catch {}
+  return '';
+}
+
+const CUSTOMER_FAVICON_URI = loadAssetDataUri('assets/favicon-32.png', 'image/png');
+const CUSTOMER_APPLE_ICON_URI = loadAssetDataUri('assets/apple-touch-icon.png', 'image/png');
+const CUSTOMER_PILL_URI = loadAssetDataUri('assets/scandrop-pill-web.png', 'image/png');
+
 // ============================================================================
-// 1. CUSTOMER UPLOAD PORTAL (index.html) - REAL CLOUD UPLOAD (/api/upload)
+// 1. CUSTOMER UPLOAD PORTAL (shop/index.html) - DIRECT TO SHOP PC RECEIVER
 // ============================================================================
 const customerHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Scan Drop — Send Files</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <title>ScanDrop — Send Files</title>
+  <link rel="icon" type="image/png" href="${CUSTOMER_FAVICON_URI || '/assets/favicon-32.png'}">
+  <link rel="apple-touch-icon" href="${CUSTOMER_APPLE_ICON_URI || '/assets/apple-touch-icon.png'}">
   <style>
     :root {
       --primary: #2563eb;
@@ -81,7 +94,9 @@ const customerHtml = `<!DOCTYPE html>
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo-badge">⚡ Scan Drop</div>
+      <div style="display:flex;justify-content:center;margin-bottom:10px;">
+        <img src="${CUSTOMER_PILL_URI || '/assets/scandrop-pill-web.png'}" alt="ScanDrop" style="height:40px;width:auto;display:block;">
+      </div>
       <h1 class="shop-title" id="shopTitle">Loading...</h1>
       <p class="shop-tagline" id="shopTagline">Scan. Send. Done.</p>
     </div>
@@ -651,6 +666,23 @@ for (const baseDir of outDirs) {
   if (fs.existsSync(exeSrc) && baseDir !== __dirname) {
     fs.mkdirSync(path.join(baseDir, 'downloads'), { recursive: true });
     fs.copyFileSync(exeSrc, path.join(baseDir, 'downloads', 'ScanDrop.exe'));
+  }
+
+  // Publish brand assets & root favicon.ico to dist_netlify/ and public/
+  const assetsSrcDir = path.resolve(__dirname, 'assets');
+  if (fs.existsSync(assetsSrcDir) && baseDir !== __dirname) {
+    const assetsDstDir = path.join(baseDir, 'assets');
+    fs.mkdirSync(assetsDstDir, { recursive: true });
+    for (const file of fs.readdirSync(assetsSrcDir)) {
+      const s = path.join(assetsSrcDir, file);
+      if (fs.statSync(s).isFile()) {
+        fs.copyFileSync(s, path.join(assetsDstDir, file));
+      }
+    }
+    const icoSrc = path.join(assetsSrcDir, 'scandrop.ico');
+    if (fs.existsSync(icoSrc)) {
+      fs.copyFileSync(icoSrc, path.join(baseDir, 'favicon.ico'));
+    }
   }
 }
 

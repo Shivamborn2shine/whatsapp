@@ -3,8 +3,9 @@ module.exports = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scan Drop — Founder Superadmin</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>">
+  <title>ScanDrop — Founder Superadmin</title>
+  <link rel="icon" type="image/png" href="/assets/favicon-32.png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
   <style>
     :root {
       --primary: #2563eb;
@@ -75,10 +76,10 @@ module.exports = `<!DOCTYPE html>
   <!-- Login / Setup View -->
   <div id="authScreen" class="auth-wrap">
     <div class="auth-card">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-        <span style="width:36px;height:36px;border-radius:10px;background:#2563eb;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:18px;">👑</span>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <img src="/assets/scandrop-icon-96.png" alt="ScanDrop" style="width:42px;height:42px;border-radius:10px;display:block;flex-shrink:0;">
         <div>
-          <h1>Scan Drop Superadmin</h1>
+          <h1>ScanDrop Superadmin</h1>
           <div style="font-size:12px;color:var(--muted);">Multi-Shop Provisioning &amp; Control Plane</div>
         </div>
       </div>
@@ -115,8 +116,8 @@ SUPERADMIN_EMAILS=&lt;your-founder-email&gt;</div>
   <div id="appScreen" style="display:none;">
     <header class="topbar">
       <div class="topbar-left">
-        <span>👑</span>
-        <strong>Scan Drop — Founder Control Plane</strong>
+        <img src="/assets/scandrop-icon-96.png" alt="ScanDrop" style="width:30px;height:30px;border-radius:7px;display:block;">
+        <strong>ScanDrop — Founder Control Plane</strong>
         <span class="badge b-blue" style="margin-left:6px;">Supabase Live</span>
       </div>
       <div class="topbar-right">

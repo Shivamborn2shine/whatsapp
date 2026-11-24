@@ -41,23 +41,39 @@ namespace ScanDrop.Native.Ui
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(248, 250, 252);
             Font = new Font("Segoe UI", 9.5f);
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application; } catch { }
 
             var header = new Panel { Dock = DockStyle.Top, Height = 74, BackColor = Color.White, Padding = new Padding(22, 14, 22, 10) };
+            try
+            {
+                var ic = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (ic != null)
+                {
+                    header.Controls.Add(new PictureBox
+                    {
+                        Location = new Point(20, 15),
+                        Size = new Size(42, 42),
+                        SizeMode = PictureBoxSizeMode.Zoom,
+                        Image = ic.ToBitmap()
+                    });
+                }
+            }
+            catch { }
             header.Controls.Add(new Label
             {
-                Text = "⚡ Scan Drop — First-Run Shop Setup",
+                Text = "ScanDrop — First-Run Shop Setup",
                 Font = new Font("Segoe UI", 13.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(15, 23, 42),
                 AutoSize = true,
-                Location = new Point(22, 12)
+                Location = new Point(70, 12)
             });
             header.Controls.Add(new Label
             {
-                Text = "Enter the Pairing Code from your Scan Drop admin to link this PC to your unique shop QR.",
+                Text = "Enter the Pairing Code from your ScanDrop admin to link this PC to your unique shop QR.",
                 Font = new Font("Segoe UI", 8.8f),
                 ForeColor = Color.FromArgb(100, 116, 139),
                 AutoSize = true,
-                Location = new Point(24, 42)
+                Location = new Point(72, 42)
             });
 
             int y = 90;

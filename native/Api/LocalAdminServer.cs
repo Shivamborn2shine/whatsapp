@@ -156,6 +156,12 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (req.HttpMethod == "GET" &&
+                    (path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (HttpHelpers.TryServeBrandAsset(res, _appRootDir, path)) return;
+                }
+
                 if (path == "/workspace" && req.HttpMethod == "GET")
                 {
                     ServeWorkspaceHtml(res);
