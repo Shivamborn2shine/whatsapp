@@ -433,16 +433,33 @@ namespace ScanDrop.Native.Storage
             if (string.Equals(cur.ShopId, cleanId, StringComparison.Ordinal))
             {
                 Execute("UPDATE shops SET shop_name = ?, slug = ? WHERE shop_id = ?;", cleanName, cleanSlug, cur.ShopId);
+                return;
             }
-            else
+
+            string createdAt = string.IsNullOrWhiteSpace(cur.CreatedAt)
+                ? DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
+                : cur.CreatedAt;
+            string settingsJson = string.IsNullOrWhiteSpace(cur.SettingsJson) ? "{}" : cur.SettingsJson;
+
+            RunInTransaction(() =>
             {
-                RunInTransaction(() =>
-                {
-                    Execute("UPDATE shops SET shop_id = ?, shop_name = ?, slug = ? WHERE shop_id = ?;", cleanId, cleanName, cleanSlug, cur.ShopId);
-                    Execute("UPDATE submissions SET shop_id = ? WHERE shop_id = ?;", cleanId, cur.ShopId);
-                    Execute("UPDATE upload_sessions SET shop_id = ? WHERE shop_id = ?;", cleanId, cur.ShopId);
-                });
-            }
+                // 1. Free the UNIQUE slug on the old shop row before inserting the new row
+                string tempOldSlug = cur.Slug + "_migrating_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                Execute("UPDATE shops SET slug = ? WHERE shop_id = ?;", tempOldSlug, cur.ShopId);
+
+                // 2. Insert/update the new shop row first so FK target exists
+                Execute(
+                    "INSERT INTO shops (shop_id, shop_name, slug, created_at, settings) VALUES (?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(shop_id) DO UPDATE SET shop_name = excluded.shop_name, slug = excluded.slug;",
+                    cleanId, cleanName, cleanSlug, createdAt, settingsJson
+                );
+
+                // 3. Repoint child submissions to the new shop_id while both parent rows exist
+                Execute("UPDATE submissions SET shop_id = ? WHERE shop_id = ?;", cleanId, cur.ShopId);
+
+                // 4. Delete the old shop row now that zero child rows reference it
+                Execute("DELETE FROM shops WHERE shop_id = ?;", cur.ShopId);
+            });
         }
 
         public string GetOrCreateMachineFingerprint()

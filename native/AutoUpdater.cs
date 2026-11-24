@@ -22,7 +22,7 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "4.1.0";
+        public const string CurrentVersion = "4.1.1";
         private const string PrimaryManifestUrl = "https://scandrop-xi.vercel.app/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";
         private const string PrimaryExeFallback = "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe";
@@ -152,35 +152,75 @@ namespace ScanDrop.Native
             }
         }
 
+        public static void EnsureUiFilesExist(string rootDir)
+        {
+            try
+            {
+                string wsPath = Path.Combine(rootDir, "workspace", "index.html");
+                string shopPath = Path.Combine(rootDir, "shop", "index.html");
+                if (!File.Exists(wsPath) || !File.Exists(shopPath))
+                {
+                    SyncWorkspaceUi(rootDir);
+                }
+            }
+            catch { }
+        }
+
         public static bool SyncWorkspaceUi(string rootDir)
         {
             try
             {
                 string wsDir = Path.Combine(rootDir, "workspace");
                 string wsPath = Path.Combine(wsDir, "index.html");
-                // Never downgrade a newer local workspace/index.html with an older remote deployment
-                if (File.Exists(wsPath))
+                string shopDir = Path.Combine(rootDir, "shop");
+                string shopPath = Path.Combine(shopDir, "index.html");
+                bool missingLocal = !File.Exists(wsPath) || !File.Exists(shopPath);
+                // Never downgrade newer local UI files with an older remote deployment
+                if (!missingLocal)
                 {
                     var upd = CheckForUpdate();
                     if (!upd.UpdateAvailable) return false;
                 }
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+                bool changed = false;
                 using (var wc = new WebClient())
                 {
                     wc.Headers.Add("User-Agent", "ScanDrop-Station/" + CurrentVersion);
                     wc.Encoding = Encoding.UTF8;
-                    string remoteHtml = wc.DownloadString("https://scandrop-xi.vercel.app/workspace/index.html");
-                    if (!string.IsNullOrWhiteSpace(remoteHtml) && remoteHtml.Contains("Scan Drop"))
+                    if (!File.Exists(wsPath) || !missingLocal)
                     {
-                        if (!Directory.Exists(wsDir)) Directory.CreateDirectory(wsDir);
-                        string existing = File.Exists(wsPath) ? File.ReadAllText(wsPath, Encoding.UTF8) : "";
-                        if (!string.Equals(existing, remoteHtml, StringComparison.Ordinal))
+                        string remoteHtml = wc.DownloadString("https://scandrop-xi.vercel.app/workspace/index.html");
+                        if (!string.IsNullOrWhiteSpace(remoteHtml) && remoteHtml.Contains("Scan Drop"))
                         {
-                            File.WriteAllText(wsPath, remoteHtml, Encoding.UTF8);
-                            return true;
+                            if (!Directory.Exists(wsDir)) Directory.CreateDirectory(wsDir);
+                            string existing = File.Exists(wsPath) ? File.ReadAllText(wsPath, Encoding.UTF8) : "";
+                            if (!string.Equals(existing, remoteHtml, StringComparison.Ordinal))
+                            {
+                                File.WriteAllText(wsPath, remoteHtml, Encoding.UTF8);
+                                changed = true;
+                            }
                         }
                     }
+                    if (!File.Exists(shopPath) || !missingLocal)
+                    {
+                        try
+                        {
+                            string remoteShop = wc.DownloadString("https://scandrop-xi.vercel.app/shop/index.html");
+                            if (!string.IsNullOrWhiteSpace(remoteShop) && remoteShop.Contains("Scan Drop"))
+                            {
+                                if (!Directory.Exists(shopDir)) Directory.CreateDirectory(shopDir);
+                                string existingShop = File.Exists(shopPath) ? File.ReadAllText(shopPath, Encoding.UTF8) : "";
+                                if (!string.Equals(existingShop, remoteShop, StringComparison.Ordinal))
+                                {
+                                    File.WriteAllText(shopPath, remoteShop, Encoding.UTF8);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
                 }
+                return changed;
             }
             catch { }
             return false;

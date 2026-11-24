@@ -101,6 +101,7 @@ namespace ScanDrop.Native
                             }
                         }
 
+                        AutoUpdater.EnsureUiFilesExist(appRootDir);
                         var guard = new UploadSecurityGuard(db);
                         var transfers = new TransferService(storage, db, guard, logger);
                         var converter = new ConversionEngine(paths, logger);
@@ -309,9 +310,19 @@ namespace ScanDrop.Native
                         if (db.GetSetting("test_secret_token") != "cf-secret-12345")
                             throw new Exception("DPAPI decryption round-trip mismatch!");
                         Console.WriteLine("  [PASS] 9. Windows DPAPI secret encryption verified in SQLite");
+
+                        // Test 10: FK-safe shop pairing migration (ReplacePrimaryShop with existing submissions)
+                        db.ReplacePrimaryShop("shop_paired_test_99", "Blackthrone Test Shop", "blackthrone");
+                        var swappedShop = db.GetPrimaryShop();
+                        if (swappedShop == null || swappedShop.ShopId != "shop_paired_test_99" || swappedShop.Slug != "blackthrone")
+                            throw new Exception("ReplacePrimaryShop failed to switch primary shop identity!");
+                        var migratedSubs = db.GetSubmissions(true);
+                        if (migratedSubs.Count == 0 || migratedSubs[0].ShopId != "shop_paired_test_99")
+                            throw new Exception("ReplacePrimaryShop lost or failed to repoint existing submissions!");
+                        Console.WriteLine("  [PASS] 10. FK-safe shop pairing migration verified with existing submissions");
                     }
                 }
-                Console.WriteLine("ALL 9 PRD v2.0 SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 10 PRD v2.0 SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.1.0",
+    "version":  "4.1.1",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Multi-shop scaling with Supabase Postgres + Auth Superadmin control plane, admin-issued shop Pairing Codes with DPAPI device secrets, and public Scan Drop landing \u0026 download page.",
-    "sha256":  "64690ce4179a6bf9a9907d4b2e3503e616684f691622f1a5df5c859a2210c51b",
+    "releaseNotes":  "Fixed SQLite FOREIGN KEY constraint error when pairing an existing PC to a newly created shop, and added automatic standalone UI bootstrap (workspace + shop HTML) for single-EXE downloads.",
+    "sha256":  "2a83fdf70a56bc2cbf402efc2f6d6bfdcc375bce76e79dc6857058a98ff83a15",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
