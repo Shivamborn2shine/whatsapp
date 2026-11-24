@@ -26,7 +26,7 @@ namespace ScanDrop.Native
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "4.8.0";
+        public const string CurrentVersion = "4.8.1";
         private const string CloudOrigin = "https://scandrop-xi.vercel.app";
         private const string PrimaryManifestUrl = CloudOrigin + "/version.json";
         private const string FallbackManifestUrl = "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/version.json";

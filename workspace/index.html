@@ -3190,6 +3190,142 @@
       setTimeout(() => { try { el.remove(); } catch {} }, durationMs || 6500);
     }
 
+    function groupPdfItemsIntoLines(items) {
+      if (!items || !items.length) return [];
+      const sorted = items.slice().sort((a, b) => (b.y - a.y) || (a.x - b.x));
+      const rows = [];
+      for (const it of sorted) {
+        let placed = false;
+        const tol = Math.max(3.2, it.h * 0.45);
+        for (let i = rows.length - 1; i >= Math.max(0, rows.length - 6); i--) {
+          if (Math.abs(rows[i].y - it.y) <= tol) {
+            rows[i].items.push(it);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) rows.push({ y: it.y, items: [it] });
+      }
+      rows.sort((a, b) => b.y - a.y);
+      const out = [];
+      for (const row of rows) {
+        row.items.sort((a, b) => a.x - b.x);
+        let text = '';
+        let prevEnd = null;
+        let maxH = 0;
+        let boldChars = 0;
+        let totalChars = 0;
+        for (const it of row.items) {
+          const s = it.str || '';
+          if (!s.trim()) continue;
+          if (prevEnd !== null) {
+            const gap = it.x - prevEnd;
+            if (gap > Math.max(18, it.h * 1.8)) text += '   ';
+            else if (gap > Math.max(1.8, it.h * 0.18) && !text.endsWith(' ') && !s.startsWith(' ')) text += ' ';
+          }
+          text += s;
+          prevEnd = it.x + Math.max(it.w, s.length * it.h * 0.42);
+          if (it.h > maxH) maxH = it.h;
+          const cLen = s.trim().length;
+          totalChars += cLen;
+          if (it.bold) boldChars += cLen;
+        }
+        const cleaned = text.replace(/\s{4,}/g, '   ').trim();
+        if (cleaned) {
+          out.push({
+            text: cleaned,
+            fontSize: Math.round(Math.max(8, Math.min(28, maxH || 11)) * 10) / 10,
+            bold: (totalChars > 0 && (boldChars / totalChars) >= 0.5) || maxH >= 14.5
+          });
+        }
+      }
+      return out;
+    }
+
+    async function convertPdfToDocxViaPdfJs(fileId, fileName, fallbackReason, btnEl) {
+      if (!window.pdfjsLib) {
+        throw new Error('Built-in PDF extractor (pdf.js) is unavailable offline. Install Microsoft Word 2013+ or LibreOffice.');
+      }
+      ensurePdfJsWorker();
+      if (btnEl) btnEl.textContent = '⏳ Extracting...';
+      const pdfRes = await fetch('/api/file?id=' + encodeURIComponent(fileId));
+      if (!pdfRes.ok) throw new Error('Could not read source PDF from local storage.');
+      const pdfBytes = new Uint8Array(await pdfRes.arrayBuffer());
+      const pdfDoc = await window.pdfjsLib.getDocument({ data: pdfBytes }).promise;
+
+      const pages = [];
+      let totalLines = 0;
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const page = await pdfDoc.getPage(p);
+        const vp = page.getViewport({ scale: 1.0 });
+        const tc = await page.getTextContent();
+        const styles = tc.styles || {};
+        const items = [];
+        for (const raw of (tc.items || [])) {
+          const str = (raw && typeof raw.str === 'string') ? raw.str : '';
+          if (!str.trim()) continue;
+          const tr = raw.transform || [11, 0, 0, 11, 0, 0];
+          const h = Math.max(Math.abs(tr[3]) || 0, Math.abs(tr[0]) || 0, raw.height || 11);
+          const x = tr[4] || 0;
+          const y = tr[5] || 0;
+          const w = raw.width || (str.length * h * 0.48);
+          const fontKey = raw.fontName || '';
+          const fontFamily = (styles[fontKey] && styles[fontKey].fontFamily) ? styles[fontKey].fontFamily : '';
+          const isBold = /bold|black|heavy|semibold|demi/i.test(fontKey + ' ' + fontFamily);
+          items.push({ str, x, y, w, h, bold: isBold });
+        }
+
+        // Detect clean 2-column layout (e.g. modern resumes) so columns stay cleanly separated instead of interleaving
+        let splitX = null;
+        if (items.length >= 10 && vp.width > 300) {
+          let bestScore = -1;
+          for (let frac = 0.30; frac <= 0.60; frac += 0.02) {
+            const gx = vp.width * frac;
+            let leftC = 0, rightC = 0, crossC = 0;
+            for (const it of items) {
+              if (it.x + it.w <= gx + 4) leftC++;
+              else if (it.x >= gx - 4) rightC++;
+              else crossC++;
+            }
+            if (leftC >= 4 && rightC >= 4 && crossC <= 1) {
+              const score = Math.min(leftC, rightC) - crossC * 10;
+              if (score > bestScore) { bestScore = score; splitX = gx; }
+            }
+          }
+        }
+
+        let pageLines;
+        if (splitX !== null) {
+          const leftItems = items.filter(it => (it.x + it.w * 0.5) < splitX);
+          const rightItems = items.filter(it => (it.x + it.w * 0.5) >= splitX);
+          const leftLines = groupPdfItemsIntoLines(leftItems);
+          const rightLines = groupPdfItemsIntoLines(rightItems);
+          pageLines = leftLines.concat(rightLines);
+        } else {
+          pageLines = groupPdfItemsIntoLines(items);
+        }
+
+        totalLines += pageLines.length;
+        pages.push(pageLines);
+      }
+
+      if (totalLines === 0) {
+        throw new Error('This PDF contains scanned images with no selectable text, and Word 2013+ / LibreOffice PDF Reflow is unavailable on this PC (' + (fallbackReason || 'no office reflow engine') + '). Install Microsoft Word 2013+ or free LibreOffice.');
+      }
+
+      if (btnEl) btnEl.textContent = '⏳ Building .docx...';
+      const buildRes = await fetch('/api/file/build-docx-from-pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, fileName, pages })
+      });
+      const buildData = await buildRes.json();
+      if (!buildRes.ok || !buildData.success) {
+        throw new Error(buildData.error || 'Could not generate editable Word (.docx) file.');
+      }
+      return buildData;
+    }
+
     async function convertPdfToWord(fileId, fileName, btnEl) {
       const origText = btnEl ? btnEl.textContent : '';
       if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Converting...'; }
@@ -3200,11 +3336,22 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileId })
         });
-        const data = await res.json();
+        let data = await res.json();
+        let usedBuiltinFallback = false;
+        let fallbackNote = '';
+
         if (!res.ok || !data.success) {
-          alert('PDF to Word failed: ' + (data.error || 'Ensure Microsoft Word or LibreOffice is installed.'));
-          return;
+          if (data && data.fallbackSupported) {
+            fallbackNote = data.error || 'Office PDF Reflow unavailable';
+            showToast('Office PDF Reflow unavailable on this PC — switching to Built-in PDF Extractor...', null, null, 4500);
+            data = await convertPdfToDocxViaPdfJs(fileId, fileName, fallbackNote, btnEl);
+            usedBuiltinFallback = true;
+          } else {
+            alert('PDF to Word failed: ' + (data.error || 'Ensure Microsoft Word 2013+ or LibreOffice is installed.'));
+            return;
+          }
         }
+
         await fetchCloudState(true);
         // Trigger immediate download so shopkeeper can open & edit in Word, then drag back in!
         const a = document.createElement('a');
@@ -3214,11 +3361,15 @@
         a.click();
         a.remove();
 
+        const toastMsg = usedBuiltinFallback
+          ? ('✓ Downloaded ' + data.outputFilename + ' via Built-in Extractor (this PC lacks Word 2013+ PDF Reflow / LibreOffice). Install Word 2013+ or LibreOffice for full graphic layout reflow.')
+          : ('✓ Downloaded ' + data.outputFilename + ' (' + data.engine + '). Edit in Word, then drag it back here!');
+
         showToast(
-          '✓ Downloaded ' + data.outputFilename + ' (' + data.engine + '). Edit in Word, then drag it back here!',
+          toastMsg,
           '↗ Open in Word',
           () => openConvertedNative(data.outputFilename),
-          10000
+          12000
         );
       } catch (err) {
         alert('PDF to Word error: ' + err.message);

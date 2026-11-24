@@ -610,10 +610,49 @@ namespace ScanDrop.Native
                             if (!AutoUpdater.ShouldApplyUpdate("4.6.2", "4.7.0", "abc123", "def456"))
                                 throw new Exception("AutoUpdater.ShouldApplyUpdate rejected valid newer update!");
                             Console.WriteLine("  [PASS] 19. Auto-update on launch semver & identical-SHA loop guard verified");
+
+                            // Test 20: Raw-PDF-in-DOCX corruption detector & Built-in OpenXML fallback builder
+                            string fakeCorruptDocx = Path.Combine(paths.TempDir, "corrupt_raw_pdf.docx");
+                            DocxEditor.BuildDocxFromExtractedPages(fakeCorruptDocx, new List<List<DocxEditor.ExtractedPdfLine>>
+                            {
+                                new List<DocxEditor.ExtractedPdfLine>
+                                {
+                                    new DocxEditor.ExtractedPdfLine { Text = "%PDF-1.4", FontSize = 11 },
+                                    new DocxEditor.ExtractedPdfLine { Text = "1 0 obj <</Producer (Skia/PDF m150) /Filter /FlateDecode>> endobj", FontSize = 11 }
+                                }
+                            });
+                            if (!DocxEditor.IsCorruptedRawPdfDocx(fakeCorruptDocx))
+                                throw new Exception("IsCorruptedRawPdfDocx failed to detect raw %PDF-1.4 binary text!");
+
+                            string builtJson = HttpPostJson(admBase + "/api/file/build-docx-from-pages", ser.Serialize(new
+                            {
+                                fileId = pmFid,
+                                fileName = "Diksha_Bisht_Resume.pdf",
+                                pages = new object[]
+                                {
+                                    new object[]
+                                    {
+                                        new { text = "Diksha Bisht", fontSize = 20, bold = true },
+                                        new { text = "EDUCATION", fontSize = 14, bold = true },
+                                        new { text = "Graphic Era Hill University, Dehradun", fontSize = 11, bold = false }
+                                    }
+                                }
+                            }));
+                            var builtDict = ser.Deserialize<Dictionary<string, object>>(builtJson);
+                            string builtName = builtDict.ContainsKey("outputFilename") ? Convert.ToString(builtDict["outputFilename"]) : "";
+                            string builtPath = Path.Combine(paths.ConvertedDir, builtName);
+                            if (string.IsNullOrEmpty(builtName) || !File.Exists(builtPath))
+                                throw new Exception("build-docx-from-pages did not create output .docx: " + builtJson);
+                            if (DocxEditor.IsCorruptedRawPdfDocx(builtPath))
+                                throw new Exception("IsCorruptedRawPdfDocx falsely flagged clean built .docx!");
+                            var inspectBuilt = DocxEditor.Inspect(builtPath);
+                            if (!inspectBuilt.Success || !inspectBuilt.BodyBlocks.Exists(b => b.Text.Contains("Diksha Bisht")))
+                                throw new Exception("Built fallback .docx did not inspect cleanly with expected text!");
+                            Console.WriteLine("  [PASS] 20. Raw-PDF DOCX corruption guard & built-in OpenXML fallback verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 19 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 20 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

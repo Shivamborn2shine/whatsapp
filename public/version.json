@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.8.0",
+    "version":  "4.8.1",
     "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Branded Counter QR Poster Studio in QR \u0026 Sharing tab: automatically engraves your Shop Name and high-resolution permanent Shop QR onto the official ScanDrop poster template with 1-click High-Res PNG download, A4 Print PDF download, and direct poster print.",
-    "sha256":  "5d7055959009b205ea53a6c795f0412104bcd7779e5bb5ae9c13feee90974816",
+    "releaseNotes":  "Fixed PDF to Word (.docx) producing raw binary %PDF-1.4 text on laptops with older Office (2007/2010), WPS Office, or missing Word PDF Reflow: enforces Microsoft Word IFDP PDF Reflow format, rejects/deletes corrupted raw-PDF output, cascades to LibreOffice Writer, and includes a built-in column-aware PDF-to-DOCX OpenXML extractor fallback so every laptop produces clean editable Word files.",
+    "sha256":  "d16049ff47baadb96f00a60834bc86b15950be0f29a464139471c0c852bc1f92",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

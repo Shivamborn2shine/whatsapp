@@ -2,7 +2,7 @@
 ; Generates ScanDropSetup.exe for Windows 10/11 (x64)
 
 #define MyAppName "Scan Drop"
-#define MyAppVersion "4.8.0"
+#define MyAppVersion "4.8.1"
 #define MyAppPublisher "Scan Drop"
 #define MyAppURL "https://scandrop-xi.vercel.app"
 #define MyAppExeName "ScanDrop.exe"

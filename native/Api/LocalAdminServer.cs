@@ -447,6 +447,12 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (path == "/api/file/build-docx-from-pages" && req.HttpMethod == "POST")
+                {
+                    HandleBuildDocxFromPages(req, res);
+                    return;
+                }
+
                 if (path == "/api/converted/open" && req.HttpMethod == "POST")
                 {
                     HandleOpenConverted(req, res);
@@ -1497,7 +1503,12 @@ namespace ScanDrop.Native.Api
             var conv = _converter.ConvertPdfToDocx(file.StoragePath, baseName);
             if (!conv.Success)
             {
-                HttpHelpers.WriteJson(res, 422, new Dictionary<string, object> { { "success", false }, { "error", conv.ErrorMessage } });
+                HttpHelpers.WriteJson(res, 422, new Dictionary<string, object>
+                {
+                    { "success", false },
+                    { "fallbackSupported", true },
+                    { "error", conv.ErrorMessage }
+                });
                 return;
             }
 
@@ -1512,6 +1523,79 @@ namespace ScanDrop.Native.Api
                 { "outputFilename", conv.OutputFilename },
                 { "sizeBytes", conv.OutputSizeBytes },
                 { "engine", conv.EngineUsed },
+                { "url", url },
+                { "downloadUrl", url + "&download=1" }
+            });
+        }
+
+        private void HandleBuildDocxFromPages(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string fileId = HttpHelpers.GetStr(body, "fileId");
+            string fileName = HttpHelpers.GetStr(body, "fileName");
+            var file = !string.IsNullOrWhiteSpace(fileId) ? _db.GetFileById(fileId) : null;
+            string baseName = StorageManager.SanitizeDisplayName(
+                !string.IsNullOrWhiteSpace(fileName) ? Path.GetFileNameWithoutExtension(fileName) :
+                (file != null ? Path.GetFileNameWithoutExtension(file.OriginalFilename) : "document")
+            );
+            if (string.IsNullOrWhiteSpace(baseName)) baseName = "document";
+
+            var pages = new List<List<DocxEditor.ExtractedPdfLine>>();
+            object rawPages;
+            if (body.TryGetValue("pages", out rawPages) && rawPages is System.Collections.IEnumerable)
+            {
+                foreach (var pgObj in (System.Collections.IEnumerable)rawPages)
+                {
+                    var lineList = new List<DocxEditor.ExtractedPdfLine>();
+                    if (pgObj is System.Collections.IEnumerable)
+                    {
+                        foreach (var itemObj in (System.Collections.IEnumerable)pgObj)
+                        {
+                            var d = itemObj as Dictionary<string, object>;
+                            if (d == null) continue;
+                            double sz = 11.0;
+                            if (d.ContainsKey("fontSize") && d["fontSize"] != null)
+                                double.TryParse(Convert.ToString(d["fontSize"], CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out sz);
+                            lineList.Add(new DocxEditor.ExtractedPdfLine
+                            {
+                                Text = HttpHelpers.GetStr(d, "text") ?? "",
+                                FontSize = sz,
+                                Bold = HttpHelpers.GetBool(d, "bold", false)
+                            });
+                        }
+                    }
+                    pages.Add(lineList);
+                }
+            }
+
+            if (pages.Count == 0)
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "No extractable text found in PDF (it may be a scanned image PDF)." } });
+                return;
+            }
+
+            if (!Directory.Exists(_storage.Paths.ConvertedDir)) Directory.CreateDirectory(_storage.Paths.ConvertedDir);
+            string outName = baseName + ".docx";
+            string outPath = Path.Combine(_storage.Paths.ConvertedDir, outName);
+            if (File.Exists(outPath))
+            {
+                outName = baseName + "_" + DateTime.UtcNow.ToString("HHmmss", CultureInfo.InvariantCulture) + ".docx";
+                outPath = Path.Combine(_storage.Paths.ConvertedDir, outName);
+            }
+
+            DocxEditor.BuildDocxFromExtractedPages(outPath, pages);
+            long size = new FileInfo(outPath).Length;
+            _db.AddActivity("PDF_TO_DOCX", "shopkeeper", file != null ? file.SubmissionId : null,
+                "Built clean editable DOCX via Built-in Extractor -> " + outName);
+            FireStateChanged();
+
+            string url = "/api/converted?name=" + Uri.EscapeDataString(outName);
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "outputFilename", outName },
+                { "sizeBytes", size },
+                { "engine", "Built-in PDF Text Extractor" },
                 { "url", url },
                 { "downloadUrl", url + "&download=1" }
             });

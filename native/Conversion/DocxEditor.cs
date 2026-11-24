@@ -538,5 +538,159 @@ namespace ScanDrop.Native.Conversion
             long val;
             return long.TryParse(a.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out val) ? val : 0;
         }
+
+        public sealed class ExtractedPdfLine
+        {
+            public string Text;
+            public double FontSize;
+            public bool Bold;
+        }
+
+        /// <summary>
+        /// Detects when an older Word (2007/2010), WPS Office, or Word's "Recover Text from Any File"
+        /// filter mistakenly opens a PDF as raw binary text ("%PDF-1.4 ... 1 0 obj ... /FlateDecode")
+        /// instead of using PDF Reflow.
+        /// </summary>
+        public static bool IsCorruptedRawPdfDocx(string docxPath)
+        {
+            if (string.IsNullOrWhiteSpace(docxPath) || !File.Exists(docxPath)) return true;
+            try
+            {
+                using (var zip = ZipFile.OpenRead(docxPath))
+                {
+                    var entry = zip.GetEntry("word/document.xml");
+                    if (entry == null) return true;
+                    string xmlText;
+                    using (var sr = new StreamReader(entry.Open(), Encoding.UTF8))
+                    {
+                        var xdoc = XDocument.Load(sr);
+                        var sb = new StringBuilder();
+                        foreach (var t in xdoc.Descendants(W + "t"))
+                        {
+                            sb.Append(t.Value);
+                            if (sb.Length > 4000) break;
+                        }
+                        xmlText = sb.ToString();
+                    }
+                    if (string.IsNullOrWhiteSpace(xmlText)) return false;
+                    string sample = xmlText.TrimStart();
+                    bool hasPdfHeader = sample.StartsWith("%PDF-", StringComparison.OrdinalIgnoreCase) ||
+                                        sample.IndexOf("%PDF-1.", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        sample.IndexOf("%PDF-2.", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!hasPdfHeader) return false;
+                    bool hasPdfStruct = sample.IndexOf("endobj", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        sample.IndexOf("/FlateDecode", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        sample.IndexOf("/Type", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        sample.IndexOf("/Producer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        sample.IndexOf("0 obj", StringComparison.OrdinalIgnoreCase) >= 0;
+                    return hasPdfStruct;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Pure native .NET 4.8 OpenXML (.docx) generator from client pdf.js extracted lines.
+        /// Guarantees clean editable Word output on any Windows laptop even without Word 2013+ or LibreOffice.
+        /// </summary>
+        public static void BuildDocxFromExtractedPages(string outDocxPath, List<List<ExtractedPdfLine>> pages)
+        {
+            var body = new XElement(W + "body");
+            if (pages != null)
+            {
+                for (int pi = 0; pi < pages.Count; pi++)
+                {
+                    if (pi > 0)
+                    {
+                        body.Add(new XElement(W + "p", new XElement(W + "r", new XElement(W + "br", new XAttribute(W + "type", "page")))));
+                    }
+                    var lines = pages[pi];
+                    if (lines == null) continue;
+                    foreach (var line in lines)
+                    {
+                        if (line == null) continue;
+                        string clean = StripInvalidXmlChars(line.Text ?? "");
+                        if (string.IsNullOrWhiteSpace(clean)) continue;
+                        double pt = line.FontSize > 6 && line.FontSize < 64 ? line.FontSize : 11.0;
+                        int halfPt = (int)Math.Round(pt * 2.0);
+                        var rPr = new XElement(W + "rPr",
+                            new XElement(W + "rFonts", new XAttribute(W + "ascii", "Calibri"), new XAttribute(W + "hAnsi", "Calibri"))
+                        );
+                        if (line.Bold || pt >= 14.0)
+                        {
+                            rPr.Add(new XElement(W + "b"));
+                            rPr.Add(new XElement(W + "bCs"));
+                        }
+                        rPr.Add(new XElement(W + "sz", new XAttribute(W + "val", halfPt.ToString(CultureInfo.InvariantCulture))));
+                        rPr.Add(new XElement(W + "szCs", new XAttribute(W + "val", halfPt.ToString(CultureInfo.InvariantCulture))));
+
+                        var pPr = new XElement(W + "pPr",
+                            new XElement(W + "spacing",
+                                new XAttribute(W + "after", pt >= 14.0 ? "120" : "80"),
+                                new XAttribute(W + "line", "260"),
+                                new XAttribute(W + "lineRule", "auto"))
+                        );
+                        var tEl = new XElement(W + "t", clean);
+                        if (clean.StartsWith(" ") || clean.EndsWith(" ")) tEl.SetAttributeValue(XML + "space", "preserve");
+
+                        body.Add(new XElement(W + "p", pPr, new XElement(W + "r", rPr, tEl)));
+                    }
+                }
+            }
+            body.Add(new XElement(W + "sectPr",
+                new XElement(W + "pgSz", new XAttribute(W + "w", "11906"), new XAttribute(W + "h", "16838")),
+                new XElement(W + "pgMar", new XAttribute(W + "top", "1080"), new XAttribute(W + "right", "1080"), new XAttribute(W + "bottom", "1080"), new XAttribute(W + "left", "1080"))
+            ));
+
+            var docXml = new XDocument(
+                new XDeclaration("1.0", "UTF-8", "yes"),
+                new XElement(W + "document", new XAttribute(XNamespace.Xmlns + "w", W.NamespaceName), body)
+            );
+
+            using (var fs = new FileStream(outDocxPath, FileMode.Create, FileAccess.Write))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                WriteUtf8Entry(zip, "[Content_Types].xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                    "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+                    "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>" +
+                    "</Types>");
+                WriteUtf8Entry(zip, "_rels/.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
+                    "</Relationships>");
+                var docEntry = zip.CreateEntry("word/document.xml", CompressionLevel.Optimal);
+                using (var xw = XmlWriter.Create(docEntry.Open(), new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false }))
+                {
+                    docXml.Save(xw);
+                }
+            }
+        }
+
+        private static void WriteUtf8Entry(ZipArchive zip, string path, string content)
+        {
+            var e = zip.CreateEntry(path, CompressionLevel.Optimal);
+            using (var sw = new StreamWriter(e.Open(), new UTF8Encoding(false)))
+                sw.Write(content);
+        }
+
+        private static string StripInvalidXmlChars(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch == 0x9 || ch == 0xA || ch == 0xD || (ch >= 0x20 && ch <= 0xD7FF) || (ch >= 0xE000 && ch <= 0xFFFD))
+                    sb.Append(ch);
+            }
+            return sb.ToString();
+        }
     }
 }

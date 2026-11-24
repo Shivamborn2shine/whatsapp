@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -305,18 +306,24 @@ namespace ScanDrop.Native.Conversion
                 outPath = Path.Combine(_paths.ConvertedDir, desiredName);
             }
 
+            string wordFailureReason = null;
             if (IsMicrosoftWordInstalled())
             {
-                return ConvertPdfToDocxWithWordCom(pdfPath, outPath);
+                var wordRes = ConvertPdfToDocxWithWordCom(pdfPath, outPath);
+                if (wordRes.Success) return wordRes;
+                wordFailureReason = wordRes.ErrorMessage;
+                _logger.Warn("Conversion", "Word COM PDF->DOCX declined/failed (" + wordFailureReason + "), checking LibreOffice fallback...");
             }
 
             string soffice = FindLibreOfficePath();
             if (!string.IsNullOrEmpty(soffice))
             {
-                return ConvertPdfToDocxWithLibreOffice(soffice, pdfPath, outPath);
+                var loRes = ConvertPdfToDocxWithLibreOffice(soffice, pdfPath, outPath);
+                if (loRes.Success) return loRes;
+                return Fail((wordFailureReason != null ? wordFailureReason + " | " : "") + loRes.ErrorMessage);
             }
 
-            return Fail("Microsoft Word or LibreOffice is required to convert PDF to editable Word (.docx).");
+            return Fail(wordFailureReason ?? "Microsoft Word 2013+ (PDF Reflow) or LibreOffice is not installed on this PC.");
         }
 
         private ConversionResult ConvertPdfToDocxWithWordCom(string pdfPath, string outDocxPath)
@@ -353,14 +360,71 @@ namespace ScanDrop.Native.Conversion
                         return;
                     }
                     wordApp = Activator.CreateInstance(wordType);
+
+                    // 1. Verify genuine Microsoft Word >= 15.0 (Word 2013+); Word 2007/2010 & WPS Office lack PDF Reflow
+                    string appName = "";
+                    string appVerStr = "";
+                    try { appName = Convert.ToString(wordType.InvokeMember("Name", BindingFlags.GetProperty, null, wordApp, null)); } catch { }
+                    try { appVerStr = Convert.ToString(wordType.InvokeMember("Version", BindingFlags.GetProperty, null, wordApp, null)); } catch { }
+
+                    double majorVer = 0;
+                    double.TryParse(appVerStr, NumberStyles.Any, CultureInfo.InvariantCulture, out majorVer);
+                    if (string.IsNullOrEmpty(appName) || appName.IndexOf("Microsoft Word", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        result = Fail("Detected '" + (string.IsNullOrEmpty(appName) ? "non-Microsoft Word" : appName) + "' (lacks Microsoft PDF Reflow).");
+                        return;
+                    }
+                    if (majorVer > 0 && majorVer < 15.0)
+                    {
+                        result = Fail("Installed Microsoft Word v" + appVerStr + " (Office 2007/2010) does not support PDF Reflow (requires Word 2013+).");
+                        return;
+                    }
+
                     wordType.InvokeMember("Visible", BindingFlags.SetProperty, null, wordApp, new object[] { false });
                     wordType.InvokeMember("DisplayAlerts", BindingFlags.SetProperty, null, wordApp, new object[] { 0 });
                     try { wordType.InvokeMember("AutomationSecurity", BindingFlags.SetProperty, null, wordApp, new object[] { 3 }); } catch { }
 
+                    // 2. Locate Word's explicit PDF Reflow converter (ClassName="IFDP" / Ext="pdf") so Word NEVER falls back
+                    //    to "Recover Text from Any File" which dumps raw "%PDF-1.4 ... /FlateDecode" binary bytes!
+                    object pdfOpenFormat = null;
+                    try
+                    {
+                        object converters = wordType.InvokeMember("FileConverters", BindingFlags.GetProperty, null, wordApp, null);
+                        if (converters is IEnumerable)
+                        {
+                            foreach (object fc in (IEnumerable)converters)
+                            {
+                                if (fc == null) continue;
+                                Type ft = fc.GetType();
+                                string cls = "";
+                                string exts = "";
+                                string fmtName = "";
+                                try { cls = Convert.ToString(ft.InvokeMember("ClassName", BindingFlags.GetProperty, null, fc, null)); } catch { }
+                                try { exts = Convert.ToString(ft.InvokeMember("Extensions", BindingFlags.GetProperty, null, fc, null)); } catch { }
+                                try { fmtName = Convert.ToString(ft.InvokeMember("FormatName", BindingFlags.GetProperty, null, fc, null)); } catch { }
+                                if (string.Equals(cls, "IFDP", StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(exts) && exts.IndexOf("pdf", StringComparison.OrdinalIgnoreCase) >= 0) ||
+                                    (!string.IsNullOrEmpty(fmtName) && fmtName.IndexOf("PDF", StringComparison.OrdinalIgnoreCase) >= 0))
+                                {
+                                    pdfOpenFormat = Convert.ToInt32(ft.InvokeMember("OpenFormat", BindingFlags.GetProperty, null, fc, null));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+
+                    if (pdfOpenFormat == null)
+                    {
+                        result = Fail("Microsoft Word v" + appVerStr + " on this PC is missing its PDF Reflow converter (IFDP).");
+                        return;
+                    }
+
                     docs = wordType.InvokeMember("Documents", BindingFlags.GetProperty, null, wordApp, null);
-                    // FileName, ConfirmConversions=false, ReadOnly=true, AddToRecentFiles=false
+                    object m = Type.Missing;
+                    // Force explicit Format=pdfOpenFormat + OpenAndRepair=false + NoEncodingDialog=true
                     doc = docs.GetType().InvokeMember("Open", BindingFlags.InvokeMethod, null, docs,
-                        new object[] { fullSrc, false, true, false });
+                        new object[] { fullSrc, false, true, false, m, m, m, m, m, pdfOpenFormat, m, false, false, m, true });
 
                     // 12 = wdFormatXMLDocument (.docx)
                     doc.GetType().InvokeMember("SaveAs2", BindingFlags.InvokeMethod, null, doc,
@@ -372,14 +436,24 @@ namespace ScanDrop.Native.Conversion
                         result = Fail("Microsoft Word did not produce a .docx file.");
                         return;
                     }
-                    _logger.Info("Conversion", "Word COM PDF->DOCX: " + Path.GetFileName(fullSrc) + " -> " + Path.GetFileName(fullOut));
+
+                    // 3. Post-conversion integrity guard: reject & delete if output contains raw "%PDF-1.x ... endobj" text
+                    if (DocxEditor.IsCorruptedRawPdfDocx(fullOut))
+                    {
+                        try { File.Delete(fullOut); } catch { }
+                        _logger.Warn("Conversion", "Rejected raw-PDF-text Word output for " + Path.GetFileName(fullSrc));
+                        result = Fail("Word v" + appVerStr + " opened the PDF as raw text instead of reflowing it.");
+                        return;
+                    }
+
+                    _logger.Info("Conversion", "Word COM PDF->DOCX (IFDP fmt=" + pdfOpenFormat + "): " + Path.GetFileName(fullSrc) + " -> " + Path.GetFileName(fullOut));
                     result = new ConversionResult
                     {
                         Success = true,
                         OutputPath = fullOut,
                         OutputFilename = Path.GetFileName(fullOut),
                         OutputSizeBytes = new FileInfo(fullOut).Length,
-                        EngineUsed = "Microsoft Word"
+                        EngineUsed = "Microsoft Word PDF Reflow"
                     };
                 }
                 catch (Exception ex)
@@ -442,6 +516,11 @@ namespace ScanDrop.Native.Conversion
                 string[] docxFiles = Directory.GetFiles(tempOut, "*.docx");
                 if (docxFiles.Length == 0) return Fail("LibreOffice did not produce a .docx output.");
                 File.Copy(docxFiles[0], outDocxPath, true);
+                if (DocxEditor.IsCorruptedRawPdfDocx(outDocxPath))
+                {
+                    try { File.Delete(outDocxPath); } catch { }
+                    return Fail("LibreOffice produced raw PDF text instead of editable Word content.");
+                }
                 return new ConversionResult
                 {
                     Success = true,
