@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -16,6 +17,9 @@ namespace ScanDrop.Native
 {
     public sealed class StationForm : Form
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         private readonly LocalAdminServer _adminServer;
         private readonly PublicUploadServer _publicReceiver;
         private readonly StorageManager _storage;
@@ -261,7 +265,7 @@ namespace ScanDrop.Native
             menu.Items.Add("Pause / Resume Receiving", null, (s, e) => TogglePauseReceiving());
             menu.Items.Add("Free Up Storage...", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); ShowClearStorageDialog(); });
             menu.Items.Add("Check for Updates", null, (s, e) => ThreadPool.QueueUserWorkItem(_ => RunUpdateCheck(true)));
-            menu.Items.Add("Show Station Window", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
+            menu.Items.Add("Show Station Window", null, (s, e) => RestoreAndActivate());
             menu.Items.Add("Exit Scan Drop", null, (s, e) => { _allowExit = true; Close(); });
 
             _trayIcon = new NotifyIcon
@@ -271,8 +275,26 @@ namespace ScanDrop.Native
                 ContextMenuStrip = menu,
                 Visible = true
             };
-            _trayIcon.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
+            _trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) RestoreAndActivate(); };
+            _trayIcon.DoubleClick += (s, e) => RestoreAndActivate();
             _trayIcon.BalloonTipClicked += (s, e) => { try { Process.Start("http://127.0.0.1:" + _adminServer.Port + "/workspace/"); } catch { } };
+        }
+
+        public void RestoreAndActivate()
+        {
+            SafeUi(() =>
+            {
+                if (IsDisposed) return;
+                ShowInTaskbar = true;
+                if (!Visible) Show();
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                TopMost = true;
+                BringToFront();
+                Activate();
+                TopMost = false;
+                try { SetForegroundWindow(Handle); } catch { }
+                RefreshStationMetrics();
+            });
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

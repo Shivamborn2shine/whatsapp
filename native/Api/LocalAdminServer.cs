@@ -36,6 +36,7 @@ namespace ScanDrop.Native.Api
         private bool _disposed;
 
         public event Action OnStateChanged;
+        public event Action OnShowWindowRequested;
 
         public int Port { get { return _actualPort; } }
         public string InboxDir { get { return _storage.Paths.ReceivedDir; } }
@@ -196,6 +197,14 @@ namespace ScanDrop.Native.Api
                         { "tunnelRetryCount", snap != null ? snap.RetryCount : 0 },
                         { "tunnelNextRetryUtc", snap != null && snap.NextRetryUtc.HasValue ? snap.NextRetryUtc.Value.ToString("o") : null }
                     });
+                    return;
+                }
+
+                if (path == "/api/window/show" && req.HttpMethod == "POST")
+                {
+                    var h = OnShowWindowRequested;
+                    if (h != null) try { h(); } catch { }
+                    HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
                     return;
                 }
 

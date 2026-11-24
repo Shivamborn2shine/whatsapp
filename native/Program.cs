@@ -24,6 +24,7 @@ namespace ScanDrop.Native
         private const int DefaultAdminPort = 3838;   // Localhost-only Admin & Workspace (NEVER tunneled)
         private const int DefaultPublicPort = 8787;  // Public Upload Receiver (PRD Sec 8.1 — tunneled)
         private const string DefaultCloudUrl = "https://scandrop-xi.vercel.app";
+        private const string ShowWindowEventName = "ScanDrop_Native_ShowWindow_Event";
 
         [STAThread]
         public static int Main(string[] args)
@@ -63,8 +64,29 @@ namespace ScanDrop.Native
                 {
                     if (!createdNew)
                     {
-                        try { Process.Start("http://127.0.0.1:" + DefaultAdminPort + "/workspace/"); } catch { }
-                        MessageBox.Show("Scan Drop Station is already running (check your system tray).", "Scan Drop", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        bool signaled = false;
+                        try
+                        {
+                            using (var existingEvt = EventWaitHandle.OpenExisting(ShowWindowEventName))
+                            {
+                                existingEvt.Set();
+                                signaled = true;
+                            }
+                        }
+                        catch { }
+
+                        if (!signaled)
+                        {
+                            try
+                            {
+                                var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + DefaultAdminPort + "/api/window/show");
+                                req.Method = "POST";
+                                req.ContentLength = 0;
+                                req.Timeout = 2000;
+                                using (var resp = (HttpWebResponse)req.GetResponse()) { }
+                            }
+                            catch { }
+                        }
                         return 0;
                     }
 
@@ -122,8 +144,24 @@ namespace ScanDrop.Native
                                 adminServer.AttachServices(tunnel, publicReceiver);
                                 ThreadPool.QueueUserWorkItem(_ => tunnel.Start());
 
+                                using (var showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowWindowEventName))
+                                using (var shutdownEvent = new ManualResetEvent(false))
                                 using (var form = new StationForm(adminServer, publicReceiver, storage, db, transfers, tunnel, logger, cloudQrUrl))
                                 {
+                                    adminServer.OnShowWindowRequested += () => form.RestoreAndActivate();
+                                    var wakeThread = new Thread(() =>
+                                    {
+                                        var handles = new WaitHandle[] { showEvent, shutdownEvent };
+                                        while (true)
+                                        {
+                                            int idx = WaitHandle.WaitAny(handles);
+                                            if (idx == 1) break;
+                                            form.RestoreAndActivate();
+                                        }
+                                    });
+                                    wakeThread.IsBackground = true;
+                                    wakeThread.Start();
+
                                     if (minimized)
                                     {
                                         form.WindowState = FormWindowState.Minimized;
@@ -140,7 +178,14 @@ namespace ScanDrop.Native
                                             }
                                         };
                                     }
-                                    Application.Run(form);
+                                    try
+                                    {
+                                        Application.Run(form);
+                                    }
+                                    finally
+                                    {
+                                        shutdownEvent.Set();
+                                    }
                                 }
                             }
                         }
