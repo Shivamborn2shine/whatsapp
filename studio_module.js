@@ -1696,15 +1696,15 @@ const studioJs = `
           const isResize = ev.target.classList.contains('canvas-handle');
           const isRotate = ev.target.classList.contains('ic-rotate-handle');
 
+          const liveSelSet = new Set(icState.selectedIds || []);
           if (ev.shiftKey && !isResize && !isRotate) {
-            const cur = new Set(icState.selectedIds || []);
-            if (cur.has(item.id)) cur.delete(item.id); else cur.add(item.id);
-            icSetSelection(Array.from(cur));
+            if (liveSelSet.has(item.id)) liveSelSet.delete(item.id); else liveSelSet.add(item.id);
+            icSetSelection(Array.from(liveSelSet));
             icRefreshSelectionStyles();
             return;
           }
 
-          if (!selSet.has(item.id) || isResize || isRotate) {
+          if (!liveSelSet.has(item.id)) {
             icSetSelection([item.id]);
             icRefreshSelectionStyles();
           }
@@ -1713,12 +1713,16 @@ const studioJs = `
           const ox = item.xCm, oy = item.yCm, ow = item.wCm, oh = item.hCm;
           const aspect = oh / Math.max(0.1, ow);
 
-          // Snapshot starting positions for all selected items (for multi-select group move!)
+          // Snapshot starting positions & dimensions for ALL selected items (multi-select move, resize & rotate!)
           const movingItems = icGetSelectedItems();
           const startPos = movingItems.map(mi => ({
             item: mi,
             ox: mi.xCm,
             oy: mi.yCm,
+            ow: mi.wCm,
+            oh: mi.hCm,
+            aspect: mi.hCm / Math.max(0.1, mi.wCm),
+            origRot: mi.rot || 0,
             el: layer.querySelector('[data-item-id="' + mi.id + '"]')
           }));
 
@@ -1734,28 +1738,41 @@ const studioJs = `
             if (!movedOnce) { icPushUndo(); movedOnce = true; }
             if (isRotate) {
               const curRad = Math.atan2(mv.clientY - cyScr, mv.clientX - cxScr);
-              let deg = Math.round(origRot + (curRad - startAngleRad) * (180 / Math.PI));
-              while (deg > 180) deg -= 360;
-              while (deg < -180) deg += 360;
-              // Snap gently to cardinal angles (0, ±90, ±180) unless Shift held
-              if (!mv.shiftKey) {
-                for (const snap of [-180, -90, 0, 90, 180]) {
-                  if (Math.abs(deg - snap) <= 5) { deg = snap; break; }
+              const deltaDeg = Math.round((curRad - startAngleRad) * (180 / Math.PI));
+              startPos.forEach(sp => {
+                let deg = sp.origRot + deltaDeg;
+                while (deg > 180) deg -= 360;
+                while (deg < -180) deg += 360;
+                if (!mv.shiftKey) {
+                  for (const snap of [-180, -90, 0, 90, 180]) {
+                    if (Math.abs(deg - snap) <= 5) { deg = snap; break; }
+                  }
                 }
-              }
-              item.rot = deg;
-              div.style.transform = 'rotate(' + item.rot + 'deg)';
-              const tag = div.querySelector('.canvas-dim-tag');
-              if (tag) tag.textContent = item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm • ' + item.rot + '°';
+                sp.item.rot = deg;
+                if (sp.el) {
+                  sp.el.style.transform = 'rotate(' + sp.item.rot + 'deg)';
+                  const tag = sp.el.querySelector('.canvas-dim-tag');
+                  if (tag) tag.textContent = sp.item.wCm.toFixed(1) + ' × ' + sp.item.hCm.toFixed(1) + ' cm' + (sp.item.rot ? (' • ' + sp.item.rot + '°') : '');
+                }
+              });
             } else if (isResize) {
               const dxCm = (mv.clientX - sx) / icState.pxPerCm;
               const dyCm = (mv.clientY - sy) / icState.pxPerCm;
-              item.wCm = Math.max(1.5, Math.min(paper.w, ow + dxCm));
-              item.hCm = mv.shiftKey ? Math.max(1.5, Math.min(paper.h, oh + dyCm)) : (item.wCm * aspect);
-              div.style.width = (item.wCm * icState.pxPerCm) + 'px';
-              div.style.height = (item.hCm * icState.pxPerCm) + 'px';
-              const tag = div.querySelector('.canvas-dim-tag');
-              if (tag) tag.textContent = item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm' + (item.rot ? (' • ' + item.rot + '°') : '');
+              const targetW = Math.max(1.2, Math.min(paper.w, ow + dxCm));
+              const targetH = mv.shiftKey ? Math.max(1.2, Math.min(paper.h, oh + dyCm)) : (targetW * aspect);
+              const scaleX = targetW / Math.max(0.1, ow);
+              const scaleY = targetH / Math.max(0.1, oh);
+
+              startPos.forEach(sp => {
+                sp.item.wCm = Math.max(1.2, Math.min(paper.w, sp.ow * scaleX));
+                sp.item.hCm = mv.shiftKey ? Math.max(1.2, Math.min(paper.h, sp.oh * scaleY)) : (sp.item.wCm * sp.aspect);
+                if (sp.el) {
+                  sp.el.style.width = (sp.item.wCm * icState.pxPerCm) + 'px';
+                  sp.el.style.height = (sp.item.hCm * icState.pxPerCm) + 'px';
+                  const tag = sp.el.querySelector('.canvas-dim-tag');
+                  if (tag) tag.textContent = sp.item.wCm.toFixed(1) + ' × ' + sp.item.hCm.toFixed(1) + ' cm' + (sp.item.rot ? (' • ' + sp.item.rot + '°') : '');
+                }
+              });
             } else {
               const dxCm = (mv.clientX - sx) / icState.pxPerCm;
               const dyCm = (mv.clientY - sy) / icState.pxPerCm;
@@ -1797,17 +1814,20 @@ const studioJs = `
     }
 
     function icApplyDimInput(axis) {
-      const it = icGetSelected();
-      if (!it) return;
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
       icPushUndo();
-      const ratio = it.natH / Math.max(1, it.natW);
-      if (axis === 'w') {
-        it.wCm = Math.max(1, Number(document.getElementById('icWidthCm').value || it.wCm));
-        it.hCm = it.wCm * ratio;
-      } else {
-        it.hCm = Math.max(1, Number(document.getElementById('icHeightCm').value || it.hCm));
-        it.wCm = it.hCm / ratio;
-      }
+      const val = Math.max(1, Number(document.getElementById(axis === 'w' ? 'icWidthCm' : 'icHeightCm').value || 1));
+      targets.forEach(it => {
+        const ratio = it.natH / Math.max(1, it.natW);
+        if (axis === 'w') {
+          it.wCm = val;
+          it.hCm = it.wCm * ratio;
+        } else {
+          it.hCm = val;
+          it.wCm = it.hCm / ratio;
+        }
+      });
       imgCanvasRenderPaper();
     }
 

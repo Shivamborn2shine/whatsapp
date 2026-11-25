@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.1",
+    "version":  "4.9.2",
     "releaseDate":  "2026-11-25",
-    "releaseNotes":  "Canva-style Image Print Canvas upgrade: uniform standard-size scrollable thumbnail previews, drag-and-drop thumbnails (or PC images) directly onto the sheet, floating Duplicate/Rotate/Delete toolbar + side drag-to-rotate handle on selected images, and click-hold-drag marquee multi-selection with group move/rotate/duplicate/delete.",
-    "sha256":  "0340a35b6922f88b7d6ef258e289ae549861623e400e3b0d3838dd20d1fad55f",
+    "releaseNotes":  "Multi-select simultaneous drag-resize in Image Print Canvas: dragging any blue corner resize handle (or typing Width/Height in cm) while multiple images are selected now resizes all selected images together in real time without losing selection.",
+    "sha256":  "11e9e47dc168e7f106bde331ec0ae5d4287760dd217c421cb26dc728d20d56c4",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
