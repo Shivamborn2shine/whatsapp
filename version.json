@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.3",
+    "version":  "4.9.4",
     "releaseDate":  "2026-11-25",
-    "releaseNotes":  "Redesigned Submission File Cards to a clean 2-row 4-column action grid (Row 1: To Word/Edit in Word, Pages, Preview, Print; Row 2: Save, Quick Edit, Rename, More) with a floating popover menu for Open, Open With, Export, and Folder.",
-    "sha256":  "8c9434dfaca021ea1d3ce1d8187910e0bddde5e11c87f2cf50fa01c8aa2209f6",
+    "releaseNotes":  "Guided On-Page Add/Edit Text in PDF Studio: live cursor preview box with full-page horizontal/vertical alignment hairlines, automatic green baseline snapping to existing text rows, and an interactive on-page draggable \u0026 editable text box with A-/A+, Bold, Cover Background, and Enter-to-place.",
+    "sha256":  "9f6893266fa7405286ea3ac0ac07a648aaf457a8ede539f4812001583b044536",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

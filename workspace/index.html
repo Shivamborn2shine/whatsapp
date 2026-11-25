@@ -235,10 +235,29 @@
     .studio-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; }
     .studio-card h4 { font-size:12.5px; font-weight:800; color:var(--text); display:flex; align-items:center; justify-content:space-between; gap:6px; }
     .studio-lbl { font-size:11px; font-weight:700; color:var(--muted); display:block; margin-bottom:3px; }
-    .pdf-page-wrap { position:relative; background:#fff; box-shadow:0 8px 28px rgba(0,0,0,0.22); border-radius:4px; overflow:hidden; user-select:none; }
+    .pdf-page-wrap { position:relative; background:#fff; box-shadow:0 8px 28px rgba(0,0,0,0.22); border-radius:4px; overflow:visible; user-select:none; }
     .pdf-text-hit { position:absolute; cursor:pointer; border:1px solid transparent; border-radius:2px; transition:background 0.1s, border-color 0.1s; }
     .pdf-text-hit:hover { background:rgba(37,99,235,0.16); border-color:rgba(37,99,235,0.65); }
     .pdf-text-hit.header-hit { border-bottom:1px dashed rgba(245,158,11,0.75); }
+    .pdf-cursor-guide { position:absolute; inset:0; pointer-events:none; z-index:35; display:none; overflow:hidden; }
+    .pdf-guide-h { position:absolute; left:0; right:0; height:0; border-top:1.5px dashed rgba(0,120,255,0.65); pointer-events:none; }
+    .pdf-guide-h.snapped { border-top:1.5px solid #16a34a; box-shadow:0 0 6px rgba(22,163,74,0.35); }
+    .pdf-guide-v { position:absolute; top:0; bottom:0; width:0; border-left:1.5px dashed rgba(0,120,255,0.55); pointer-events:none; }
+    .pdf-ghost-box { position:absolute; border:1.5px dashed #0078FF; background:rgba(0,120,255,0.10); color:#0B2545; padding:0 4px; border-radius:3px; font-family:Helvetica,Arial,sans-serif; line-height:1; white-space:nowrap; pointer-events:none; box-shadow:0 2px 8px rgba(0,120,255,0.18); }
+    .pdf-ghost-tag { position:absolute; left:0; top:-18px; background:#0078FF; color:#fff; font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:4px; white-space:nowrap; font-family:system-ui,sans-serif; }
+    .pdf-ghost-box.snapped { border-color:#16a34a; background:rgba(22,163,74,0.10); }
+    .pdf-ghost-box.snapped .pdf-ghost-tag { background:#16a34a; }
+    .pdf-onpage-editor { position:absolute; z-index:45; display:none; pointer-events:auto; }
+    .pdf-onpage-toolbar { position:absolute; left:0; bottom:100%; margin-bottom:5px; background:#0B2545; color:#fff; border:1px solid rgba(88,195,255,0.35); border-radius:8px; padding:3px 6px; display:flex; align-items:center; gap:5px; box-shadow:0 8px 22px rgba(11,37,69,0.42); white-space:nowrap; font-family:system-ui,sans-serif; }
+    .pdf-onpage-drag { cursor:move; font-size:11px; font-weight:800; color:#FCD34D; padding:2px 5px; border-right:1px solid rgba(255,255,255,0.2); user-select:none; }
+    .pdf-onpage-tbtn { border:none; background:rgba(255,255,255,0.12); color:#fff; border-radius:5px; padding:2px 6px; font-size:11px; font-weight:800; cursor:pointer; }
+    .pdf-onpage-tbtn:hover { background:rgba(255,255,255,0.24); }
+    .pdf-onpage-tbtn.active { background:#0078FF; color:#fff; }
+    .pdf-onpage-tbtn.apply { background:#16a34a; color:#fff; padding:2px 8px; }
+    .pdf-onpage-tbtn.apply:hover { background:#15803d; }
+    .pdf-onpage-tbtn.cancel { background:rgba(239,68,68,0.25); color:#fca5a5; }
+    .pdf-onpage-tbtn.cancel:hover { background:#ef4444; color:#fff; }
+    .pdf-onpage-input { border:2px solid #0078FF; border-radius:3px; outline:none; padding:0 3px; margin:0; font-family:Helvetica,Arial,sans-serif; color:#0f172a; line-height:1; min-width:120px; box-shadow:0 4px 14px rgba(0,120,255,0.25); }
     .pdf-overlay-img { position:absolute; border:2px dashed #2563eb; cursor:move; box-sizing:border-box; }
     .pdf-overlay-img .resize-handle { position:absolute; right:-7px; bottom:-7px; width:14px; height:14px; background:#2563eb; border:2px solid #fff; border-radius:50%; cursor:nwse-resize; }
     .canvas-paper { position:relative; background:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.25); overflow:visible; user-select:none; transition:box-shadow 0.15s; }
@@ -616,6 +635,26 @@
           <div id="pdfPageContainer" class="pdf-page-wrap">
             <canvas id="pdfRenderCanvas"></canvas>
             <div id="pdfTextLayer" style="position:absolute;inset:0;"></div>
+            <div id="pdfCursorGuide" class="pdf-cursor-guide">
+              <div id="pdfGuideH" class="pdf-guide-h"></div>
+              <div id="pdfGuideV" class="pdf-guide-v"></div>
+              <div id="pdfGhostBox" class="pdf-ghost-box"><span id="pdfGhostTag" class="pdf-ghost-tag">Click to place text</span><span id="pdfGhostSample">New Text</span></div>
+            </div>
+            <div id="pdfOnPageEditor" class="pdf-onpage-editor">
+              <div id="pdfOnPageToolbar" class="pdf-onpage-toolbar">
+                <span id="pdfOnPageDragHandle" class="pdf-onpage-drag" title="Drag to reposition text on page">✥ Move</span>
+                <button type="button" class="pdf-onpage-tbtn" onclick="pdfAdjustInlineSize(-1)" title="Smaller Font">A-</button>
+                <span id="pdfOnPageSizeLbl" style="font-size:10.5px;font-weight:800;min-width:28px;text-align:center;">12pt</span>
+                <button type="button" class="pdf-onpage-tbtn" onclick="pdfAdjustInlineSize(1)" title="Larger Font">A+</button>
+                <button type="button" id="pdfOnPageBoldBtn" class="pdf-onpage-tbtn" onclick="pdfToggleInlineBold()" title="Bold">B</button>
+                <button type="button" id="pdfOnPageBgBtn" class="pdf-onpage-tbtn" onclick="pdfToggleInlineBg()" title="Toggle white cover background behind text">⬜ Bg</button>
+                <button type="button" class="pdf-onpage-tbtn apply" onclick="pdfCommitInlineEdit()" title="Stamp text onto PDF (Enter)">✓ Place</button>
+                <button type="button" class="pdf-onpage-tbtn cancel" onclick="pdfCloseOnPageEditor()" title="Cancel (Esc)">✕</button>
+              </div>
+              <input id="pdfOnPageInput" type="text" class="pdf-onpage-input" placeholder="Type text here..."
+                oninput="pdfSyncInlineFromOnPage()"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();pdfCommitInlineEdit();}else if(event.key==='Escape'){event.preventDefault();pdfCloseOnPageEditor();}">
+            </div>
             <div id="pdfOverlayLayer" style="position:absolute;inset:0;pointer-events:none;"></div>
           </div>
         </div>
@@ -2237,18 +2276,26 @@
       document.getElementById('pdfModeAddTextBtn').className = mode === 'addText' ? 'btn' : 'btn btn-outline';
       document.getElementById('pdfModeWhiteoutBtn').className = mode === 'whiteout' ? 'btn' : 'btn btn-outline';
       const hints = {
-        edit: 'Click any text on the page to edit it in place',
-        addText: 'Click anywhere on the page to place new text (e.g. Name / Roll No.)',
+        edit: 'Click any text on the page to edit it directly in place',
+        addText: 'Move cursor over page (green line = aligned to existing row) • Click to type & drag into position',
         whiteout: 'Click and drag on the page to cover an old image, logo, or text'
       };
       document.getElementById('pdfToolHint').textContent = hints[mode] || '';
       const layer = document.getElementById('pdfTextLayer');
       if (layer) layer.style.cursor = mode === 'edit' ? 'default' : 'crosshair';
+      if (mode !== 'addText') {
+        const cg = document.getElementById('pdfCursorGuide');
+        if (cg) cg.style.display = 'none';
+      }
+      if (mode === 'whiteout' && typeof pdfCloseOnPageEditor === 'function') {
+        pdfCloseOnPageEditor();
+      }
     }
 
     function pdfChangePage(delta) {
       const next = pdfStudio.pageNum + delta;
       if (next < 1 || next > pdfStudio.numPages) return;
+      if (typeof pdfCloseOnPageEditor === 'function') pdfCloseOnPageEditor();
       pdfStudio.pageNum = next;
       pdfRenderCurrentPage();
     }
@@ -2298,28 +2345,115 @@
         div.onclick = (ev) => {
           if (pdfStudio.toolMode !== 'edit') return;
           ev.stopPropagation();
-          pdfStudio.selectedInlineTarget = { kind: 'replaceItem', rec };
-          document.getElementById('pdfInlineLabel').textContent = 'Edit Text on Page ' + pdfStudio.pageNum;
-          document.getElementById('pdfInlineText').value = str;
-          document.getElementById('pdfInlineSize').value = Math.round(fontSize);
-          document.getElementById('pdfInlineEditor').style.display = 'block';
-          document.getElementById('pdfInlineText').focus();
+          pdfOpenOnPageEditor({
+            kind: 'replaceItem',
+            rec,
+            xPdf: rec.xPdf,
+            yPdf: rec.yPdf,
+            wPdf: rec.wPdf,
+            hPdf: rec.hPdf,
+            pageW: vp1.width,
+            pageH: vp1.height,
+            text: str,
+            size: Math.round(fontSize),
+            bold: false,
+            coverBg: true
+          });
         };
         textLayer.appendChild(div);
       });
 
+      // Live alignment guide + ghost preview box in Add Text mode
+      const cursorGuide = document.getElementById('pdfCursorGuide');
+      const guideH = document.getElementById('pdfGuideH');
+      const guideV = document.getElementById('pdfGuideV');
+      const ghostBox = document.getElementById('pdfGhostBox');
+      const ghostTag = document.getElementById('pdfGhostTag');
+      const ghostSample = document.getElementById('pdfGhostSample');
+
+      function resolveAddTextPosition(clientX, clientY) {
+        const rect = textLayer.getBoundingClientRect();
+        const rawX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const rawY = Math.max(0, Math.min(rect.height, clientY - rect.top));
+        const curSize = Math.max(6, Math.min(48, Number(document.getElementById('pdfInlineSize').value || 12)));
+        const fontPx = curSize * pdfStudio.scale;
+
+        // Default: cursor Y is the alphabetic baseline
+        let xPdf = rawX / pdfStudio.scale;
+        let yPdf = vp1.height - (rawY / pdfStudio.scale);
+        let snappedRow = null;
+        let bestDy = 7.5; // snap within 7.5 screen px of an existing text line baseline
+        for (const it of pdfStudio.pageTextItems) {
+          const itBasePx = (vp1.height - it.yPdf) * pdfStudio.scale;
+          const dy = Math.abs(rawY - itBasePx);
+          if (dy < bestDy) {
+            bestDy = dy;
+            snappedRow = it;
+          }
+        }
+        if (snappedRow) {
+          yPdf = snappedRow.yPdf;
+        }
+        const basePx = (vp1.height - yPdf) * pdfStudio.scale;
+        const boxTopPx = basePx - fontPx * 0.78;
+        return { xPdf, yPdf, rawX, basePx, boxTopPx, fontPx, curSize, snappedRow };
+      }
+
+      textLayer.onmousemove = (ev) => {
+        if (pdfStudio.toolMode !== 'addText' || (pdfStudio.selectedInlineTarget && document.getElementById('pdfOnPageEditor').style.display === 'block')) {
+          if (cursorGuide) cursorGuide.style.display = 'none';
+          return;
+        }
+        const pos = resolveAddTextPosition(ev.clientX, ev.clientY);
+        if (cursorGuide) cursorGuide.style.display = 'block';
+        if (guideH) {
+          guideH.style.top = Math.round(pos.basePx) + 'px';
+          guideH.classList.toggle('snapped', !!pos.snappedRow);
+        }
+        if (guideV) {
+          guideV.style.left = Math.round(pos.rawX) + 'px';
+        }
+        if (ghostBox) {
+          ghostBox.style.left = Math.round(pos.rawX) + 'px';
+          ghostBox.style.top = Math.round(pos.boxTopPx) + 'px';
+          ghostBox.style.height = Math.round(pos.fontPx * 1.05) + 'px';
+          ghostBox.style.fontSize = Math.round(pos.fontPx) + 'px';
+          ghostBox.style.fontWeight = document.getElementById('pdfInlineBold').checked ? '700' : '400';
+          ghostBox.classList.toggle('snapped', !!pos.snappedRow);
+        }
+        if (ghostTag) {
+          ghostTag.textContent = pos.snappedRow
+            ? ('✓ Aligned with row (' + Math.round(pos.snappedRow.fontSize) + 'pt) — Click to type')
+            : ('Click to place text (' + pos.curSize + 'pt)');
+        }
+        if (ghostSample) {
+          const typed = (document.getElementById('pdfInlineText').value || '').trim();
+          ghostSample.textContent = typed || 'Sample Text';
+        }
+      };
+
+      textLayer.onmouseleave = () => {
+        if (cursorGuide) cursorGuide.style.display = 'none';
+      };
+
       // Handle Add Text click & Whiteout drag on textLayer
       textLayer.onmousedown = (ev) => {
         if (pdfStudio.toolMode === 'addText') {
-          const rect = textLayer.getBoundingClientRect();
-          const xPdf = (ev.clientX - rect.left) / pdfStudio.scale;
-          const yPdf = vp1.height - ((ev.clientY - rect.top) / pdfStudio.scale);
-          pdfStudio.selectedInlineTarget = { kind: 'addText', xPdf, yPdf, pageW: vp1.width, pageH: vp1.height };
-          document.getElementById('pdfInlineLabel').textContent = 'Place New Text on Page ' + pdfStudio.pageNum;
-          document.getElementById('pdfInlineText').value = '';
-          document.getElementById('pdfInlineSize').value = 12;
-          document.getElementById('pdfInlineEditor').style.display = 'block';
-          document.getElementById('pdfInlineText').focus();
+          if (ev.button !== 0) return;
+          const pos = resolveAddTextPosition(ev.clientX, ev.clientY);
+          const defaultSize = pos.snappedRow ? Math.round(pos.snappedRow.fontSize) : pos.curSize;
+          if (cursorGuide) cursorGuide.style.display = 'none';
+          pdfOpenOnPageEditor({
+            kind: 'addText',
+            xPdf: pos.xPdf,
+            yPdf: pos.yPdf,
+            pageW: vp1.width,
+            pageH: vp1.height,
+            text: document.getElementById('pdfInlineText').value || '',
+            size: defaultSize,
+            bold: document.getElementById('pdfInlineBold').checked,
+            coverBg: false
+          });
         } else if (pdfStudio.toolMode === 'whiteout') {
           const rect = textLayer.getBoundingClientRect();
           const startX = ev.clientX - rect.left;
@@ -2357,6 +2491,193 @@
       };
 
       pdfRenderOverlayLayer(vp.width, vp.height);
+      if (pdfStudio.selectedInlineTarget) {
+        pdfPositionOnPageEditor();
+      }
+    }
+
+    function pdfOpenOnPageEditor(target) {
+      pdfStudio.selectedInlineTarget = target;
+      document.getElementById('pdfInlineLabel').textContent =
+        (target.kind === 'replaceItem' ? 'Edit Text on Page ' : 'Place New Text on Page ') + pdfStudio.pageNum;
+      document.getElementById('pdfInlineText').value = target.text || '';
+      document.getElementById('pdfInlineSize').value = target.size || 12;
+      document.getElementById('pdfInlineBold').checked = !!target.bold;
+      document.getElementById('pdfInlineEditor').style.display = 'block';
+
+      const inp = document.getElementById('pdfOnPageInput');
+      inp.value = target.text || '';
+      inp.oninput = () => {
+        document.getElementById('pdfInlineText').value = inp.value;
+        target.text = inp.value;
+        pdfAutoSizeOnPageInput();
+      };
+      document.getElementById('pdfInlineText').oninput = () => {
+        inp.value = document.getElementById('pdfInlineText').value;
+        target.text = inp.value;
+        pdfAutoSizeOnPageInput();
+      };
+      document.getElementById('pdfInlineSize').oninput = () => {
+        target.size = Math.max(6, Math.min(48, Number(document.getElementById('pdfInlineSize').value || 12)));
+        pdfPositionOnPageEditor();
+      };
+      document.getElementById('pdfInlineBold').onchange = () => {
+        target.bold = document.getElementById('pdfInlineBold').checked;
+        pdfPositionOnPageEditor();
+      };
+
+      pdfPositionOnPageEditor();
+      setTimeout(() => { try { inp.focus(); inp.select(); } catch {} }, 20);
+    }
+
+    function pdfAutoSizeOnPageInput() {
+      const inp = document.getElementById('pdfOnPageInput');
+      const target = pdfStudio.selectedInlineTarget;
+      if (!inp || !target) return;
+      const fontPx = (target.size || 12) * pdfStudio.scale;
+      const charCount = Math.max(10, (inp.value || inp.placeholder || '').length + 2);
+      inp.style.width = Math.max(110, Math.round(charCount * fontPx * 0.56)) + 'px';
+    }
+
+    function pdfPositionOnPageEditor() {
+      const ed = document.getElementById('pdfOnPageEditor');
+      const inp = document.getElementById('pdfOnPageInput');
+      const target = pdfStudio.selectedInlineTarget;
+      if (!ed || !inp || !target) return;
+
+      const size = Math.max(6, Math.min(48, Number(target.size || document.getElementById('pdfInlineSize').value || 12)));
+      const bold = !!target.bold;
+      const fontPx = size * pdfStudio.scale;
+      const leftPx = target.xPdf * pdfStudio.scale;
+      const basePx = (target.pageH - target.yPdf) * pdfStudio.scale;
+      const topPx = basePx - fontPx * 0.78;
+
+      ed.style.display = 'block';
+      ed.style.left = Math.round(leftPx) + 'px';
+      ed.style.top = Math.round(topPx) + 'px';
+
+      const tb = document.getElementById('pdfOnPageToolbar');
+      if (tb) {
+        if (topPx < 38) {
+          tb.style.bottom = 'auto';
+          tb.style.top = '100%';
+          tb.style.marginTop = '5px';
+          tb.style.marginBottom = '0';
+        } else {
+          tb.style.top = 'auto';
+          tb.style.bottom = '100%';
+          tb.style.marginBottom = '5px';
+          tb.style.marginTop = '0';
+        }
+      }
+
+      inp.style.fontSize = Math.round(fontPx) + 'px';
+      inp.style.height = Math.round(fontPx * 1.12) + 'px';
+      inp.style.fontWeight = bold ? '700' : '400';
+      inp.style.background = target.coverBg ? '#FFFFFF' : 'rgba(255,255,255,0.88)';
+      pdfAutoSizeOnPageInput();
+
+      const szLbl = document.getElementById('pdfOnPageSizeLbl');
+      if (szLbl) szLbl.textContent = size + 'pt';
+      const boldBtn = document.getElementById('pdfOnPageBoldBtn');
+      if (boldBtn) boldBtn.classList.toggle('active', bold);
+      const bgBtn = document.getElementById('pdfOnPageBgBtn');
+      if (bgBtn) bgBtn.classList.toggle('active', !!target.coverBg);
+
+      // Enable dragging the on-page text box by its ✥ Move handle
+      const dragHandle = document.getElementById('pdfOnPageDragHandle');
+      if (dragHandle && !dragHandle._boundDrag) {
+        dragHandle._boundDrag = true;
+        dragHandle.onmousedown = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const t = pdfStudio.selectedInlineTarget;
+          if (!t) return;
+          const sx = ev.clientX, sy = ev.clientY;
+          const oxPdf = t.xPdf, oyPdf = t.yPdf;
+          const cg = document.getElementById('pdfCursorGuide');
+          const gh = document.getElementById('pdfGuideH');
+          const gv = document.getElementById('pdfGuideV');
+          const gb = document.getElementById('pdfGhostBox');
+          if (gb) gb.style.display = 'none';
+          if (cg) cg.style.display = 'block';
+
+          const onMove = (mv) => {
+            const dxPdf = (mv.clientX - sx) / pdfStudio.scale;
+            const dyPdf = (mv.clientY - sy) / pdfStudio.scale;
+            t.xPdf = Math.max(2, Math.min(t.pageW - 20, oxPdf + dxPdf));
+            let candYPdf = Math.max(4, Math.min(t.pageH - 8, oyPdf - dyPdf));
+            let snapped = false;
+            for (const it of pdfStudio.pageTextItems) {
+              if (Math.abs((candYPdf - it.yPdf) * pdfStudio.scale) < 6) {
+                candYPdf = it.yPdf;
+                snapped = true;
+                break;
+              }
+            }
+            t.yPdf = candYPdf;
+            if (gh) {
+              gh.style.top = Math.round((t.pageH - t.yPdf) * pdfStudio.scale) + 'px';
+              gh.classList.toggle('snapped', snapped);
+            }
+            if (gv) {
+              gv.style.left = Math.round(t.xPdf * pdfStudio.scale) + 'px';
+            }
+            pdfPositionOnPageEditor();
+          };
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            if (cg) cg.style.display = 'none';
+            if (gb) gb.style.display = '';
+            try { document.getElementById('pdfOnPageInput').focus(); } catch {}
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        };
+      }
+    }
+
+    function pdfSyncInlineFromOnPage() {
+      const inp = document.getElementById('pdfOnPageInput');
+      const target = pdfStudio.selectedInlineTarget;
+      if (!inp) return;
+      document.getElementById('pdfInlineText').value = inp.value;
+      if (target) target.text = inp.value;
+      pdfAutoSizeOnPageInput();
+    }
+
+    function pdfAdjustInlineSize(delta) {
+      const target = pdfStudio.selectedInlineTarget;
+      if (!target) return;
+      target.size = Math.max(6, Math.min(48, (target.size || 12) + delta));
+      document.getElementById('pdfInlineSize').value = target.size;
+      pdfPositionOnPageEditor();
+    }
+
+    function pdfToggleInlineBold() {
+      const target = pdfStudio.selectedInlineTarget;
+      if (!target) return;
+      target.bold = !target.bold;
+      document.getElementById('pdfInlineBold').checked = target.bold;
+      pdfPositionOnPageEditor();
+    }
+
+    function pdfToggleInlineBg() {
+      const target = pdfStudio.selectedInlineTarget;
+      if (!target) return;
+      target.coverBg = !target.coverBg;
+      pdfPositionOnPageEditor();
+    }
+
+    function pdfCloseOnPageEditor() {
+      pdfStudio.selectedInlineTarget = null;
+      const ed = document.getElementById('pdfOnPageEditor');
+      if (ed) ed.style.display = 'none';
+      const sb = document.getElementById('pdfInlineEditor');
+      if (sb) sb.style.display = 'none';
+      const cg = document.getElementById('pdfCursorGuide');
+      if (cg) cg.style.display = 'none';
     }
 
     async function pdfApplyWhiteoutBox(pageNum, x, y, w, h) {
@@ -2371,9 +2692,17 @@
     async function pdfCommitInlineEdit() {
       const target = pdfStudio.selectedInlineTarget;
       if (!target) return;
-      const newText = document.getElementById('pdfInlineText').value;
-      const size = Math.max(6, Math.min(48, Number(document.getElementById('pdfInlineSize').value || 11)));
-      const bold = document.getElementById('pdfInlineBold').checked;
+      const onPageVal = (document.getElementById('pdfOnPageInput') || {}).value;
+      const newText = (typeof onPageVal === 'string' && document.getElementById('pdfOnPageEditor').style.display === 'block')
+        ? onPageVal
+        : document.getElementById('pdfInlineText').value;
+      const size = Math.max(6, Math.min(48, Number(target.size || document.getElementById('pdfInlineSize').value || 11)));
+      const bold = typeof target.bold === 'boolean' ? target.bold : document.getElementById('pdfInlineBold').checked;
+
+      if (target.kind === 'addText' && !newText.trim()) {
+        pdfCloseOnPageEditor();
+        return;
+      }
 
       pdfStudio.undoStack.push(pdfStudio.currentBytes.slice());
       const doc = await window.PDFLib.PDFDocument.load(pdfStudio.currentBytes, { ignoreEncryption: true });
@@ -2390,15 +2719,24 @@
           color: window.PDFLib.rgb(1, 1, 1)
         });
         if (newText) {
-          page.drawText(newText, { x: r.xPdf, y: r.yPdf, size, font, color: window.PDFLib.rgb(0.06, 0.09, 0.16) });
+          page.drawText(newText, { x: target.xPdf, y: target.yPdf, size, font, color: window.PDFLib.rgb(0.06, 0.09, 0.16) });
         }
       } else if (target.kind === 'addText' && newText) {
+        if (target.coverBg) {
+          const textW = font.widthOfTextAtSize(newText, size);
+          page.drawRectangle({
+            x: target.xPdf - 2,
+            y: target.yPdf - size * 0.25,
+            width: textW + 4,
+            height: size * 1.18,
+            color: window.PDFLib.rgb(1, 1, 1)
+          });
+        }
         page.drawText(newText, { x: target.xPdf, y: target.yPdf, size, font, color: window.PDFLib.rgb(0.06, 0.09, 0.16) });
       }
 
       pdfStudio.currentBytes = await doc.save();
-      document.getElementById('pdfInlineEditor').style.display = 'none';
-      pdfStudio.selectedInlineTarget = null;
+      pdfCloseOnPageEditor();
       await pdfStudioReloadDoc();
     }
 
