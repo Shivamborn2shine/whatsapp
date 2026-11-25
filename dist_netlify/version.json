@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.2",
+    "version":  "4.9.3",
     "releaseDate":  "2026-11-25",
-    "releaseNotes":  "Multi-select simultaneous drag-resize in Image Print Canvas: dragging any blue corner resize handle (or typing Width/Height in cm) while multiple images are selected now resizes all selected images together in real time without losing selection.",
-    "sha256":  "11e9e47dc168e7f106bde331ec0ae5d4287760dd217c421cb26dc728d20d56c4",
+    "releaseNotes":  "Redesigned Submission File Cards to a clean 2-row 4-column action grid (Row 1: To Word/Edit in Word, Pages, Preview, Print; Row 2: Save, Quick Edit, Rename, More) with a floating popover menu for Open, Open With, Export, and Folder.",
+    "sha256":  "8c9434dfaca021ea1d3ce1d8187910e0bddde5e11c87f2cf50fa01c8aa2209f6",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

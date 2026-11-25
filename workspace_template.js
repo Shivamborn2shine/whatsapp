@@ -1099,28 +1099,47 @@ ${studioHtml}
                   <button class="card-pin-btn" title="Keep a copy in Holding Tray (or drag card down to Tray)" onclick="pinFileToTray('\${esc(f.id)}', '\${esc(f.originalName)}')">📌</button>
                   <button class="card-trash-btn" title="Move to Trash (or drag card out)" onclick="trashFile('\${esc(f.id)}', '\${esc(f.originalName)}')">🗑</button>
                 </div>
-                <div class="insp-file-actions">
-                  \${isPdf ? \`<button class="mini-btn mini-btn-edit" onclick="convertPdfToWord('\${esc(f.id)}', '\${esc(f.originalName)}', this)" title="Convert PDF to editable Word (.docx) and download">📝 To Word</button>\` : ''}
-                  \${isWord ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open directly in Microsoft Word">↗ Edit in Word</button>\` : ''}
-                  \${(isPdf || isWord) ? \`<button class="mini-btn mini-btn-pages" onclick="openPageManager('\${esc(f.id)}', false)" title="Choose exact pages, reorder, rotate, duplicate or delete pages">📑 Pages</button>\` : ''}
-                  \${isImg ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>\` : ''}
+                <div class="insp-file-actions-grid">
+                  \${isPdf
+                    ? \`<button class="mini-btn mini-btn-edit" onclick="convertPdfToWord('\${esc(f.id)}', '\${esc(f.originalName)}', this)" title="Convert PDF to editable Word (.docx) and download">📝 To Word</button>\`
+                    : isWord
+                      ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open directly in Microsoft Word">↗ Edit in Word</button>\`
+                      : isImg
+                        ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>\`
+                        : \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open file">↗ Open</button>\`}
+                  \${(isPdf || isWord)
+                    ? \`<button class="mini-btn mini-btn-pages" onclick="openPageManager('\${esc(f.id)}', false)" title="Choose exact pages, reorder, rotate, duplicate or delete pages">📑 Pages</button>\`
+                    : \`<button class="mini-btn mini-btn-pages" onclick="convertFileToPdfServer('\${esc(f.id)}')" title="Convert to PDF">📄 To PDF</button>\`}
                   \${isEdited
                     ? \`<button class="mini-btn" onclick="previewUrl('\${esc(f.convertedUrl)}', '\${esc(f.originalName)} (Edited)', '.pdf', '\${esc(f.id)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="directPrint('\${esc(f.convertedUrl)}', '\${esc(f.originalName)}.pdf')">🖨 Print</button>\`
                     : \`<button class="mini-btn" onclick="previewFile('\${esc(f.id)}', '\${esc(f.originalName)}', '\${esc(f.fileExtension)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="openPrintModal('\${esc(f.id)}', '\${esc(f.originalName)}')">🖨 Print</button>\`}
                   <button class="mini-btn" onclick="downloadFile('\${esc(f.id)}', '\${esc(f.originalName)}')" title="Download file">⬇ Save</button>
-                  <button class="mini-btn" onclick="toggleCardMore('\${esc(f.id)}', event)" title="More actions">⋯</button>
-                  <div class="more-actions-drawer" id="more_\${esc(f.id)}">
-                    \${isEdited ? \`<button class="mini-btn" style="color:var(--warning);" onclick="fetch('/api/file/reset-edited',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:'\${esc(f.id)}'})}).then(()=>{fetchCloudState(true);showToast('↩ Reverted to original file');})">↩ Revert Original</button>\` : ''}
-                    \${!isWord ? \`<button class="mini-btn" onclick="openFileNative('\${esc(f.id)}')">↗ Open</button>\` : ''}
-                    <button class="mini-btn" onclick="openFileWithNative('\${esc(f.id)}')">📂 Open With</button>
-                    \${!isPdf ? \`<button class="mini-btn" onclick="convertFileToPdfServer('\${esc(f.id)}')">📄 To PDF</button>\` : ''}
-                    \${(isPdf || isWord) ? \`<button class="mini-btn" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')">✏️ Quick Edit</button>\` : ''}
-                    <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')">🏷️ Rename</button>
-                    <button class="mini-btn" onclick="exportFilePermanent('\${esc(f.id)}')">💾 Export</button>
-                    <button class="mini-btn" onclick="revealFileInFolder('\${esc(f.id)}')">📁 Folder</button>
-                  </div>
+                  <button class="mini-btn mini-btn-quick" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Quick Edit in Studio">✏️ Quick Edit</button>
+                  <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')" title="Rename file">🏷️ Rename</button>
+                  <button class="mini-btn more-trigger-btn" id="more_btn_\${esc(f.id)}" onclick="toggleCardMore('\${esc(f.id)}', event)" title="More actions">⋯ More <span class="more-chevron-char">▾</span></button>
+                </div>
+                <div class="card-more-popover" id="more_\${esc(f.id)}" onclick="closeAllCardMoreMenus()">
+                  <button class="card-more-item" onclick="openFileNative('\${esc(f.id)}')">
+                    <span class="card-more-item-left"><span class="card-more-item-icon">↗</span><span>Open</span></span>
+                  </button>
+                  <button class="card-more-item" onclick="openFileWithNative('\${esc(f.id)}')">
+                    <span class="card-more-item-left"><span class="card-more-item-icon">📁</span><span>Open With</span></span>
+                    <span class="card-more-chevron">›</span>
+                  </button>
+                  \${isWord ? \`<button class="card-more-item" onclick="convertFileToPdfServer('\${esc(f.id)}')">
+                    <span class="card-more-item-left"><span class="card-more-item-icon">📄</span><span>Convert to PDF</span></span>
+                  </button>\` : ''}
+                  \${isEdited ? \`<button class="card-more-item" style="color:#FBBF24;" onclick="fetch('/api/file/reset-edited',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:'\${esc(f.id)}'})}).then(()=>{fetchCloudState(true);showToast('↩ Reverted to original file');})">
+                    <span class="card-more-item-left"><span class="card-more-item-icon">↩</span><span>Revert Original</span></span>
+                  </button>\` : ''}
+                  <button class="card-more-item" onclick="exportFilePermanent('\${esc(f.id)}')">
+                    <span class="card-more-item-left"><span class="card-more-item-icon">💾</span><span>Export</span></span>
+                  </button>
+                  <button class="card-more-item" onclick="revealFileInFolder('\${esc(f.id)}')">
+                    <span class="card-more-item-left"><span class="card-more-item-icon">📁</span><span>Folder</span></span>
+                  </button>
                 </div>
               </div>
             \`;
@@ -1168,6 +1187,7 @@ ${studioHtml}
               </div>
 
               <div id="inspectorFilesScroll" style="max-height:330px;overflow-y:auto;padding-right:4px;"
+                onscroll="if(typeof closeAllCardMoreMenus==='function')closeAllCardMoreMenus()"
                 ondragover="if(!draggingFileState){event.preventDefault();this.classList.add('ext-drag-over');}"
                 ondragleave="this.classList.remove('ext-drag-over')"
                 ondrop="this.classList.remove('ext-drag-over');handleAddZoneDrop(event, '\${esc(selectedSub.id)}', false)">

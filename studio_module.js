@@ -63,8 +63,22 @@ const studioCss = `
     body.dragging-file-active #nav-trash, body.dragging-file-active .insp-trash-tab { background:rgba(239,68,68,0.14); color:#dc2626 !important; border-radius:8px; }
     body.dragging-file-active .list-panel { outline:2px dashed rgba(239,68,68,0.45); outline-offset:-3px; }
     @keyframes sdPulseTrash { 0%,100% { border-color:#ef4444; } 50% { border-color:#fca5a5; } }
-    .more-actions-drawer { display:none; width:100%; margin-top:4px; padding-top:5px; border-top:1px dashed var(--border); gap:5px; flex-wrap:wrap; }
-    .more-actions-drawer.open { display:flex; }
+    .insp-file-actions-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; margin-top:2px; }
+    .insp-file-actions-grid .mini-btn { width:100%; justify-content:center; padding:6px 6px; font-size:11.5px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mini-btn-quick { color:#0284c7; border-color:rgba(2,132,199,0.32); background:rgba(2,132,199,0.08); }
+    body.dark .mini-btn-quick { color:#38bdf8; border-color:rgba(56,189,248,0.32); background:rgba(56,189,248,0.10); }
+    .mini-btn-quick:hover { background:#0284c7; color:#fff; border-color:#0284c7; }
+    .more-trigger-btn.open { border-color:#38bdf8 !important; color:#38bdf8 !important; background:rgba(56,189,248,0.12) !important; box-shadow:0 0 0 2px rgba(56,189,248,0.22); }
+    .card-more-popover { position:fixed; display:none; min-width:176px; background:#0F233C; color:#F8FAFC; border:1px solid rgba(88,195,255,0.32); border-radius:12px; padding:5px 0; box-shadow:0 16px 36px rgba(4,12,24,0.55); z-index:450; backdrop-filter:blur(10px); }
+    .card-more-popover.open { display:block; animation:sdPopIn 0.12s ease-out; }
+    @keyframes sdPopIn { from { opacity:0; transform:translateY(-4px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+    .card-more-popover::before { content:''; position:absolute; top:-7px; right:26px; width:12px; height:12px; background:#0F233C; border-left:1px solid rgba(88,195,255,0.32); border-top:1px solid rgba(88,195,255,0.32); transform:rotate(45deg); }
+    .card-more-item { width:100%; border:none; background:transparent; color:#E2E8F0; padding:9px 14px; font-size:12.5px; font-weight:700; text-align:left; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; transition:background 0.12s, color 0.12s; }
+    .card-more-item + .card-more-item { border-top:1px solid rgba(148,163,184,0.14); }
+    .card-more-item:hover { background:rgba(0,120,255,0.24); color:#FFFFFF; }
+    .card-more-item-left { display:flex; align-items:center; gap:10px; }
+    .card-more-item-icon { width:18px; text-align:center; font-size:13px; }
+    .card-more-chevron { color:#94A3B8; font-size:13px; font-weight:800; }
     .sd-toast-box { position:fixed; right:20px; bottom:20px; z-index:400; display:flex; flex-direction:column; gap:8px; max-width:410px; pointer-events:none; }
     .sd-toast { pointer-events:auto; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.28); border-radius:12px; padding:11px 14px; font-size:12.5px; font-weight:600; box-shadow:0 12px 30px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .sd-toast-btn { background:#3b82f6; color:#fff; border:none; border-radius:7px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
@@ -2848,11 +2862,55 @@ const studioJs = `
       }
     }
 
+    let activeMoreFileId = null;
+
+    function closeAllCardMoreMenus() {
+      activeMoreFileId = null;
+      document.querySelectorAll('.card-more-popover.open').forEach(el => el.classList.remove('open'));
+      document.querySelectorAll('.more-trigger-btn.open').forEach(btn => {
+        btn.classList.remove('open');
+        const arrow = btn.querySelector('.more-chevron-char');
+        if (arrow) arrow.textContent = '▾';
+      });
+    }
+
     function toggleCardMore(fileId, ev) {
       if (ev) ev.stopPropagation();
-      const el = document.getElementById('more_' + fileId);
-      if (el) el.classList.toggle('open');
+      const menu = document.getElementById('more_' + fileId);
+      const btn = document.getElementById('more_btn_' + fileId);
+      if (!menu || !btn) return;
+      const wasOpen = menu.classList.contains('open');
+      closeAllCardMoreMenus();
+      if (wasOpen) return;
+
+      activeMoreFileId = fileId;
+      btn.classList.add('open');
+      const arrow = btn.querySelector('.more-chevron-char');
+      if (arrow) arrow.textContent = '▴';
+
+      menu.classList.add('open');
+      const r = btn.getBoundingClientRect();
+      const menuW = Math.max(176, menu.offsetWidth || 176);
+      const menuH = menu.offsetHeight || 170;
+      let left = r.right - menuW + 6;
+      if (left < 12) left = 12;
+      if (left + menuW > window.innerWidth - 12) left = window.innerWidth - menuW - 12;
+      let top = r.bottom + 8;
+      if (top + menuH > window.innerHeight - 12 && r.top - menuH - 8 > 12) {
+        top = r.top - menuH - 8;
+      }
+      menu.style.left = Math.round(left) + 'px';
+      menu.style.top = Math.round(top) + 'px';
     }
+
+    window.addEventListener('click', (ev) => {
+      if (!activeMoreFileId) return;
+      if (ev.target && (ev.target.closest('.card-more-popover') || ev.target.closest('.more-trigger-btn'))) return;
+      closeAllCardMoreMenus();
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && activeMoreFileId) closeAllCardMoreMenus();
+    });
 
     // ------------------------------------------------------------------------
     // 6. PERSISTENT HOLDING TRAY (Temporary Staging Shelf Across All Jobs)
