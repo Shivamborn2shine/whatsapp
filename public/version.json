@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.4",
+    "version":  "4.9.5",
     "releaseDate":  "2026-11-25",
-    "releaseNotes":  "Guided On-Page Add/Edit Text in PDF Studio: live cursor preview box with full-page horizontal/vertical alignment hairlines, automatic green baseline snapping to existing text rows, and an interactive on-page draggable \u0026 editable text box with A-/A+, Bold, Cover Background, and Enter-to-place.",
-    "sha256":  "9f6893266fa7405286ea3ac0ac07a648aaf457a8ede539f4812001583b044536",
+    "releaseNotes":  "Fixed File Manager flex-shrink clipping so Local PC Storage \u0026 Cleanup, Local PC User Downloads \u0026 Folders, and Converted PDF \u0026 Word (.docx) Outputs all display at full height with dedicated scrollable file lists, item count badges, and instant search filters.",
+    "sha256":  "cc40dfd94751d67f862fe324bec29ea03364e2c55ec557bb31958f0e7ab6b434",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

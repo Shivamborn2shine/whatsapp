@@ -183,7 +183,9 @@ module.exports = `<!DOCTYPE html>
     .btn-danger-soft:hover { background: #FFE4E6; color: #B91C1C; }
     .btn-amber-soft { background: rgba(255, 193, 7, 0.20); color: #92400E; border: 1px solid rgba(255, 193, 7, 0.5); box-shadow: none; }
 
-    .workspace-scroll { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; }
+    .workspace-scroll { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+    .workspace-scroll > * { flex-shrink: 0; }
+    .workspace-scroll > .split-grid { flex-shrink: 1; }
     .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; }
     .stat-card { background: rgba(255, 255, 255, 0.94); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; box-shadow: var(--card-shadow); }
     body.dark .stat-card { background: var(--surface); }
@@ -1275,8 +1277,12 @@ ${studioHtml}
       }
       else if (currentTab === 'fileManager') {
         const converted = cloudState.convertedFiles || [];
+        const convFilterVal = (typeof window._convertedSearchQuery === 'string') ? window._convertedSearchQuery : '';
+        const convFiltered = convFilterVal
+          ? converted.filter(c => (c.name || '').toLowerCase().includes(convFilterVal.toLowerCase()))
+          : converted;
         container.innerHTML = \`
-          <div class="list-panel" style="padding:20px;">
+          <div class="list-panel" style="padding:20px;overflow:visible;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
               <div><h3>💾 Local PC Storage &amp; Cleanup</h3><p style="font-size:12px;color:var(--muted);">Files stay on your PC and auto-delete after \${currentSettings.retentionHours || 24} hours unless permanently exported.</p></div>
               <button class="btn btn-outline" onclick="fetchCloudState(true)">↻ Refresh</button>
@@ -1289,10 +1295,13 @@ ${studioHtml}
             </div>
           </div>
 
-          <div class="list-panel" style="padding:20px;">
+          <div class="list-panel" style="padding:20px;overflow:visible;">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
               <div>
-                <h3>📥 Local PC Storage — User Downloads &amp; Folders</h3>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <h3>📥 Local PC Storage — User Downloads &amp; Folders</h3>
+                  <span id="localPcCountBadge" class="badge badge-blue">Loading...</span>
+                </div>
                 <p style="font-size:11.5px;color:var(--muted);margin-top:2px;">Direct local access on this PC: <code id="localPcPathTag" style="font-size:11px;">C:\\Users\\...\\Downloads</code></p>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1317,12 +1326,20 @@ ${studioHtml}
             </div>
           </div>
 
-          <div class="list-panel" style="padding:20px;">
-            <h3 style="margin-bottom:12px;">📄 Converted PDF &amp; Word (.docx) Outputs</h3>
+          <div class="list-panel" style="padding:20px;overflow:visible;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <h3>📄 Converted PDF &amp; Word (.docx) Outputs</h3>
+                <span class="badge badge-blue">\${convFiltered.length}\${convFilterVal ? (' / ' + converted.length) : ''} file(s)</span>
+              </div>
+              \${converted.length > 0 ? \`<input class="field-input" style="max-width:250px;padding:6px 10px;font-size:12px;" placeholder="Filter converted files..." value="\${esc(convFilterVal)}" oninput="window._convertedSearchQuery=this.value;renderCurrentView();const el=document.getElementById('convSearchInput');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}" id="convSearchInput">\` : ''}
+            </div>
             \${converted.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted files yet. Use "To Word" on any PDF or "To PDF" on any image/Word doc in Inbox.</p>' :
-              converted.map(c => {
+              \`<div class="converted-file-list">\` +
+              (convFiltered.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px;">No converted files match your filter.</div>' :
+              convFiltered.map(c => {
                 const isDocx = (c.ext === '.docx') || (c.name || '').toLowerCase().endsWith('.docx');
-                return \`<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                return \`<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
                   <div><strong>\${esc(c.name)}</strong> <span style="font-size:11px;color:var(--muted);">(\${formatSize(c.sizeBytes)})</span></div>
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     \${selectedSubId ? \`<button class="btn btn-sync" onclick="copyConvertedToTarget('\${esc(c.url)}','\${esc(c.name)}','sub')">+ Add to \${esc(selectedSubId)}</button>\` : ''}
@@ -1334,7 +1351,7 @@ ${studioHtml}
                     <button class="btn btn-outline" onclick="downloadFile(null,'\${esc(c.name)}','\${esc(c.url)}')">⬇ Download</button>
                   </div>
                 </div>\`;
-              }).join('')}
+              }).join('')) + \`</div>\`}
           </div>
         \`;
         if (typeof localPcState !== 'undefined') {

@@ -157,8 +157,9 @@ const studioCss = `
     .local-folder-pill { border:1px solid var(--border); background:var(--surface-alt); color:var(--text); font-size:12px; font-weight:700; padding:6px 12px; border-radius:999px; cursor:pointer; transition:all 0.14s; display:inline-flex; align-items:center; gap:5px; }
     .local-folder-pill:hover { border-color:#0078FF; color:#0078FF; background:var(--primary-soft); }
     .local-folder-pill.active { background:#0078FF; border-color:#0078FF; color:#fff; box-shadow:0 3px 10px rgba(0,120,255,0.28); }
-    .local-file-list { max-height:390px; overflow-y:auto; display:flex; flex-direction:column; gap:7px; padding-right:2px; }
-    .local-file-row { padding:9px 12px; border:1px solid var(--border); border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; background:var(--surface); transition:border-color 0.14s, background 0.14s; flex-wrap:wrap; }
+    .local-file-list { max-height:360px; min-height:190px; overflow-y:auto; display:flex; flex-direction:column; gap:7px; padding:8px; border:1px solid var(--border); border-radius:12px; background:var(--surface-alt); flex-shrink:0; }
+    .converted-file-list { max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:8px; border:1px solid var(--border); border-radius:12px; background:var(--surface-alt); flex-shrink:0; }
+    .local-file-row { padding:9px 12px; border:1px solid var(--border); border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; background:var(--surface); transition:border-color 0.14s, background 0.14s; flex-wrap:wrap; flex-shrink:0; }
     .local-file-row:hover { border-color:rgba(0,120,255,0.45); background:var(--surface-alt); }
     .local-file-row.is-dir { cursor:pointer; background:var(--surface-alt); }
 
@@ -4415,6 +4416,7 @@ const studioJs = `
     function renderLocalPcBrowser() {
       const host = document.getElementById('localPcBrowserBody');
       const pathTag = document.getElementById('localPcPathTag');
+      const countBadge = document.getElementById('localPcCountBadge');
       const backBtn = document.getElementById('localPcUpBtn');
       if (!host) return;
 
@@ -4425,6 +4427,9 @@ const studioJs = `
       const d = localPcState.data;
       if (pathTag) {
         pathTag.textContent = (d && d.currentPath) ? d.currentPath : ('C:\\\\Users\\\\...\\\\' + localPcState.folder);
+      }
+      if (countBadge) {
+        countBadge.textContent = localPcState.loading ? 'Loading...' : (((d && d.items) ? d.items.length : 0) + ' item(s)');
       }
       if (backBtn) {
         if (d && d.subPath) {
