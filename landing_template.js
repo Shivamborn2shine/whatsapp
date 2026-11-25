@@ -68,7 +68,7 @@ module.exports = `<!DOCTYPE html>
 
   <main>
     <section class="hero">
-      <div class="pill">⚡ Local-First Windows File Receiver • <span id="verTag">v4.9.0</span></div>
+      <div class="pill">⚡ Local-First Windows File Receiver • <span id="verTag">v4.9.1</span></div>
       <h1>Customers scan a QR.<br>Files land straight on your shop PC.</h1>
       <p class="sub">
         WhatsApp-simple document transfer for print shops, xerox counters, and studios — without sharing phone numbers, installing phone apps, or storing customer files in the cloud.

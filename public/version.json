@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.0",
+    "version":  "4.9.1",
     "releaseDate":  "2026-11-25",
-    "releaseNotes":  "1) Image Print Canvas now shows a scrollable visual thumbnail preview gallery of submission images (This Job / All Inbox) plus a prominent Upload button. 2) File Manager now includes direct local PC access to your Windows User Downloads (plus Desktop, Documents, Pictures) with 1-click Add to Job, Pin to Tray, Preview, Print \u0026 Open. 3) Holding Tray upgraded with a distinct golden-yellow theme and big high-contrast Left/Right scroll buttons.",
-    "sha256":  "af6ef6f556a7ccdb472a2e58c91c9dd1ed06e3433e308f74ab5b234abfb17f6b",
+    "releaseNotes":  "Canva-style Image Print Canvas upgrade: uniform standard-size scrollable thumbnail previews, drag-and-drop thumbnails (or PC images) directly onto the sheet, floating Duplicate/Rotate/Delete toolbar + side drag-to-rotate handle on selected images, and click-hold-drag marquee multi-selection with group move/rotate/duplicate/delete.",
+    "sha256":  "0340a35b6922f88b7d6ef258e289ae549861623e400e3b0d3838dd20d1fad55f",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

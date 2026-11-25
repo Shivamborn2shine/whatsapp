@@ -19,15 +19,28 @@ const studioCss = `
     .pdf-text-hit.header-hit { border-bottom:1px dashed rgba(245,158,11,0.75); }
     .pdf-overlay-img { position:absolute; border:2px dashed #2563eb; cursor:move; box-sizing:border-box; }
     .pdf-overlay-img .resize-handle { position:absolute; right:-7px; bottom:-7px; width:14px; height:14px; background:#2563eb; border:2px solid #fff; border-radius:50%; cursor:nwse-resize; }
-    .canvas-paper { position:relative; background:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.25); overflow:hidden; user-select:none; }
+    .canvas-paper { position:relative; background:#fff; box-shadow:0 10px 30px rgba(0,0,0,0.25); overflow:visible; user-select:none; transition:box-shadow 0.15s; }
+    .canvas-paper.drop-target-active { box-shadow:0 0 0 3px #0078FF, 0 12px 34px rgba(0,120,255,0.28); }
     .canvas-margin-guide { position:absolute; inset:14px; border:1px dashed rgba(148,163,184,0.45); pointer-events:none; }
-    .canvas-item { position:absolute; cursor:move; box-sizing:border-box; border:2px solid transparent; }
-    .canvas-item.selected { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,0.2); }
+    .canvas-item { position:absolute; cursor:move; box-sizing:border-box; border:2px solid transparent; overflow:visible; }
+    .canvas-item.selected { border-color:#0078FF; box-shadow:0 0 0 2px rgba(0,120,255,0.22); z-index:20; }
     .canvas-item img { width:100%; height:100%; display:block; pointer-events:none; }
-    .canvas-handle { position:absolute; right:-8px; bottom:-8px; width:16px; height:16px; background:#2563eb; border:2px solid #fff; border-radius:50%; cursor:nwse-resize; display:none; }
+    .canvas-handle { position:absolute; right:-8px; bottom:-8px; width:16px; height:16px; background:#0078FF; border:2px solid #fff; border-radius:50%; cursor:nwse-resize; display:none; box-shadow:0 2px 6px rgba(0,0,0,0.25); }
     .canvas-item.selected .canvas-handle { display:block; }
-    .canvas-dim-tag { position:absolute; left:4px; top:4px; background:rgba(15,23,42,0.82); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; pointer-events:none; display:none; }
+    .canvas-dim-tag { position:absolute; left:4px; top:4px; background:rgba(15,23,42,0.82); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; pointer-events:none; display:none; white-space:nowrap; }
     .canvas-item.selected .canvas-dim-tag { display:block; }
+    .ic-rotate-handle { position:absolute; right:-34px; top:50%; transform:translateY(-50%); width:26px; height:26px; border-radius:50%; background:#ffffff; border:2px solid #0078FF; color:#0078FF; display:none; align-items:center; justify-content:center; font-size:14px; font-weight:900; cursor:grab; box-shadow:0 3px 10px rgba(0,0,0,0.22); z-index:30; }
+    .ic-rotate-handle:before { content:''; position:absolute; left:-10px; top:50%; width:8px; height:2px; background:#0078FF; transform:translateY(-50%); pointer-events:none; }
+    .ic-rotate-handle:hover { background:#0078FF; color:#fff; }
+    .ic-rotate-handle:active { cursor:grabbing; }
+    .canvas-item.selected.single-selected .ic-rotate-handle { display:flex; }
+    .ic-canva-bar { position:absolute; transform:translateX(-50%); background:#0B2545; color:#fff; border:1px solid rgba(255,255,255,0.16); border-radius:999px; padding:4px 7px; display:flex; align-items:center; gap:4px; box-shadow:0 8px 24px rgba(11,37,69,0.35); z-index:60; white-space:nowrap; pointer-events:auto; }
+    .ic-canva-btn { border:none; background:transparent; color:#f8fafc; width:27px; height:26px; border-radius:999px; cursor:pointer; font-size:13px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; transition:background 0.12s, color 0.12s; }
+    .ic-canva-btn:hover { background:rgba(255,255,255,0.16); }
+    .ic-canva-btn.danger:hover { background:#ef4444; color:#fff; }
+    .ic-canva-pill-count { font-size:10.5px; font-weight:800; color:#FCD34D; padding:0 6px 0 4px; border-right:1px solid rgba(255,255,255,0.2); margin-right:2px; }
+    .ic-marquee-box { position:absolute; display:none; border:1.5px solid #0078FF; background:rgba(0,120,255,0.14); border-radius:3px; pointer-events:none; z-index:55; }
+    .ic-group-outline { position:absolute; border:1.5px dashed #0078FF; background:rgba(0,120,255,0.04); pointer-events:none; z-index:15; border-radius:4px; }
     .docx-block-row { border:1px solid var(--border); border-radius:8px; padding:8px; background:var(--surface-alt); display:flex; flex-direction:column; gap:5px; }
     .merge-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
     .fr-pair-row { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
@@ -94,16 +107,17 @@ const studioCss = `
     .ic-scope-tabs { display:inline-flex; background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:2px; gap:2px; }
     .ic-scope-btn { border:none; background:transparent; color:var(--muted); font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:6px; cursor:pointer; transition:all 0.12s; }
     .ic-scope-btn.active { background:#0078FF; color:#fff; box-shadow:0 2px 6px rgba(0,120,255,0.28); }
-    .ic-thumb-strip { display:grid; grid-template-columns:repeat(3, 1fr); gap:7px; max-height:178px; overflow-y:auto; padding:6px; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; }
-    .ic-thumb-tile { position:relative; border-radius:9px; overflow:hidden; border:2px solid var(--border); background:var(--surface); cursor:pointer; display:flex; flex-direction:column; transition:all 0.14s; }
+    .ic-thumb-strip { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); grid-auto-rows:94px; align-content:start; gap:8px; height:212px; max-height:212px; min-height:112px; overflow-y:auto; overflow-x:hidden; padding:7px; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; flex-shrink:0; }
+    .ic-thumb-tile { position:relative; height:94px; min-height:94px; border-radius:9px; overflow:hidden; border:2px solid var(--border); background:var(--surface); cursor:grab; display:flex; flex-direction:column; transition:border-color 0.14s, transform 0.14s, box-shadow 0.14s; user-select:none; }
+    .ic-thumb-tile:active { cursor:grabbing; }
     .ic-thumb-tile:hover { border-color:#0078FF; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,120,255,0.18); }
     .ic-thumb-tile.on-sheet { border-color:#16a34a; }
-    .ic-thumb-img-wrap { width:100%; height:58px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
-    .ic-thumb-img-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
-    .ic-thumb-name { font-size:9.5px; font-weight:700; padding:3px 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
-    .ic-thumb-badge { position:absolute; top:4px; right:4px; background:rgba(11,37,69,0.82); color:#fff; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:999px; }
+    .ic-thumb-img-wrap { width:100%; height:68px; flex:0 0 68px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
+    .ic-thumb-img-wrap img { width:100%; height:100%; object-fit:cover; display:block; pointer-events:none; }
+    .ic-thumb-name { font-size:9.5px; font-weight:700; padding:2px 5px; height:22px; line-height:18px; flex:0 0 22px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); background:var(--surface); }
+    .ic-thumb-badge { position:absolute; top:4px; right:4px; background:rgba(11,37,69,0.86); color:#fff; font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:999px; line-height:1.35; }
     .ic-thumb-tile.on-sheet .ic-thumb-badge { background:#16a34a; }
-    .ic-thumb-empty { grid-column:1/-1; text-align:center; padding:18px 8px; font-size:11.5px; color:var(--muted); }
+    .ic-thumb-empty { grid-column:1/-1; text-align:center; padding:24px 8px; font-size:11.5px; color:var(--muted); }
 
     /* File Manager — Local PC Downloads Browser */
     .local-folder-tabs { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
@@ -375,7 +389,7 @@ const studioHtml = `
                 <button id="icScopeJobBtn" class="ic-scope-btn active" onclick="icSetPickerScope('job')">This Job</button>
                 <button id="icScopeAllBtn" class="ic-scope-btn" onclick="icSetPickerScope('all')">All Inbox</button>
               </div>
-              <span style="font-size:10px;color:var(--muted);">Click preview to add</span>
+              <span style="font-size:10px;color:var(--muted);">Click or drag onto sheet</span>
             </div>
             <div id="icSubThumbGrid" class="ic-thumb-strip"></div>
           </div>
@@ -408,11 +422,17 @@ const studioHtml = `
         </div>
 
         <div class="studio-stage" style="justify-content:center;">
-          <div id="icPaperEl" class="canvas-paper">
+          <div id="icPaperEl" class="canvas-paper"
+            onmousedown="icPaperMouseDown(event)"
+            ondragover="icPaperDragOver(event)"
+            ondragleave="icPaperDragLeave(event)"
+            ondrop="icPaperDrop(event)">
             <div class="canvas-margin-guide"></div>
             <div id="icItemsLayer" style="position:absolute;inset:0;"></div>
+            <div id="icSelectionUiLayer" style="position:absolute;inset:0;pointer-events:none;z-index:50;"></div>
+            <div id="icMarqueeBox" class="ic-marquee-box"></div>
           </div>
-          <div style="margin-top:10px;font-size:11.5px;color:var(--muted);">Drag images to move • Drag blue bottom-right corner handle to resize cleanly</div>
+          <div style="margin-top:12px;font-size:11.5px;color:var(--muted);">Drag thumbnails onto sheet • Click &amp; drag empty paper to multi-select • Use floating toolbar &amp; side ⟳ handle to rotate/duplicate/delete</div>
         </div>
       </div>
     </div>
@@ -1291,12 +1311,31 @@ const studioJs = `
       submissionId: null,
       items: [], // { id, url, name, natW, natH, xCm, yCm, wCm, hCm, rot, bright, contrast, gray }
       selectedId: null,
+      selectedIds: [],
       pxPerCm: 22,
       undoStack: [],
       redoStack: []
     };
 
-    function icSnapshot() { return JSON.stringify({ items: icState.items, selectedId: icState.selectedId }); }
+    let icDraggingThumb = null;
+
+    function icSetSelection(ids) {
+      const valid = new Set((icState.items || []).map(i => i.id));
+      const clean = [];
+      (ids || []).forEach(id => { if (valid.has(id) && !clean.includes(id)) clean.push(id); });
+      icState.selectedIds = clean;
+      icState.selectedId = clean.length > 0 ? clean[clean.length - 1] : null;
+    }
+
+    function icGetSelectedItems() {
+      const ids = (icState.selectedIds && icState.selectedIds.length)
+        ? icState.selectedIds
+        : (icState.selectedId ? [icState.selectedId] : []);
+      const set = new Set(ids);
+      return (icState.items || []).filter(i => set.has(i.id));
+    }
+
+    function icSnapshot() { return JSON.stringify({ items: icState.items, selectedId: icState.selectedId, selectedIds: icState.selectedIds }); }
     function icPushUndo() {
       icState.undoStack.push(icSnapshot());
       if (icState.undoStack.length > 35) icState.undoStack.shift();
@@ -1314,7 +1353,7 @@ const studioJs = `
       icState.redoStack.push(icSnapshot());
       const prev = JSON.parse(icState.undoStack.pop());
       icState.items = prev.items || [];
-      icState.selectedId = prev.selectedId || null;
+      icSetSelection(prev.selectedIds || (prev.selectedId ? [prev.selectedId] : []));
       icUpdateUndoButtons();
       imgCanvasRenderPaper();
     }
@@ -1323,7 +1362,7 @@ const studioJs = `
       icState.undoStack.push(icSnapshot());
       const next = JSON.parse(icState.redoStack.pop());
       icState.items = next.items || [];
-      icState.selectedId = next.selectedId || null;
+      icSetSelection(next.selectedIds || (next.selectedId ? [next.selectedId] : []));
       icUpdateUndoButtons();
       imgCanvasRenderPaper();
     }
@@ -1374,19 +1413,185 @@ const studioJs = `
         const countOnSheet = (icState.items || []).filter(it => it.url === url).length;
         const tile = document.createElement('div');
         tile.className = 'ic-thumb-tile' + (countOnSheet > 0 ? ' on-sheet' : '');
-        tile.title = f.originalName + (icState.pickerScope === 'all' ? (' (' + tag + ')') : '') + ' — Click to add to sheet';
+        tile.draggable = true;
+        tile.title = f.originalName + (icState.pickerScope === 'all' ? (' (' + tag + ')') : '') + ' — Click or drag onto sheet';
         tile.innerHTML =
           '<div class="ic-thumb-img-wrap">' +
             '<img src="' + url + '" loading="lazy" alt="' + esc(f.originalName) + '">' +
             '<span class="ic-thumb-badge">' + (countOnSheet > 0 ? ('✓ ×' + countOnSheet) : '+') + '</span>' +
           '</div>' +
           '<div class="ic-thumb-name">' + esc(f.originalName) + '</div>';
+        tile.ondragstart = (ev) => {
+          icDraggingThumb = { url, name: f.originalName };
+          try { ev.dataTransfer.setData('text/plain', f.originalName); ev.dataTransfer.effectAllowed = 'copy'; } catch {}
+        };
+        tile.ondragend = () => {
+          icDraggingThumb = null;
+          const pEl = document.getElementById('icPaperEl');
+          if (pEl) pEl.classList.remove('drop-target-active');
+        };
         tile.onclick = () => {
           icPushUndo();
           icAddImageUrl(url, f.originalName);
         };
         grid.appendChild(tile);
       });
+    }
+
+    function icPaperDragOver(ev) {
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+      const pEl = document.getElementById('icPaperEl');
+      if (pEl) pEl.classList.add('drop-target-active');
+    }
+
+    function icPaperDragLeave(ev) {
+      const pEl = document.getElementById('icPaperEl');
+      if (pEl && !pEl.contains(ev.relatedTarget)) pEl.classList.remove('drop-target-active');
+    }
+
+    async function icPaperDrop(ev) {
+      ev.preventDefault();
+      const pEl = document.getElementById('icPaperEl');
+      if (pEl) pEl.classList.remove('drop-target-active');
+      const rect = pEl.getBoundingClientRect();
+      const dropXCm = (ev.clientX - rect.left) / Math.max(1, icState.pxPerCm);
+      const dropYCm = (ev.clientY - rect.top) / Math.max(1, icState.pxPerCm);
+
+      if (icDraggingThumb) {
+        const t = icDraggingThumb;
+        icDraggingThumb = null;
+        icPushUndo();
+        await icAddImageUrl(t.url, t.name, { xCm: dropXCm, yCm: dropYCm });
+        return;
+      }
+
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        const imgs = Array.from(ev.dataTransfer.files).filter(f => (f.type || '').startsWith('image/') || /\\.(jpg|jpeg|png|webp|bmp|gif)$/i.test(f.name || ''));
+        if (imgs.length > 0) {
+          icPushUndo();
+          for (let i = 0; i < imgs.length; i++) {
+            await icAddImageUrl(URL.createObjectURL(imgs[i]), imgs[i].name, { xCm: dropXCm + i * 0.8, yCm: dropYCm + i * 0.8 });
+          }
+        }
+      }
+    }
+
+    function icPaperMouseDown(ev) {
+      if (ev.button !== 0) return;
+      // Only start marquee when clicking empty paper (not an image item or toolbar button)
+      if (ev.target.closest('.canvas-item') || ev.target.closest('.ic-canva-bar')) return;
+      const pEl = document.getElementById('icPaperEl');
+      const mq = document.getElementById('icMarqueeBox');
+      if (!pEl || !mq) return;
+      const rect = pEl.getBoundingClientRect();
+      const startX = ev.clientX - rect.left;
+      const startY = ev.clientY - rect.top;
+      let dragged = false;
+
+      const onMove = (mv) => {
+        const curX = Math.max(0, Math.min(rect.width, mv.clientX - rect.left));
+        const curY = Math.max(0, Math.min(rect.height, mv.clientY - rect.top));
+        const rx = Math.min(startX, curX);
+        const ry = Math.min(startY, curY);
+        const rw = Math.abs(curX - startX);
+        const rh = Math.abs(curY - startY);
+        if (rw > 4 || rh > 4) dragged = true;
+        if (!dragged) return;
+        mq.style.display = 'block';
+        mq.style.left = rx + 'px';
+        mq.style.top = ry + 'px';
+        mq.style.width = rw + 'px';
+        mq.style.height = rh + 'px';
+
+        // Live-highlight intersecting items
+        const x0Cm = rx / icState.pxPerCm;
+        const y0Cm = ry / icState.pxPerCm;
+        const x1Cm = (rx + rw) / icState.pxPerCm;
+        const y1Cm = (ry + rh) / icState.pxPerCm;
+        const hits = [];
+        icState.items.forEach(it => {
+          const overlaps = it.xCm < x1Cm && (it.xCm + it.wCm) > x0Cm && it.yCm < y1Cm && (it.yCm + it.hCm) > y0Cm;
+          if (overlaps) hits.push(it.id);
+        });
+        icSetSelection(hits);
+        icRefreshSelectionStyles();
+      };
+
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        mq.style.display = 'none';
+        if (!dragged && !ev.shiftKey) {
+          icSetSelection([]);
+        }
+        icRefreshSelectionStyles();
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    }
+
+    function icRefreshSelectionStyles() {
+      const selSet = new Set(icState.selectedIds || []);
+      const isSingle = selSet.size === 1;
+      document.querySelectorAll('#icItemsLayer .canvas-item').forEach(node => {
+        const id = node.dataset.itemId;
+        const isSel = selSet.has(id);
+        node.classList.toggle('selected', isSel);
+        node.classList.toggle('single-selected', isSel && isSingle);
+      });
+      renderIcSelectionUi();
+      icSyncControls();
+    }
+
+    function renderIcSelectionUi() {
+      const ui = document.getElementById('icSelectionUiLayer');
+      if (!ui) return;
+      ui.innerHTML = '';
+      const selItems = icGetSelectedItems();
+      if (selItems.length === 0) return;
+
+      const paper = icGetPaperCm();
+      const paperWpx = paper.w * icState.pxPerCm;
+      const paperHpx = paper.h * icState.pxPerCm;
+
+      let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      selItems.forEach(it => {
+        const x0 = it.xCm * icState.pxPerCm;
+        const y0 = it.yCm * icState.pxPerCm;
+        const x1 = (it.xCm + it.wCm) * icState.pxPerCm;
+        const y1 = (it.yCm + it.hCm) * icState.pxPerCm;
+        if (x0 < minX) minX = x0;
+        if (y0 < minY) minY = y0;
+        if (x1 > maxX) maxX = x1;
+        if (y1 > maxY) maxY = y1;
+      });
+
+      if (selItems.length > 1) {
+        const grp = document.createElement('div');
+        grp.className = 'ic-group-outline';
+        grp.style.left = (minX - 4) + 'px';
+        grp.style.top = (minY - 4) + 'px';
+        grp.style.width = (maxX - minX + 8) + 'px';
+        grp.style.height = (maxY - minY + 8) + 'px';
+        ui.appendChild(grp);
+      }
+
+      const bar = document.createElement('div');
+      bar.className = 'ic-canva-bar';
+      const cx = Math.max(85, Math.min(paperWpx - 85, (minX + maxX) / 2));
+      const topPos = minY >= 44 ? (minY - 40) : Math.min(paperHpx + 6, maxY + 10);
+      bar.style.left = cx + 'px';
+      bar.style.top = topPos + 'px';
+      bar.onmousedown = (e) => e.stopPropagation();
+
+      bar.innerHTML =
+        (selItems.length > 1 ? '<span class="ic-canva-pill-count">' + selItems.length + ' selected</span>' : '') +
+        '<button class="ic-canva-btn" title="Duplicate (Ctrl+D)" onclick="icDuplicateSelected()">⧉</button>' +
+        '<button class="ic-canva-btn" title="Rotate Left -90°" onclick="icRotateStep(-90)">↺</button>' +
+        '<button class="ic-canva-btn" title="Rotate Right +90°" onclick="icRotateStep(90)">↻</button>' +
+        '<button class="ic-canva-btn danger" title="Delete (Del)" onclick="icDeleteSelected()">🗑</button>';
+      ui.appendChild(bar);
     }
 
     async function openImageCanvas(fileId, fileName, submissionId) {
@@ -1396,6 +1601,7 @@ const studioJs = `
       icState.pickerScope = 'job';
       icState.items = [];
       icState.selectedId = null;
+      icState.selectedIds = [];
       icState.undoStack = [];
       icState.redoStack = [];
       icUpdateUndoButtons();
@@ -1422,25 +1628,30 @@ const studioJs = `
       input.value = '';
     }
 
-    async function icAddImageUrl(url, name) {
+    async function icAddImageUrl(url, name, dropPosCm) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
       const paper = icGetPaperCm();
       const aspect = img.naturalHeight / Math.max(1, img.naturalWidth);
-      let wCm = Math.min(paper.w - 2.4, 14);
+      let wCm = Math.min(paper.w - 2.4, dropPosCm ? 9.5 : 14);
       let hCm = wCm * aspect;
       if (hCm > paper.h - 2.4) { hCm = paper.h - 2.4; wCm = hCm / aspect; }
+      const xCm = dropPosCm
+        ? Math.max(0.2, Math.min(paper.w - wCm * 0.5, dropPosCm.xCm - wCm / 2))
+        : Math.max(0.8, (paper.w - wCm) / 2);
+      const yCm = dropPosCm
+        ? Math.max(0.2, Math.min(paper.h - hCm * 0.5, dropPosCm.yCm - hCm / 2))
+        : Math.max(0.8, (paper.h - hCm) / 2);
       const item = {
         id: 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
         url, name: name || 'Image',
         natW: img.naturalWidth, natH: img.naturalHeight,
-        xCm: Math.max(0.8, (paper.w - wCm) / 2),
-        yCm: Math.max(0.8, (paper.h - hCm) / 2),
+        xCm, yCm,
         wCm, hCm, rot: 0, bright: 100, contrast: 100, gray: false
       };
       icState.items.push(item);
-      icState.selectedId = item.id;
+      icSetSelection([item.id]);
       imgCanvasRenderPaper();
       renderIcSubmissionThumbs();
     }
@@ -1454,14 +1665,19 @@ const studioJs = `
       const paperEl = document.getElementById('icPaperEl');
       paperEl.style.width = Math.round(paper.w * icState.pxPerCm) + 'px';
       paperEl.style.height = Math.round(paper.h * icState.pxPerCm) + 'px';
+      const selCount = (icState.selectedIds || []).length;
       document.getElementById('imgCanvasStatus').textContent =
-        document.getElementById('icPaperSize').value + ' ' + document.getElementById('icOrientation').value + ' • ' + icState.items.length + ' image(s)';
+        document.getElementById('icPaperSize').value + ' ' + document.getElementById('icOrientation').value + ' • ' + icState.items.length + ' image(s)' + (selCount > 1 ? (' • ' + selCount + ' selected') : '');
 
+      const selSet = new Set(icState.selectedIds || []);
+      const isSingle = selSet.size === 1;
       const layer = document.getElementById('icItemsLayer');
       layer.innerHTML = '';
       icState.items.forEach(item => {
+        const isSel = selSet.has(item.id);
         const div = document.createElement('div');
-        div.className = 'canvas-item' + (item.id === icState.selectedId ? ' selected' : '');
+        div.dataset.itemId = item.id;
+        div.className = 'canvas-item' + (isSel ? ' selected' : '') + (isSel && isSingle ? ' single-selected' : '');
         div.style.left = (item.xCm * icState.pxPerCm) + 'px';
         div.style.top = (item.yCm * icState.pxPerCm) + 'px';
         div.style.width = (item.wCm * icState.pxPerCm) + 'px';
@@ -1469,39 +1685,90 @@ const studioJs = `
         div.style.transform = 'rotate(' + item.rot + 'deg)';
         const filter = 'brightness(' + item.bright + '%) contrast(' + item.contrast + '%)' + (item.gray ? ' grayscale(100%)' : '');
         div.innerHTML = '<img src="' + item.url + '" style="filter:' + filter + ';">' +
-          '<div class="canvas-dim-tag">' + item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm</div>' +
-          '<div class="canvas-handle"></div>';
+          '<div class="canvas-dim-tag">' + item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm' + (item.rot ? (' • ' + item.rot + '°') : '') + '</div>' +
+          '<div class="ic-rotate-handle" title="Drag to rotate">⟳</div>' +
+          '<div class="canvas-handle" title="Drag to resize"></div>';
 
         div.onmousedown = (ev) => {
           ev.stopPropagation();
-          icState.selectedId = item.id;
-          icSyncControls();
-          document.querySelectorAll('#icItemsLayer .canvas-item').forEach(n => n.classList.remove('selected'));
-          div.classList.add('selected');
+          if (ev.button !== 0) return;
 
           const isResize = ev.target.classList.contains('canvas-handle');
+          const isRotate = ev.target.classList.contains('ic-rotate-handle');
+
+          if (ev.shiftKey && !isResize && !isRotate) {
+            const cur = new Set(icState.selectedIds || []);
+            if (cur.has(item.id)) cur.delete(item.id); else cur.add(item.id);
+            icSetSelection(Array.from(cur));
+            icRefreshSelectionStyles();
+            return;
+          }
+
+          if (!selSet.has(item.id) || isResize || isRotate) {
+            icSetSelection([item.id]);
+            icRefreshSelectionStyles();
+          }
+
           const sx = ev.clientX, sy = ev.clientY;
           const ox = item.xCm, oy = item.yCm, ow = item.wCm, oh = item.hCm;
           const aspect = oh / Math.max(0.1, ow);
 
+          // Snapshot starting positions for all selected items (for multi-select group move!)
+          const movingItems = icGetSelectedItems();
+          const startPos = movingItems.map(mi => ({
+            item: mi,
+            ox: mi.xCm,
+            oy: mi.yCm,
+            el: layer.querySelector('[data-item-id="' + mi.id + '"]')
+          }));
+
+          // Center of image in screen coordinates for smooth Canva drag-to-rotate
+          const itemRect = div.getBoundingClientRect();
+          const cxScr = itemRect.left + itemRect.width / 2;
+          const cyScr = itemRect.top + itemRect.height / 2;
+          const startAngleRad = Math.atan2(sy - cyScr, sx - cxScr);
+          const origRot = item.rot || 0;
+
           let movedOnce = false;
           const onMove = (mv) => {
             if (!movedOnce) { icPushUndo(); movedOnce = true; }
-            const dxCm = (mv.clientX - sx) / icState.pxPerCm;
-            const dyCm = (mv.clientY - sy) / icState.pxPerCm;
-            if (isResize) {
+            if (isRotate) {
+              const curRad = Math.atan2(mv.clientY - cyScr, mv.clientX - cxScr);
+              let deg = Math.round(origRot + (curRad - startAngleRad) * (180 / Math.PI));
+              while (deg > 180) deg -= 360;
+              while (deg < -180) deg += 360;
+              // Snap gently to cardinal angles (0, ±90, ±180) unless Shift held
+              if (!mv.shiftKey) {
+                for (const snap of [-180, -90, 0, 90, 180]) {
+                  if (Math.abs(deg - snap) <= 5) { deg = snap; break; }
+                }
+              }
+              item.rot = deg;
+              div.style.transform = 'rotate(' + item.rot + 'deg)';
+              const tag = div.querySelector('.canvas-dim-tag');
+              if (tag) tag.textContent = item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm • ' + item.rot + '°';
+            } else if (isResize) {
+              const dxCm = (mv.clientX - sx) / icState.pxPerCm;
+              const dyCm = (mv.clientY - sy) / icState.pxPerCm;
               item.wCm = Math.max(1.5, Math.min(paper.w, ow + dxCm));
               item.hCm = mv.shiftKey ? Math.max(1.5, Math.min(paper.h, oh + dyCm)) : (item.wCm * aspect);
               div.style.width = (item.wCm * icState.pxPerCm) + 'px';
               div.style.height = (item.hCm * icState.pxPerCm) + 'px';
               const tag = div.querySelector('.canvas-dim-tag');
-              if (tag) tag.textContent = item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm';
+              if (tag) tag.textContent = item.wCm.toFixed(1) + ' × ' + item.hCm.toFixed(1) + ' cm' + (item.rot ? (' • ' + item.rot + '°') : '');
             } else {
-              item.xCm = Math.max(-item.wCm * 0.4, Math.min(paper.w - item.wCm * 0.4, ox + dxCm));
-              item.yCm = Math.max(-item.hCm * 0.4, Math.min(paper.h - item.hCm * 0.4, oy + dyCm));
-              div.style.left = (item.xCm * icState.pxPerCm) + 'px';
-              div.style.top = (item.yCm * icState.pxPerCm) + 'px';
+              const dxCm = (mv.clientX - sx) / icState.pxPerCm;
+              const dyCm = (mv.clientY - sy) / icState.pxPerCm;
+              startPos.forEach(sp => {
+                sp.item.xCm = Math.max(-sp.item.wCm * 0.4, Math.min(paper.w - sp.item.wCm * 0.4, sp.ox + dxCm));
+                sp.item.yCm = Math.max(-sp.item.hCm * 0.4, Math.min(paper.h - sp.item.hCm * 0.4, sp.oy + dyCm));
+                if (sp.el) {
+                  sp.el.style.left = (sp.item.xCm * icState.pxPerCm) + 'px';
+                  sp.el.style.top = (sp.item.yCm * icState.pxPerCm) + 'px';
+                }
+              });
             }
+            renderIcSelectionUi();
             icSyncControls();
           };
           const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
@@ -1510,6 +1777,7 @@ const studioJs = `
         };
         layer.appendChild(div);
       });
+      renderIcSelectionUi();
       icSyncControls();
       renderIcSubmissionThumbs();
     }
@@ -1543,39 +1811,80 @@ const studioJs = `
       imgCanvasRenderPaper();
     }
 
-    function icSetRotation(deg) { const it = icGetSelected(); if (!it) return; icPushUndo(); it.rot = deg; imgCanvasRenderPaper(); }
-    function icRotateStep(delta) { const it = icGetSelected(); if (!it) return; icPushUndo(); it.rot = ((it.rot + delta + 540) % 360) - 180; imgCanvasRenderPaper(); }
-    function icSetFilter() {
-      const it = icGetSelected(); if (!it) return;
+    function icSetRotation(deg) {
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
       icPushUndo();
-      it.bright = Number(document.getElementById('icBright').value || 100);
-      it.contrast = Number(document.getElementById('icContrast').value || 100);
-      it.gray = document.getElementById('icGrayscale').checked;
+      targets.forEach(it => { it.rot = deg; });
+      imgCanvasRenderPaper();
+    }
+    function icRotateStep(delta) {
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
+      icPushUndo();
+      targets.forEach(it => { it.rot = ((it.rot + delta + 540) % 360) - 180; });
+      imgCanvasRenderPaper();
+    }
+    function icSetFilter() {
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
+      icPushUndo();
+      const br = Number(document.getElementById('icBright').value || 100);
+      const co = Number(document.getElementById('icContrast').value || 100);
+      const gr = document.getElementById('icGrayscale').checked;
+      targets.forEach(it => { it.bright = br; it.contrast = co; it.gray = gr; });
       imgCanvasRenderPaper();
     }
     function icCenterSelected() {
-      const it = icGetSelected(); if (!it) return;
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
       icPushUndo();
       const paper = icGetPaperCm();
-      it.xCm = (paper.w - it.wCm) / 2;
-      it.yCm = (paper.h - it.hCm) / 2;
+      targets.forEach(it => {
+        it.xCm = (paper.w - it.wCm) / 2;
+        it.yCm = (paper.h - it.hCm) / 2;
+      });
       imgCanvasRenderPaper();
     }
     function icDuplicateSelected() {
-      const it = icGetSelected(); if (!it) return;
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
       icPushUndo();
-      const copy = { ...it, id: 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5), xCm: it.xCm + 1.0, yCm: it.yCm + 1.0 };
-      icState.items.push(copy);
-      icState.selectedId = copy.id;
+      const newIds = [];
+      targets.forEach((it, idx) => {
+        const copy = {
+          ...it,
+          id: 'ic_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2, 5),
+          xCm: it.xCm + 1.0,
+          yCm: it.yCm + 1.0
+        };
+        icState.items.push(copy);
+        newIds.push(copy.id);
+      });
+      icSetSelection(newIds);
       imgCanvasRenderPaper();
     }
     function icDeleteSelected() {
-      if (!icState.selectedId) return;
+      const targets = icGetSelectedItems();
+      if (!targets.length) return;
       icPushUndo();
-      icState.items = icState.items.filter(i => i.id !== icState.selectedId);
-      icState.selectedId = icState.items[0] ? icState.items[0].id : null;
+      const delSet = new Set(targets.map(t => t.id));
+      icState.items = icState.items.filter(i => !delSet.has(i.id));
+      icSetSelection(icState.items[0] ? [icState.items[0].id] : []);
       imgCanvasRenderPaper();
     }
+
+    // Keyboard shortcuts when Image Print Canvas modal is open (Delete, Ctrl+D)
+    window.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('imageStudioModal');
+      if (!modal || !modal.classList.contains('open')) return;
+      if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (icGetSelectedItems().length > 0) { e.preventDefault(); icDeleteSelected(); }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        if (icGetSelectedItems().length > 0) { e.preventDefault(); icDuplicateSelected(); }
+      }
+    });
 
     function icPreset(kind) {
       const it = icGetSelected(); if (!it) return;
