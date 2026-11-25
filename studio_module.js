@@ -57,32 +57,63 @@ const studioCss = `
     .sd-toast-btn { background:#3b82f6; color:#fff; border:none; border-radius:7px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
     .sd-toast-btn:hover { background:#2563eb; }
 
-    /* Docked Holding Tray (Temporary Staging Shelf) */
-    .holding-tray { flex-shrink:0; background:var(--surface); border-top:2px solid var(--border); padding:8px 18px 10px; display:flex; flex-direction:column; gap:8px; transition:border-color 0.15s, background 0.15s, box-shadow 0.15s; z-index:40; }
-    .holding-tray.collapsed { padding:7px 18px; gap:0; }
-    .holding-tray.collapsed .tray-shelf { display:none; }
-    body.dragging-file-active .holding-tray { border-top-color:#2563eb; background:var(--primary-soft); }
-    body.dragging-file-active .holding-tray.collapsed .tray-shelf { display:flex; }
-    .holding-tray.tray-drag-over { border-top-color:#2563eb; background:rgba(37,99,235,0.16); box-shadow:inset 0 0 0 2px #2563eb; }
+    /* Docked Holding Tray (Distinct Warm Golden-Yellow Staging Shelf) */
+    .holding-tray { flex-shrink:0; background:linear-gradient(180deg,#FFFBEB 0%,#FEF3C7 100%); border-top:3px solid #F59E0B; padding:10px 18px 12px; display:flex; flex-direction:column; gap:8px; transition:border-color 0.15s, background 0.15s, box-shadow 0.15s; z-index:40; box-shadow:0 -6px 22px rgba(245,158,11,0.16); }
+    body.dark .holding-tray { background:linear-gradient(180deg,#2C2109 0%,#1F1706 100%); border-top-color:#F59E0B; box-shadow:0 -6px 22px rgba(0,0,0,0.45); }
+    .holding-tray.collapsed { padding:8px 18px; gap:0; }
+    .holding-tray.collapsed .tray-shelf-wrap { display:none; }
+    body.dragging-file-active .holding-tray { border-top-color:#D97706; background:linear-gradient(180deg,#FEF3C7 0%,#FDE68A 100%); }
+    body.dark.dragging-file-active .holding-tray { background:linear-gradient(180deg,#3E2E0C 0%,#2C2109 100%); }
+    body.dragging-file-active .holding-tray.collapsed .tray-shelf-wrap { display:flex; }
+    .holding-tray.tray-drag-over { border-top-color:#D97706; background:linear-gradient(180deg,#FDE68A 0%,#FCD34D 100%); box-shadow:inset 0 0 0 2.5px #D97706; }
     .tray-header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
     .tray-header-left { display:flex; align-items:center; gap:8px; min-width:0; }
     .tray-header-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-    .tray-shelf { display:flex; align-items:stretch; gap:8px; overflow-x:auto; padding:2px 0 3px; min-height:66px; }
-    .tray-empty-hint { flex:1; border:1.5px dashed var(--border); border-radius:10px; display:flex; align-items:center; justify-content:center; padding:12px 16px; font-size:12px; color:var(--muted); font-weight:600; cursor:pointer; transition:all 0.15s; text-align:center; }
-    .tray-empty-hint:hover, .holding-tray.tray-drag-over .tray-empty-hint { border-color:var(--primary); color:var(--primary); background:var(--primary-soft); }
-    .tray-chip { width:222px; flex-shrink:0; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; padding:7px 9px; display:flex; flex-direction:column; gap:5px; cursor:grab; transition:transform 0.12s, border-color 0.15s, opacity 0.15s; }
-    .tray-chip:hover { border-color:rgba(37,99,235,0.5); }
+    .tray-shelf { display:flex; align-items:stretch; gap:8px; overflow-x:auto; padding:2px 0 4px; min-height:74px; scroll-behavior:smooth; }
+    .tray-empty-hint { flex:1; border:2px dashed #F59E0B; background:rgba(255,255,255,0.68); border-radius:10px; display:flex; align-items:center; justify-content:center; padding:12px 16px; font-size:12px; color:#92400E; font-weight:700; cursor:pointer; transition:all 0.15s; text-align:center; }
+    body.dark .tray-empty-hint { background:rgba(44,33,9,0.7); color:#FDE68A; border-color:#D97706; }
+    .tray-empty-hint:hover, .holding-tray.tray-drag-over .tray-empty-hint { border-color:#B45309; color:#78350F; background:#FFFBEB; }
+    .tray-chip { width:222px; flex-shrink:0; background:#FFFFFF; border:1.5px solid #FCD34D; border-radius:10px; padding:7px 9px; display:flex; flex-direction:column; gap:5px; cursor:grab; transition:transform 0.12s, border-color 0.15s, opacity 0.15s, box-shadow 0.15s; box-shadow:0 2px 8px rgba(180,83,9,0.09); }
+    body.dark .tray-chip { background:#2D230E; border-color:#92400E; }
+    .tray-chip:hover { border-color:#D97706; box-shadow:0 4px 12px rgba(217,119,6,0.2); }
     .tray-chip.dragging { opacity:0.45; transform:scale(0.96); }
-    .tray-chip.tray-chip-over { border-left:3px solid var(--primary); }
+    .tray-chip.tray-chip-over { border-left:3.5px solid #D97706; }
     .tray-chip-top { display:flex; align-items:center; gap:7px; }
     .tray-chip-actions { display:flex; gap:4px; align-items:center; }
     .card-pin-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:12.5px; padding:3px 5px; border-radius:6px; transition:all 0.12s; flex-shrink:0; }
     .card-pin-btn:hover { background:var(--primary-soft); color:var(--primary); }
     body.dragging-tray-active .drop-in-zone, body.dragging-tray-active #inspectorFilesScroll { outline:2px dashed #0078FF; background:var(--primary-soft); border-radius:10px; }
     .sub-row.tray-drop-hover { background:rgba(0,120,255,0.16) !important; outline:2px dashed #0078FF; outline-offset:-2px; }
-    .tray-shelf-wrap { display:flex; align-items:center; gap:6px; }
-    .tray-nav-btn { width:26px; height:64px; flex-shrink:0; border:1px solid var(--border); background:var(--surface); color:var(--primary); border-radius:9px; cursor:pointer; font-size:17px; font-weight:800; display:flex; align-items:center; justify-content:center; transition:all 0.14s; }
-    .tray-nav-btn:hover { background:var(--primary-soft); border-color:var(--primary); }
+    .tray-shelf-wrap { display:flex; align-items:center; gap:10px; }
+    .tray-nav-btn { width:48px; min-width:48px; height:74px; flex-shrink:0; border:2px solid #D97706; background:linear-gradient(180deg,#FCD34D 0%,#F59E0B 100%); color:#0B2545; border-radius:12px; cursor:pointer; font-size:22px; font-weight:900; display:flex; align-items:center; justify-content:center; transition:all 0.14s; box-shadow:0 4px 12px rgba(217,119,6,0.28); user-select:none; }
+    .tray-nav-btn:hover { background:linear-gradient(180deg,#FDE68A 0%,#FBBF24 100%); border-color:#B45309; transform:translateY(-1px); box-shadow:0 6px 16px rgba(217,119,6,0.36); }
+    .tray-nav-btn:active { transform:scale(0.95); }
+
+    /* Image Print Canvas — Visual Submission Thumbnail Picker */
+    .ic-scope-row { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:2px; }
+    .ic-scope-tabs { display:inline-flex; background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:2px; gap:2px; }
+    .ic-scope-btn { border:none; background:transparent; color:var(--muted); font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:6px; cursor:pointer; transition:all 0.12s; }
+    .ic-scope-btn.active { background:#0078FF; color:#fff; box-shadow:0 2px 6px rgba(0,120,255,0.28); }
+    .ic-thumb-strip { display:grid; grid-template-columns:repeat(3, 1fr); gap:7px; max-height:178px; overflow-y:auto; padding:6px; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; }
+    .ic-thumb-tile { position:relative; border-radius:9px; overflow:hidden; border:2px solid var(--border); background:var(--surface); cursor:pointer; display:flex; flex-direction:column; transition:all 0.14s; }
+    .ic-thumb-tile:hover { border-color:#0078FF; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,120,255,0.18); }
+    .ic-thumb-tile.on-sheet { border-color:#16a34a; }
+    .ic-thumb-img-wrap { width:100%; height:58px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
+    .ic-thumb-img-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+    .ic-thumb-name { font-size:9.5px; font-weight:700; padding:3px 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
+    .ic-thumb-badge { position:absolute; top:4px; right:4px; background:rgba(11,37,69,0.82); color:#fff; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:999px; }
+    .ic-thumb-tile.on-sheet .ic-thumb-badge { background:#16a34a; }
+    .ic-thumb-empty { grid-column:1/-1; text-align:center; padding:18px 8px; font-size:11.5px; color:var(--muted); }
+
+    /* File Manager — Local PC Downloads Browser */
+    .local-folder-tabs { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    .local-folder-pill { border:1px solid var(--border); background:var(--surface-alt); color:var(--text); font-size:12px; font-weight:700; padding:6px 12px; border-radius:999px; cursor:pointer; transition:all 0.14s; display:inline-flex; align-items:center; gap:5px; }
+    .local-folder-pill:hover { border-color:#0078FF; color:#0078FF; background:var(--primary-soft); }
+    .local-folder-pill.active { background:#0078FF; border-color:#0078FF; color:#fff; box-shadow:0 3px 10px rgba(0,120,255,0.28); }
+    .local-file-list { max-height:390px; overflow-y:auto; display:flex; flex-direction:column; gap:7px; padding-right:2px; }
+    .local-file-row { padding:9px 12px; border:1px solid var(--border); border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; background:var(--surface); transition:border-color 0.14s, background 0.14s; flex-wrap:wrap; }
+    .local-file-row:hover { border-color:rgba(0,120,255,0.45); background:var(--surface-alt); }
+    .local-file-row.is-dir { cursor:pointer; background:var(--surface-alt); }
 
     /* Visual Page Manager Studio (PDF & Word Docs) */
     .pm-toolbar { padding:10px 18px; border-bottom:1px solid var(--border); background:var(--surface-alt); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; flex-shrink:0; }
@@ -334,14 +365,19 @@ const studioHtml = `
           </div>
 
           <div class="studio-card">
-            <h4>➕ Add More Images to This Sheet</h4>
-            <div style="display:flex;gap:6px;">
-              <select id="icSubImgSelect" class="field-input" style="flex:1;font-size:11.5px;" onchange="if(this.value){icAddImageUrl(this.value,this.options[this.selectedIndex].text);this.value='';}">
-                <option value="">+ Add from Submission...</option>
-              </select>
-              <input type="file" id="icLocalImgInput" accept="image/*" style="display:none;" onchange="icAddLocalFile(this)">
-              <button class="btn btn-outline" style="font-size:11px;" onclick="document.getElementById('icLocalImgInput').click()">📁 PC</button>
+            <h4>
+              <span>➕ Add More Images to This Sheet</span>
+              <button class="btn" style="font-size:11px;padding:5px 11px;border-radius:8px;" onclick="document.getElementById('icLocalImgInput').click()" title="Upload one or more images from your PC">⬆ Upload</button>
+            </h4>
+            <input type="file" id="icLocalImgInput" accept="image/*" multiple style="display:none;" onchange="icAddLocalFile(this)">
+            <div class="ic-scope-row">
+              <div class="ic-scope-tabs">
+                <button id="icScopeJobBtn" class="ic-scope-btn active" onclick="icSetPickerScope('job')">This Job</button>
+                <button id="icScopeAllBtn" class="ic-scope-btn" onclick="icSetPickerScope('all')">All Inbox</button>
+              </div>
+              <span style="font-size:10px;color:var(--muted);">Click preview to add</span>
             </div>
+            <div id="icSubThumbGrid" class="ic-thumb-strip"></div>
           </div>
 
           <div class="studio-card" id="icSelectedControls">
@@ -1298,38 +1334,91 @@ const studioJs = `
       return land ? { w: sz.h, h: sz.w } : { w: sz.w, h: sz.h };
     }
 
+    function icSetPickerScope(scope) {
+      icState.pickerScope = scope === 'all' ? 'all' : 'job';
+      const jb = document.getElementById('icScopeJobBtn');
+      const ab = document.getElementById('icScopeAllBtn');
+      if (jb) jb.classList.toggle('active', icState.pickerScope === 'job');
+      if (ab) ab.classList.toggle('active', icState.pickerScope === 'all');
+      renderIcSubmissionThumbs();
+    }
+
+    function renderIcSubmissionThumbs() {
+      const grid = document.getElementById('icSubThumbGrid');
+      if (!grid) return;
+      const imgExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
+      const subs = (cloudState && cloudState.submissions) || [];
+      const curSub = subs.find(s => s.id === icState.submissionId || s.receiptCode === icState.submissionId);
+      const jobImgs = curSub ? (curSub.files || []).filter(f => imgExts.includes((f.fileExtension || '').toLowerCase())).map(f => ({ f, tag: curSub.receiptCode || curSub.id })) : [];
+      const allImgs = [];
+      subs.forEach(s => {
+        (s.files || []).filter(f => imgExts.includes((f.fileExtension || '').toLowerCase())).forEach(f => {
+          allImgs.push({ f, tag: s.receiptCode || s.id });
+        });
+      });
+
+      const jb = document.getElementById('icScopeJobBtn');
+      const ab = document.getElementById('icScopeAllBtn');
+      if (jb) jb.textContent = 'This Job (' + jobImgs.length + ')';
+      if (ab) ab.textContent = 'All Inbox (' + allImgs.length + ')';
+
+      const list = icState.pickerScope === 'all' ? allImgs : (jobImgs.length > 0 ? jobImgs : allImgs);
+      if (list.length === 0) {
+        grid.innerHTML = '<div class="ic-thumb-empty">No submission images yet — click <strong>⬆ Upload</strong> above to pick from PC.</div>';
+        return;
+      }
+
+      grid.innerHTML = '';
+      list.forEach(({ f, tag }) => {
+        const url = '/api/file?id=' + encodeURIComponent(f.id);
+        const countOnSheet = (icState.items || []).filter(it => it.url === url).length;
+        const tile = document.createElement('div');
+        tile.className = 'ic-thumb-tile' + (countOnSheet > 0 ? ' on-sheet' : '');
+        tile.title = f.originalName + (icState.pickerScope === 'all' ? (' (' + tag + ')') : '') + ' — Click to add to sheet';
+        tile.innerHTML =
+          '<div class="ic-thumb-img-wrap">' +
+            '<img src="' + url + '" loading="lazy" alt="' + esc(f.originalName) + '">' +
+            '<span class="ic-thumb-badge">' + (countOnSheet > 0 ? ('✓ ×' + countOnSheet) : '+') + '</span>' +
+          '</div>' +
+          '<div class="ic-thumb-name">' + esc(f.originalName) + '</div>';
+        tile.onclick = () => {
+          icPushUndo();
+          icAddImageUrl(url, f.originalName);
+        };
+        grid.appendChild(tile);
+      });
+    }
+
     async function openImageCanvas(fileId, fileName, submissionId) {
       icState.primaryFileId = fileId;
       icState.primaryFileName = fileName;
       icState.submissionId = submissionId;
+      icState.pickerScope = 'job';
       icState.items = [];
       icState.selectedId = null;
       icState.undoStack = [];
       icState.redoStack = [];
       icUpdateUndoButtons();
 
-      const sel = document.getElementById('icSubImgSelect');
-      sel.innerHTML = '<option value="">+ Add from Submission...</option>';
-      const sub = (cloudState.submissions || []).find(s => s.id === submissionId || s.receiptCode === submissionId);
-      if (sub) {
-        (sub.files || []).filter(f => ['.jpg','.jpeg','.png','.webp','.bmp','.gif'].includes((f.fileExtension || '').toLowerCase())).forEach(f => {
-          const opt = document.createElement('option');
-          opt.value = '/api/file?id=' + encodeURIComponent(f.id);
-          opt.textContent = f.originalName;
-          sel.appendChild(opt);
-        });
-      }
+      const jb = document.getElementById('icScopeJobBtn');
+      const ab = document.getElementById('icScopeAllBtn');
+      if (jb) jb.classList.add('active');
+      if (ab) ab.classList.remove('active');
 
       document.getElementById('imageStudioModal').classList.add('open');
       imgCanvasRenderPaper();
       await icAddImageUrl('/api/file?id=' + encodeURIComponent(fileId), fileName);
       icPreset('fit');
+      renderIcSubmissionThumbs();
     }
 
     async function icAddLocalFile(input) {
-      if (!input.files || !input.files[0]) return;
-      const f = input.files[0];
-      await icAddImageUrl(URL.createObjectURL(f), f.name);
+      if (!input.files || !input.files.length) return;
+      icPushUndo();
+      const files = Array.from(input.files);
+      for (const f of files) {
+        await icAddImageUrl(URL.createObjectURL(f), f.name);
+      }
       input.value = '';
     }
 
@@ -1353,6 +1442,7 @@ const studioJs = `
       icState.items.push(item);
       icState.selectedId = item.id;
       imgCanvasRenderPaper();
+      renderIcSubmissionThumbs();
     }
 
     function imgCanvasRenderPaper() {
@@ -1421,6 +1511,7 @@ const studioJs = `
         layer.appendChild(div);
       });
       icSyncControls();
+      renderIcSubmissionThumbs();
     }
 
     function icGetSelected() { return icState.items.find(i => i.id === icState.selectedId) || icState.items[0] || null; }
@@ -3541,6 +3632,177 @@ const studioJs = `
       };
       frame.srcdoc = '<!doctype html><html><head><style>@page{size:A4 portrait;margin:0;}html,body{margin:0;padding:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff;}img{max-width:100%;max-height:100vh;width:auto;height:100vh;object-fit:contain;display:block;}</style></head><body><img src="' + dataUrl + '"></body></html>';
       showToast('🖨 Sending branded QR poster to print dialog...', null, null, 3500);
+    }
+
+    // ========================================================================
+    // 10. LOCAL PC STORAGE BROWSER (C:\Users\<User>\Downloads, Desktop, Docs, Pictures)
+    // ========================================================================
+    const localPcState = {
+      folder: 'downloads',
+      sub: '',
+      q: '',
+      loading: false,
+      loadedOnce: false,
+      data: null,
+      error: null
+    };
+
+    let localPcSearchTimer = null;
+
+    function setLocalPcFolder(folderKey) {
+      localPcState.folder = folderKey || 'downloads';
+      localPcState.sub = '';
+      loadLocalPcFiles();
+    }
+
+    function openLocalPcSubfolder(relPath) {
+      localPcState.sub = relPath || '';
+      loadLocalPcFiles();
+    }
+
+    function onLocalPcSearchInput(val) {
+      localPcState.q = val || '';
+      if (localPcSearchTimer) clearTimeout(localPcSearchTimer);
+      localPcSearchTimer = setTimeout(() => loadLocalPcFiles(), 180);
+    }
+
+    async function loadLocalPcFiles() {
+      localPcState.loading = true;
+      localPcState.error = null;
+      renderLocalPcBrowser();
+      try {
+        const url = '/api/local-files?folder=' + encodeURIComponent(localPcState.folder) +
+          '&sub=' + encodeURIComponent(localPcState.sub || '') +
+          '&q=' + encodeURIComponent(localPcState.q || '');
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Could not list local folder');
+        localPcState.data = data;
+        localPcState.loadedOnce = true;
+      } catch (err) {
+        localPcState.error = err.message || 'Local folder access error';
+      } finally {
+        localPcState.loading = false;
+        renderLocalPcBrowser();
+      }
+    }
+
+    function renderLocalPcBrowser() {
+      const host = document.getElementById('localPcBrowserBody');
+      const pathTag = document.getElementById('localPcPathTag');
+      const backBtn = document.getElementById('localPcUpBtn');
+      if (!host) return;
+
+      document.querySelectorAll('.local-folder-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.folder === localPcState.folder);
+      });
+
+      const d = localPcState.data;
+      if (pathTag) {
+        pathTag.textContent = (d && d.currentPath) ? d.currentPath : ('C:\\\\Users\\\\...\\\\' + localPcState.folder);
+      }
+      if (backBtn) {
+        if (d && d.subPath) {
+          backBtn.style.display = 'inline-flex';
+          backBtn.onclick = () => openLocalPcSubfolder(d.parentSubPath || '');
+        } else {
+          backBtn.style.display = 'none';
+        }
+      }
+
+      if (localPcState.loading && !d) {
+        host.innerHTML = '<div style="padding:26px;text-align:center;color:var(--muted);font-size:12.5px;">Loading local Windows folder...</div>';
+        return;
+      }
+      if (localPcState.error) {
+        host.innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger);font-size:12.5px;">⚠️ ' + esc(localPcState.error) + '</div>';
+        return;
+      }
+
+      const items = (d && d.items) || [];
+      if (items.length === 0) {
+        host.innerHTML = '<div style="padding:28px;text-align:center;color:var(--muted);font-size:12.5px;">No matching files found in this folder.</div>';
+        return;
+      }
+
+      const activeSubCode = selectedSubId || (((cloudState && cloudState.submissions) || []).find(s => s.status !== 'expired') || {}).receiptCode || '';
+
+      host.innerHTML = items.map(it => {
+        const safeRel = esc(it.relPath).replace(/'/g, '&#39;');
+        const safeName = esc(it.name).replace(/'/g, '&#39;');
+        if (it.isDir) {
+          return '<div class="local-file-row is-dir" onclick="openLocalPcSubfolder(\\'' + safeRel + '\\')">' +
+            '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">' +
+              '<div class="file-type-box ft-other" style="background:linear-gradient(135deg,#FEF3C7,#FDE68A);color:#92400E;">📁</div>' +
+              '<div style="min-width:0;">' +
+                '<div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(it.name) + '</div>' +
+                '<div style="font-size:11px;color:var(--muted);">Folder • ' + timeAgo(it.modifiedUtc) + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<span style="font-size:11.5px;font-weight:700;color:var(--primary);">Open →</span>' +
+          '</div>';
+        }
+
+        const [cls, lbl] = getFileBadge(it.ext);
+        const isPdfOrImg = it.canPreview;
+        return '<div class="local-file-row">' +
+          '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">' +
+            '<div class="file-type-box ' + cls + '">' + lbl + '</div>' +
+            '<div style="min-width:0;">' +
+              '<div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(it.name) + '">' + esc(it.name) + '</div>' +
+              '<div style="font-size:11px;color:var(--muted);">' + formatSize(it.sizeBytes) + ' • ' + timeAgo(it.modifiedUtc) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">' +
+            (activeSubCode ? '<button class="btn btn-sync" style="padding:5px 9px;font-size:11px;" onclick="runLocalPcAction(\\'' + safeRel + '\\',\\'add-to-submission\\',\\'' + esc(activeSubCode) + '\\')" title="Copy into submission ' + esc(activeSubCode) + '">+ Add to ' + esc(activeSubCode) + '</button>' : '') +
+            '<button class="btn btn-outline" style="padding:5px 9px;font-size:11px;" onclick="runLocalPcAction(\\'' + safeRel + '\\',\\'pin-tray\\')" title="Pin to Holding Tray">📌 Tray</button>' +
+            (isPdfOrImg ? '<button class="btn btn-outline" style="padding:5px 9px;font-size:11px;" onclick="previewUrl(\\'' + esc(it.streamUrl) + '\\',\\'' + safeName + '\\',\\'' + esc(it.ext) + '\\',null)" title="Preview">👁 Preview</button>' : '') +
+            '<button class="btn" style="padding:5px 9px;font-size:11px;" onclick="printLocalPcFile(\\'' + safeRel + '\\',\\'' + esc(it.streamUrl) + '\\',\\'' + safeName + '\\',\\'' + esc(it.ext) + '\\')" title="Print">🖨 Print</button>' +
+            '<button class="btn btn-outline" style="padding:5px 9px;font-size:11px;" onclick="runLocalPcAction(\\'' + safeRel + '\\',\\'open\\')" title="Open in default Windows app">↗ Open</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function runLocalPcAction(relPath, action, subCode) {
+      try {
+        const res = await fetch('/api/local-file/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            folder: localPcState.folder,
+            path: relPath || localPcState.sub || '',
+            action,
+            submissionId: subCode || selectedSubId || ''
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          alert(data.error || 'Local file action failed.');
+          return;
+        }
+        if (action === 'add-to-submission') {
+          await fetchCloudState(true);
+          showToast('✓ Added "' + (data.filename || 'file') + '" from PC ' + localPcState.folder + ' into ' + (data.receiptCode || subCode), null, null, 4500);
+        } else if (action === 'pin-tray') {
+          trayCollapsed = false;
+          await fetchCloudState(true);
+          showToast('📌 Kept "' + (data.filename || 'file') + '" in Holding Tray', null, null, 3500);
+        } else if (action === 'print') {
+          showToast('🖨 ' + (data.message || 'Sent file to Windows printer.'), null, null, 4000);
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+
+    function printLocalPcFile(relPath, streamUrl, name, ext) {
+      const e = (ext || '').toLowerCase();
+      if (e === '.pdf' || ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(e)) {
+        directPrint(streamUrl, name);
+      } else {
+        runLocalPcAction(relPath, 'print');
+      }
     }
 `;
 

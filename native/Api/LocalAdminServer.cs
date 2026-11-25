@@ -662,6 +662,24 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (path == "/api/local-files" && req.HttpMethod == "GET")
+                {
+                    HandleListLocalFiles(req, res);
+                    return;
+                }
+
+                if (path == "/api/local-file/stream" && req.HttpMethod == "GET")
+                {
+                    HandleStreamLocalFile(req, res);
+                    return;
+                }
+
+                if (path == "/api/local-file/action" && req.HttpMethod == "POST")
+                {
+                    HandleLocalFileAction(req, res);
+                    return;
+                }
+
                 if ((path == "/api/version" && req.HttpMethod == "GET") || (path == "/api/update/check" && req.HttpMethod == "POST"))
                 {
                     var upd = AutoUpdater.CheckForUpdate();
@@ -2158,6 +2176,349 @@ namespace ScanDrop.Native.Api
             }
             FireStateChanged();
             HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "copiedCount", copied } });
+        }
+
+        private static string ResolveUserRootFolder(string folderKey, out string label)
+        {
+            string key = (folderKey ?? "downloads").Trim().ToLowerInvariant();
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrWhiteSpace(userProfile))
+                userProfile = Environment.GetEnvironmentVariable("USERPROFILE") ?? @"C:\Users";
+
+            if (key == "desktop")
+            {
+                label = "Desktop";
+                string p = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                return !string.IsNullOrWhiteSpace(p) ? p : Path.Combine(userProfile, "Desktop");
+            }
+            if (key == "documents")
+            {
+                label = "Documents";
+                string p = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                return !string.IsNullOrWhiteSpace(p) ? p : Path.Combine(userProfile, "Documents");
+            }
+            if (key == "pictures")
+            {
+                label = "Pictures";
+                string p = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                return !string.IsNullOrWhiteSpace(p) ? p : Path.Combine(userProfile, "Pictures");
+            }
+
+            label = "Downloads";
+            return Path.Combine(userProfile, "Downloads");
+        }
+
+        private static bool TryResolveSafeLocalPath(string folderKey, string relativePath, out string rootDir, out string fullPath, out string label, out string error)
+        {
+            error = null;
+            rootDir = Path.GetFullPath(ResolveUserRootFolder(folderKey, out label));
+            string rel = (relativePath ?? "").Trim().Replace('/', '\\').TrimStart('\\');
+            if (rel.IndexOf("..", StringComparison.Ordinal) >= 0 || rel.IndexOf(':') >= 0)
+            {
+                fullPath = null;
+                error = "Invalid local path.";
+                return false;
+            }
+            fullPath = string.IsNullOrEmpty(rel) ? rootDir : Path.GetFullPath(Path.Combine(rootDir, rel));
+            string rootWithSep = rootDir.EndsWith("\\", StringComparison.Ordinal) ? rootDir : (rootDir + "\\");
+            if (!string.Equals(fullPath, rootDir, StringComparison.OrdinalIgnoreCase) &&
+                !fullPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase))
+            {
+                fullPath = null;
+                error = "Path escapes allowed user folder.";
+                return false;
+            }
+            return true;
+        }
+
+        private static string GuessMimeTypeFromExt(string ext)
+        {
+            string e = (ext ?? "").ToLowerInvariant();
+            if (e == ".pdf") return "application/pdf";
+            if (e == ".png") return "image/png";
+            if (e == ".jpg" || e == ".jpeg") return "image/jpeg";
+            if (e == ".webp") return "image/webp";
+            if (e == ".bmp") return "image/bmp";
+            if (e == ".gif") return "image/gif";
+            if (e == ".docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            if (e == ".doc") return "application/msword";
+            if (e == ".xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            if (e == ".pptx") return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            if (e == ".txt") return "text/plain";
+            return "application/octet-stream";
+        }
+
+        private void HandleListLocalFiles(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string folderKey = (req.QueryString["folder"] ?? "downloads").Trim().ToLowerInvariant();
+            if (folderKey != "downloads" && folderKey != "desktop" && folderKey != "documents" && folderKey != "pictures")
+                folderKey = "downloads";
+            string sub = (req.QueryString["sub"] ?? "").Trim();
+            string q = (req.QueryString["q"] ?? "").Trim();
+
+            string rootDir, targetDir, label, err;
+            if (!TryResolveSafeLocalPath(folderKey, sub, out rootDir, out targetDir, out label, out err))
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", err } });
+                return;
+            }
+
+            if (!Directory.Exists(targetDir))
+            {
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "folder", folderKey },
+                    { "folderLabel", label },
+                    { "rootPath", rootDir },
+                    { "currentPath", targetDir },
+                    { "subPath", "" },
+                    { "parentSubPath", "" },
+                    { "userName", Environment.UserName },
+                    { "items", new List<object>() }
+                });
+                return;
+            }
+
+            string cleanSub = string.Equals(targetDir, rootDir, StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : targetDir.Substring(rootDir.Length).TrimStart('\\').Replace('\\', '/');
+            string parentSub = "";
+            if (!string.IsNullOrEmpty(cleanSub))
+            {
+                int slash = cleanSub.LastIndexOf('/');
+                parentSub = slash > 0 ? cleanSub.Substring(0, slash) : "";
+            }
+
+            var items = new List<object>();
+            try
+            {
+                var dirInfos = new DirectoryInfo(targetDir).GetDirectories();
+                Array.Sort(dirInfos, (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                foreach (var di in dirInfos)
+                {
+                    if ((di.Attributes & FileAttributes.Hidden) != 0 || (di.Attributes & FileAttributes.System) != 0) continue;
+                    if (di.Name.StartsWith(".", StringComparison.Ordinal)) continue;
+                    if (!string.IsNullOrEmpty(q) && di.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    string rel = string.IsNullOrEmpty(cleanSub) ? di.Name : (cleanSub + "/" + di.Name);
+                    items.Add(new Dictionary<string, object>
+                    {
+                        { "name", di.Name },
+                        { "relPath", rel },
+                        { "isDir", true },
+                        { "ext", "" },
+                        { "sizeBytes", 0L },
+                        { "modifiedUtc", di.LastWriteTimeUtc.ToString("o", CultureInfo.InvariantCulture) },
+                        { "canPreview", false },
+                        { "streamUrl", "" }
+                    });
+                    if (items.Count >= 60) break;
+                }
+            }
+            catch { }
+
+            try
+            {
+                var fileInfos = new DirectoryInfo(targetDir).GetFiles();
+                Array.Sort(fileInfos, (a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+                foreach (var fi in fileInfos)
+                {
+                    if ((fi.Attributes & FileAttributes.Hidden) != 0 || (fi.Attributes & FileAttributes.System) != 0) continue;
+                    if (fi.Name.StartsWith("~$", StringComparison.Ordinal) || fi.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!string.IsNullOrEmpty(q) && fi.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    string ext = (fi.Extension ?? "").ToLowerInvariant();
+                    string rel = string.IsNullOrEmpty(cleanSub) ? fi.Name : (cleanSub + "/" + fi.Name);
+                    bool canPreview = ext == ".pdf" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".webp" || ext == ".bmp" || ext == ".gif";
+                    string streamUrl = "/api/local-file/stream?folder=" + Uri.EscapeDataString(folderKey) + "&path=" + Uri.EscapeDataString(rel);
+                    items.Add(new Dictionary<string, object>
+                    {
+                        { "name", fi.Name },
+                        { "relPath", rel },
+                        { "isDir", false },
+                        { "ext", ext },
+                        { "sizeBytes", fi.Length },
+                        { "modifiedUtc", fi.LastWriteTimeUtc.ToString("o", CultureInfo.InvariantCulture) },
+                        { "canPreview", canPreview },
+                        { "streamUrl", streamUrl }
+                    });
+                    if (items.Count >= 220) break;
+                }
+            }
+            catch { }
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "folder", folderKey },
+                { "folderLabel", label },
+                { "rootPath", rootDir },
+                { "currentPath", targetDir },
+                { "subPath", cleanSub },
+                { "parentSubPath", parentSub },
+                { "userName", Environment.UserName },
+                { "items", items }
+            });
+        }
+
+        private void HandleStreamLocalFile(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string folderKey = (req.QueryString["folder"] ?? "downloads").Trim().ToLowerInvariant();
+            string relPath = (req.QueryString["path"] ?? "").Trim();
+            bool download = req.QueryString["download"] == "1";
+
+            string rootDir = null, fullPath = null, label = null, err = null;
+            if (string.IsNullOrWhiteSpace(relPath) || !TryResolveSafeLocalPath(folderKey, relPath, out rootDir, out fullPath, out label, out err))
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "error", err ?? "Invalid local file path." } });
+                return;
+            }
+            if (!File.Exists(fullPath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "error", "Local file not found." } });
+                return;
+            }
+            string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+            StreamDiskFile(res, fullPath, GuessMimeTypeFromExt(ext), Path.GetFileName(fullPath), download);
+        }
+
+        private void HandleLocalFileAction(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string folderKey = (HttpHelpers.GetStr(body, "folder") ?? "downloads").Trim().ToLowerInvariant();
+            string relPath = (HttpHelpers.GetStr(body, "path") ?? "").Trim();
+            string action = (HttpHelpers.GetStr(body, "action") ?? "").Trim().ToLowerInvariant();
+
+            string rootDir, fullPath, label, err;
+            if (!TryResolveSafeLocalPath(folderKey, relPath, out rootDir, out fullPath, out label, out err))
+            {
+                HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", err } });
+                return;
+            }
+
+            if (action == "open-folder")
+            {
+                if (File.Exists(fullPath))
+                    Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + fullPath + "\"") { UseShellExecute = true });
+                else if (Directory.Exists(fullPath))
+                    Process.Start(new ProcessStartInfo("explorer.exe", "\"" + fullPath + "\"") { UseShellExecute = true });
+                else if (Directory.Exists(rootDir))
+                    Process.Start(new ProcessStartInfo("explorer.exe", "\"" + rootDir + "\"") { UseShellExecute = true });
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(relPath) || !File.Exists(fullPath))
+            {
+                HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Selected file not found on PC." } });
+                return;
+            }
+
+            string fileName = StorageManager.SanitizeDisplayName(Path.GetFileName(fullPath));
+            string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = ".bin";
+            string mime = GuessMimeTypeFromExt(ext);
+
+            if (action == "open")
+            {
+                Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true } });
+                return;
+            }
+
+            if (action == "print")
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = fullPath,
+                    Verb = "print",
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    UseShellExecute = true
+                };
+                Process.Start(psi);
+                _db.AddActivity("LOCAL_FILE_PRINTED", "shopkeeper", null, "Sent PC file (" + label + "): " + fileName + " to Windows printer.");
+                FireStateChanged();
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "message", "Sent '" + fileName + "' to Windows printer." } });
+                return;
+            }
+
+            if (action == "pin-tray")
+            {
+                if (!Directory.Exists(_storage.Paths.TrayDir)) Directory.CreateDirectory(_storage.Paths.TrayDir);
+                string trayId = "tray_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                string destPath = Path.Combine(_storage.Paths.TrayDir, trayId + ext);
+                File.Copy(fullPath, destPath, true);
+                var rec = new TrayItemRecord
+                {
+                    TrayId = trayId,
+                    SourceFileId = null,
+                    SourceLabel = "PC " + label,
+                    OriginalFilename = fileName,
+                    ContentType = mime,
+                    FileExtension = ext,
+                    FileSize = new FileInfo(destPath).Length,
+                    StoragePath = destPath,
+                    SortOrder = _db.GetNextTraySortOrder(),
+                    AddedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
+                };
+                _db.InsertTrayItem(rec);
+                FireStateChanged();
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "trayId", trayId }, { "filename", fileName } });
+                return;
+            }
+
+            if (action == "add-to-submission")
+            {
+                string subKey = HttpHelpers.GetStr(body, "submissionId");
+                var sub = _db.GetSubmissionByReceiptOrId(subKey);
+                if (sub == null)
+                {
+                    HttpHelpers.WriteJson(res, 404, new Dictionary<string, object> { { "success", false }, { "error", "Open a customer submission in Inbox first." } });
+                    return;
+                }
+                string subDir = Path.Combine(_storage.Paths.ReceivedDir, sub.SubmissionId);
+                if (!Directory.Exists(subDir)) Directory.CreateDirectory(subDir);
+                string internalName = _storage.GenerateInternalFilename(ext);
+                string destPath = Path.Combine(subDir, internalName);
+                File.Copy(fullPath, destPath, true);
+
+                string shaHex = "";
+                try
+                {
+                    using (var sha = SHA256.Create())
+                    using (var fs = File.OpenRead(destPath))
+                        shaHex = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+                }
+                catch { }
+
+                var fRec = new FileRecord
+                {
+                    FileId = "file_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    SubmissionId = sub.SubmissionId,
+                    OriginalFilename = fileName,
+                    InternalFilename = internalName,
+                    ContentType = mime,
+                    FileExtension = ext,
+                    FileSize = new FileInfo(destPath).Length,
+                    Checksum = shaHex,
+                    StoragePath = destPath,
+                    ConversionStatus = "none",
+                    ConvertedPath = null,
+                    ReceivedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+                    IsTrashed = false,
+                    TrashedAt = null,
+                    SortOrder = _db.GetNextFileSortOrder(sub.SubmissionId)
+                };
+                _db.InsertFile(fRec);
+                _db.RecalculateSubmissionTotalSize(sub.SubmissionId);
+                _db.AddActivity("LOCAL_FILE_ADDED", "shopkeeper", sub.SubmissionId,
+                    "Added '" + fileName + "' from PC " + label + " into " + sub.ReceiptCode);
+                FireStateChanged();
+                HttpHelpers.WriteJson(res, 200, new Dictionary<string, object> { { "success", true }, { "fileId", fRec.FileId }, { "filename", fileName }, { "receiptCode", sub.ReceiptCode } });
+                return;
+            }
+
+            HttpHelpers.WriteJson(res, 400, new Dictionary<string, object> { { "success", false }, { "error", "Unsupported local file action." } });
         }
 
         private void HandleTrayPreparePdf(HttpListenerRequest req, HttpListenerResponse res)

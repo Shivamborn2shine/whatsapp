@@ -338,9 +338,9 @@ ${studioCss}
         </div>
       </div>
       <div class="tray-shelf-wrap">
-        <button class="tray-nav-btn" onclick="scrollTrayShelf(-260)" title="Scroll Left">‹</button>
+        <button class="tray-nav-btn" onclick="scrollTrayShelf(-360)" title="Scroll Tray Left" aria-label="Scroll Left">◀</button>
         <div id="trayShelfItems" class="tray-shelf" style="flex:1;"></div>
-        <button class="tray-nav-btn" onclick="scrollTrayShelf(260)" title="Scroll Right">›</button>
+        <button class="tray-nav-btn" onclick="scrollTrayShelf(360)" title="Scroll Tray Right" aria-label="Scroll Right">▶</button>
       </div>
     </section>
   </main>
@@ -1270,6 +1270,34 @@ ${studioHtml}
           </div>
 
           <div class="list-panel" style="padding:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+              <div>
+                <h3>📥 Local PC Storage — User Downloads &amp; Folders</h3>
+                <p style="font-size:11.5px;color:var(--muted);margin-top:2px;">Direct local access on this PC: <code id="localPcPathTag" style="font-size:11px;">C:\\Users\\...\\Downloads</code></p>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-outline" style="padding:6px 10px;font-size:11.5px;" onclick="runLocalPcAction('','open-folder')" title="Open current folder in Windows Explorer">📂 Explorer</button>
+                <button class="btn btn-outline" style="padding:6px 10px;font-size:11.5px;" onclick="loadLocalPcFiles()">↻ Refresh</button>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+              <div class="local-folder-tabs">
+                <button class="local-folder-pill active" data-folder="downloads" onclick="setLocalPcFolder('downloads')">📥 Downloads</button>
+                <button class="local-folder-pill" data-folder="desktop" onclick="setLocalPcFolder('desktop')">🖥️ Desktop</button>
+                <button class="local-folder-pill" data-folder="documents" onclick="setLocalPcFolder('documents')">📄 Documents</button>
+                <button class="local-folder-pill" data-folder="pictures" onclick="setLocalPcFolder('pictures')">🖼️ Pictures</button>
+                <button id="localPcUpBtn" class="btn btn-outline" style="display:none;padding:5px 10px;font-size:11.5px;">← Up</button>
+              </div>
+              <input id="localPcSearchInput" class="field-input" style="max-width:250px;padding:6px 10px;font-size:12px;" placeholder="Filter files in folder..." value="\${esc(typeof localPcState !== 'undefined' ? (localPcState.q || '') : '')}" oninput="onLocalPcSearchInput(this.value)">
+            </div>
+
+            <div id="localPcBrowserBody" class="local-file-list">
+              <div style="padding:26px;text-align:center;color:var(--muted);font-size:12.5px;">Loading local Downloads folder...</div>
+            </div>
+          </div>
+
+          <div class="list-panel" style="padding:20px;">
             <h3 style="margin-bottom:12px;">📄 Converted PDF &amp; Word (.docx) Outputs</h3>
             \${converted.length === 0 ? '<p style="font-size:13px;color:var(--muted);">No converted files yet. Use "To Word" on any PDF or "To PDF" on any image/Word doc in Inbox.</p>' :
               converted.map(c => {
@@ -1289,6 +1317,10 @@ ${studioHtml}
               }).join('')}
           </div>
         \`;
+        if (typeof localPcState !== 'undefined') {
+          if (!localPcState.loadedOnce) loadLocalPcFiles();
+          else renderLocalPcBrowser();
+        }
       }
       else if (currentTab === 'trash') {
         const items = globalTrash.filter(t => !q || (t.originalName || '').toLowerCase().includes(q) || (t.receiptCode || '').toLowerCase().includes(q) || (t.customerName || '').toLowerCase().includes(q));

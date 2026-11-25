@@ -669,10 +669,22 @@ namespace ScanDrop.Native
                             if (!inspectBuilt.Success || !inspectBuilt.BodyBlocks.Exists(b => b.Text.Contains("Diksha Bisht")) || inspectBuilt.Images.Count < 1)
                                 throw new Exception("Built visual .docx missing expected text or embedded background image!");
                             Console.WriteLine("  [PASS] 20. Raw-PDF corruption guard & Visual-Layout OpenXML (.docx) engine verified");
+
+                            // Test 21: Local PC Downloads browser API + path-traversal & public-port isolation guards
+                            string dlListJson = HttpGet(admBase + "/api/local-files?folder=downloads");
+                            if (!dlListJson.Contains("\"success\":true") || !dlListJson.Contains("\"folder\":\"downloads\""))
+                                throw new Exception("GET /api/local-files?folder=downloads failed: " + dlListJson);
+                            int travCode = HttpGetStatus(admBase + "/api/local-files?folder=downloads&sub=..%2F..%2FWindows");
+                            if (travCode != 400)
+                                throw new Exception("Expected HTTP 400 for local-files path traversal, got " + travCode);
+                            int pubLocalCode = HttpGetStatus(pubBase + "/api/local-files?folder=downloads");
+                            if (pubLocalCode != 404)
+                                throw new Exception("Public receiver MUST block /api/local-files with 404, got " + pubLocalCode);
+                            Console.WriteLine("  [PASS] 21. Local PC Downloads browser API, traversal block & public isolation verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 20 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 21 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + LOCAL-PC SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)

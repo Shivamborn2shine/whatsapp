@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.8.2",
-    "releaseDate":  "2026-11-24",
-    "releaseNotes":  "Upgraded built-in PDF-to-Word engine to Full Visual Layout (.docx): preserves exact 2-column layouts, colored sidebars, profile photos, icons, text colors, fonts, and editable floating text boxes natively on EVERY laptop â€” including Office 2007/2010, WPS Office, and PCs without Word 2013+ PDF Reflow.",
-    "sha256":  "1bac0607afef6e4daba877e575b45d569f728b897f40ef352aed35dd2cec05b2",
+    "version":  "4.9.0",
+    "releaseDate":  "2026-11-25",
+    "releaseNotes":  "1) Image Print Canvas now shows a scrollable visual thumbnail preview gallery of submission images (This Job / All Inbox) plus a prominent Upload button. 2) File Manager now includes direct local PC access to your Windows User Downloads (plus Desktop, Documents, Pictures) with 1-click Add to Job, Pin to Tray, Preview, Print \u0026 Open. 3) Holding Tray upgraded with a distinct golden-yellow theme and big high-contrast Left/Right scroll buttons.",
+    "sha256":  "af6ef6f556a7ccdb472a2e58c91c9dd1ed06e3433e308f74ab5b234abfb17f6b",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
