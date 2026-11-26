@@ -6,10 +6,13 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Xml.Linq;
 using Microsoft.Win32;
 using ScanDrop.Native.Core;
 using ScanDrop.Native.Storage;
@@ -78,6 +81,24 @@ namespace ScanDrop.Native.Conversion
             catch { return false; }
         }
 
+        public static bool IsMicrosoftExcelInstalled()
+        {
+            try
+            {
+                return Type.GetTypeFromProgID("Excel.Application") != null;
+            }
+            catch { return false; }
+        }
+
+        public static bool IsMicrosoftPowerPointInstalled()
+        {
+            try
+            {
+                return Type.GetTypeFromProgID("PowerPoint.Application") != null;
+            }
+            catch { return false; }
+        }
+
         public static bool IsLibreOfficeInstalled()
         {
             return !string.IsNullOrEmpty(FindLibreOfficePath());
@@ -85,14 +106,18 @@ namespace ScanDrop.Native.Conversion
 
         public static bool IsOfficeConversionAvailable()
         {
-            return IsLibreOfficeInstalled() || IsMicrosoftWordInstalled();
+            return IsLibreOfficeInstalled() || IsMicrosoftWordInstalled() || IsMicrosoftExcelInstalled() || IsMicrosoftPowerPointInstalled();
         }
 
         public static string GetOfficeEngineLabel()
         {
             if (IsLibreOfficeInstalled()) return "LibreOffice Ready";
-            if (IsMicrosoftWordInstalled()) return "Microsoft Word Ready";
-            return "Images & DOCX XML Ready";
+            bool hasWord = IsMicrosoftWordInstalled();
+            bool hasExcel = IsMicrosoftExcelInstalled();
+            if (hasWord && hasExcel) return "Microsoft Office Ready";
+            if (hasWord) return "Word + Built-in XLSX Ready";
+            if (hasExcel) return "Excel + Built-in DOCX Ready";
+            return "Images, XLSX & DOCX Ready";
         }
 
         public ConversionResult ConvertFileToPdf(FileRecord file)
@@ -133,7 +158,9 @@ namespace ScanDrop.Native.Conversion
                 return ConvertImagesToPdf(new List<string> { sourcePath }, outName, "A4", "portrait");
             }
 
-            if (ext == ".docx" || ext == ".doc" || ext == ".rtf" || ext == ".txt" || ext == ".xlsx" || ext == ".xls" || ext == ".pptx" || ext == ".ppt")
+            if (ext == ".docx" || ext == ".doc" || ext == ".rtf" || ext == ".txt" ||
+                ext == ".xlsx" || ext == ".xls" || ext == ".csv" ||
+                ext == ".pptx" || ext == ".ppt")
             {
                 if (IsLibreOfficeInstalled())
                 {
@@ -144,7 +171,26 @@ namespace ScanDrop.Native.Conversion
                 {
                     return ConvertWordDocumentWithCom(sourcePath, outName);
                 }
-                return Fail("Install Microsoft Word or free LibreOffice to render " + ext + " to PDF.");
+                if (ext == ".xlsx" || ext == ".xls" || ext == ".csv")
+                {
+                    if (IsMicrosoftExcelInstalled())
+                    {
+                        var xlRes = ConvertExcelWorkbookWithCom(sourcePath, outName);
+                        if (xlRes.Success) return xlRes;
+                        _logger.Warn("Conversion", "Excel COM fallback triggered (" + xlRes.ErrorMessage + ")");
+                        if (ext == ".xls") return xlRes;
+                    }
+                    if (ext == ".xlsx" || ext == ".csv")
+                    {
+                        return ConvertSpreadsheetNativeToPdf(sourcePath, ext, outName);
+                    }
+                    return Fail("Install Microsoft Excel or free LibreOffice to render legacy " + ext + " to PDF.");
+                }
+                if ((ext == ".pptx" || ext == ".ppt") && IsMicrosoftPowerPointInstalled())
+                {
+                    return ConvertPowerPointWithCom(sourcePath, outName);
+                }
+                return Fail("Install Microsoft Office or free LibreOffice to render " + ext + " to PDF.");
             }
 
             return Fail("Unsupported format for local PDF conversion: " + ext);
@@ -277,6 +323,630 @@ namespace ScanDrop.Native.Conversion
                 return Fail("Microsoft Word PDF conversion timed out after 40 seconds.");
             }
             return result ?? Fail("Unknown Word conversion error.");
+        }
+
+        private ConversionResult ConvertExcelWorkbookWithCom(string sourcePath, string desiredOutName)
+        {
+            if (!Directory.Exists(_paths.ConvertedDir)) Directory.CreateDirectory(_paths.ConvertedDir);
+            string finalPath = Path.Combine(_paths.ConvertedDir, StorageManager.SanitizeDisplayName(desiredOutName));
+            string fullSrc = Path.GetFullPath(sourcePath);
+            string fullOut = Path.GetFullPath(finalPath);
+
+            ConversionResult result = null;
+            var t = new Thread(() =>
+            {
+                object excelApp = null;
+                object workbooks = null;
+                object wb = null;
+                try
+                {
+                    Type excelType = Type.GetTypeFromProgID("Excel.Application");
+                    if (excelType == null)
+                    {
+                        result = Fail("Microsoft Excel COM automation is unavailable.");
+                        return;
+                    }
+                    excelApp = Activator.CreateInstance(excelType);
+                    excelType.InvokeMember("Visible", BindingFlags.SetProperty, null, excelApp, new object[] { false });
+                    excelType.InvokeMember("DisplayAlerts", BindingFlags.SetProperty, null, excelApp, new object[] { false });
+                    try { excelType.InvokeMember("ScreenUpdating", BindingFlags.SetProperty, null, excelApp, new object[] { false }); } catch { }
+                    try { excelType.InvokeMember("EnableEvents", BindingFlags.SetProperty, null, excelApp, new object[] { false }); } catch { }
+                    try { excelType.InvokeMember("AskToUpdateLinks", BindingFlags.SetProperty, null, excelApp, new object[] { false }); } catch { }
+                    try { excelType.InvokeMember("AutomationSecurity", BindingFlags.SetProperty, null, excelApp, new object[] { 3 }); } catch { }
+
+                    workbooks = excelType.InvokeMember("Workbooks", BindingFlags.GetProperty, null, excelApp, null);
+                    object m = Type.Missing;
+                    wb = workbooks.GetType().InvokeMember("Open", BindingFlags.InvokeMethod, null, workbooks,
+                        new object[] { fullSrc, 0, true, m, m, m, true });
+
+                    // Fit wide spreadsheets cleanly to 1 page wide per sheet so columns never slice awkwardly when printing
+                    try
+                    {
+                        object sheets = wb.GetType().InvokeMember("Worksheets", BindingFlags.GetProperty, null, wb, null);
+                        if (sheets is IEnumerable)
+                        {
+                            foreach (object ws in (IEnumerable)sheets)
+                            {
+                                if (ws == null) continue;
+                                try
+                                {
+                                    object ps = ws.GetType().InvokeMember("PageSetup", BindingFlags.GetProperty, null, ws, null);
+                                    if (ps != null)
+                                    {
+                                        ps.GetType().InvokeMember("Zoom", BindingFlags.SetProperty, null, ps, new object[] { false });
+                                        ps.GetType().InvokeMember("FitToPagesWide", BindingFlags.SetProperty, null, ps, new object[] { 1 });
+                                        ps.GetType().InvokeMember("FitToPagesTall", BindingFlags.SetProperty, null, ps, new object[] { false });
+                                        Marshal.ReleaseComObject(ps);
+                                    }
+                                }
+                                catch { }
+                                finally { try { Marshal.ReleaseComObject(ws); } catch { } }
+                            }
+                        }
+                        if (sheets != null) try { Marshal.ReleaseComObject(sheets); } catch { }
+                    }
+                    catch { }
+
+                    // 0 = xlTypePDF, 0 = xlQualityStandard, true = IncludeDocProperties, false = IgnorePrintAreas
+                    wb.GetType().InvokeMember("ExportAsFixedFormat", BindingFlags.InvokeMethod, null, wb,
+                        new object[] { 0, fullOut, 0, true, false });
+                    wb.GetType().InvokeMember("Close", BindingFlags.InvokeMethod, null, wb, new object[] { false });
+
+                    if (!File.Exists(fullOut) || new FileInfo(fullOut).Length == 0)
+                    {
+                        result = Fail("Microsoft Excel did not produce a PDF.");
+                        return;
+                    }
+                    _logger.Info("Conversion", "Excel COM converted " + Path.GetFileName(fullSrc) + " -> " + Path.GetFileName(fullOut));
+                    result = new ConversionResult
+                    {
+                        Success = true,
+                        OutputPath = fullOut,
+                        OutputFilename = Path.GetFileName(fullOut),
+                        OutputSizeBytes = new FileInfo(fullOut).Length,
+                        EngineUsed = "Microsoft Excel"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    string msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                    _logger.Error("Conversion", "Excel COM error: " + msg);
+                    result = Fail("Excel PDF conversion failed: " + msg);
+                }
+                finally
+                {
+                    try { if (wb != null) { wb.GetType().InvokeMember("Close", BindingFlags.InvokeMethod, null, wb, new object[] { false }); Marshal.ReleaseComObject(wb); } } catch { }
+                    try { if (workbooks != null) Marshal.ReleaseComObject(workbooks); } catch { }
+                    try
+                    {
+                        if (excelApp != null)
+                        {
+                            excelApp.GetType().InvokeMember("Quit", BindingFlags.InvokeMethod, null, excelApp, null);
+                            Marshal.ReleaseComObject(excelApp);
+                        }
+                    }
+                    catch { }
+                }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            if (!t.Join(45000))
+            {
+                return Fail("Microsoft Excel PDF conversion timed out after 45 seconds.");
+            }
+            return result ?? Fail("Unknown Excel conversion error.");
+        }
+
+        private ConversionResult ConvertPowerPointWithCom(string sourcePath, string desiredOutName)
+        {
+            if (!Directory.Exists(_paths.ConvertedDir)) Directory.CreateDirectory(_paths.ConvertedDir);
+            string finalPath = Path.Combine(_paths.ConvertedDir, StorageManager.SanitizeDisplayName(desiredOutName));
+            string fullSrc = Path.GetFullPath(sourcePath);
+            string fullOut = Path.GetFullPath(finalPath);
+
+            ConversionResult result = null;
+            var t = new Thread(() =>
+            {
+                object ppApp = null;
+                object presentations = null;
+                object pres = null;
+                try
+                {
+                    Type ppType = Type.GetTypeFromProgID("PowerPoint.Application");
+                    if (ppType == null)
+                    {
+                        result = Fail("Microsoft PowerPoint COM automation is unavailable.");
+                        return;
+                    }
+                    ppApp = Activator.CreateInstance(ppType);
+                    try { ppType.InvokeMember("DisplayAlerts", BindingFlags.SetProperty, null, ppApp, new object[] { 1 }); } catch { }
+                    presentations = ppType.InvokeMember("Presentations", BindingFlags.GetProperty, null, ppApp, null);
+                    // ReadOnly=-1 (msoTrue), Untitled=0, WithWindow=0 (msoFalse)
+                    pres = presentations.GetType().InvokeMember("Open", BindingFlags.InvokeMethod, null, presentations,
+                        new object[] { fullSrc, -1, 0, 0 });
+                    // 32 = ppSaveAsPDF
+                    pres.GetType().InvokeMember("SaveAs", BindingFlags.InvokeMethod, null, pres, new object[] { fullOut, 32 });
+                    pres.GetType().InvokeMember("Close", BindingFlags.InvokeMethod, null, pres, null);
+
+                    if (!File.Exists(fullOut) || new FileInfo(fullOut).Length == 0)
+                    {
+                        result = Fail("Microsoft PowerPoint did not produce a PDF.");
+                        return;
+                    }
+                    _logger.Info("Conversion", "PowerPoint COM converted " + Path.GetFileName(fullSrc) + " -> " + Path.GetFileName(fullOut));
+                    result = new ConversionResult
+                    {
+                        Success = true,
+                        OutputPath = fullOut,
+                        OutputFilename = Path.GetFileName(fullOut),
+                        OutputSizeBytes = new FileInfo(fullOut).Length,
+                        EngineUsed = "Microsoft PowerPoint"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    string msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                    _logger.Error("Conversion", "PowerPoint COM error: " + msg);
+                    result = Fail("PowerPoint PDF conversion failed: " + msg);
+                }
+                finally
+                {
+                    try { if (pres != null) { pres.GetType().InvokeMember("Close", BindingFlags.InvokeMethod, null, pres, null); Marshal.ReleaseComObject(pres); } } catch { }
+                    try { if (presentations != null) Marshal.ReleaseComObject(presentations); } catch { }
+                    try
+                    {
+                        if (ppApp != null)
+                        {
+                            ppApp.GetType().InvokeMember("Quit", BindingFlags.InvokeMethod, null, ppApp, null);
+                            Marshal.ReleaseComObject(ppApp);
+                        }
+                    }
+                    catch { }
+                }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            if (!t.Join(45000))
+            {
+                return Fail("Microsoft PowerPoint PDF conversion timed out after 45 seconds.");
+            }
+            return result ?? Fail("Unknown PowerPoint conversion error.");
+        }
+
+        private sealed class NativeSheetData
+        {
+            public string Name;
+            public List<List<string>> Rows = new List<List<string>>();
+        }
+
+        /// <summary>
+        /// Zero-dependency pure .NET 4.8 .xlsx (OpenXML) and .csv/.tsv -> paginated table PDF fallback.
+        /// Ensures spreadsheets convert cleanly even on laptops without Microsoft Excel or LibreOffice.
+        /// </summary>
+        public ConversionResult ConvertSpreadsheetNativeToPdf(string sourcePath, string ext, string desiredOutName)
+        {
+            try
+            {
+                List<NativeSheetData> sheets = string.Equals(ext, ".csv", StringComparison.OrdinalIgnoreCase)
+                    ? ParseCsvFile(sourcePath)
+                    : ParseXlsxFile(sourcePath);
+
+                if (sheets.Count == 0)
+                    sheets.Add(new NativeSheetData { Name = Path.GetFileNameWithoutExtension(sourcePath), Rows = new List<List<string>> { new List<string> { "(Empty Spreadsheet)" } } });
+
+                if (!Directory.Exists(_paths.ConvertedDir)) Directory.CreateDirectory(_paths.ConvertedDir);
+                string finalPath = Path.Combine(_paths.ConvertedDir, StorageManager.SanitizeDisplayName(desiredOutName));
+
+                int maxColsOverall = 1;
+                foreach (var sh in sheets)
+                {
+                    foreach (var r in sh.Rows)
+                    {
+                        if (r.Count > maxColsOverall) maxColsOverall = r.Count;
+                    }
+                }
+                bool landscape = maxColsOverall > 4;
+                int imgW = landscape ? 2338 : 1654; // ~200 DPI A4
+                int imgH = landscape ? 1654 : 2338;
+                double pdfW = landscape ? 841.89 : 595.28;
+                double pdfH = landscape ? 595.28 : 841.89;
+
+                var pages = new List<ImagePageData>();
+                var jpegEnc = GetJpegEncoder();
+
+                foreach (var sh in sheets)
+                {
+                    if (sh.Rows.Count == 0)
+                        sh.Rows.Add(new List<string> { "(Empty Sheet)" });
+
+                    int colCount = 1;
+                    foreach (var r in sh.Rows) if (r.Count > colCount) colCount = r.Count;
+                    if (colCount > 24) colCount = 24;
+
+                    float margin = 64f;
+                    float tableW = imgW - margin * 2f;
+                    float[] colWidths = ComputeColumnWidths(sh.Rows, colCount, tableW);
+
+                    var fontTitle = new Font("Segoe UI", 22f, FontStyle.Bold, GraphicsUnit.Pixel);
+                    var fontHeader = new Font("Segoe UI", 16f, FontStyle.Bold, GraphicsUnit.Pixel);
+                    var fontCell = new Font("Segoe UI", 15f, FontStyle.Regular, GraphicsUnit.Pixel);
+                    var fontMeta = new Font("Segoe UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+
+                    try
+                    {
+                        int rowCursor = 0;
+                        int sheetPage = 0;
+                        var headerRow = sh.Rows[0];
+
+                        while (rowCursor < sh.Rows.Count)
+                        {
+                            sheetPage++;
+                            using (var bmp = new Bitmap(imgW, imgH, PixelFormat.Format24bppRgb))
+                            using (var g = Graphics.FromImage(bmp))
+                            {
+                                g.Clear(Color.White);
+                                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+
+                                using (var navyBrush = new SolidBrush(Color.FromArgb(11, 37, 69)))
+                                using (var mutedBrush = new SolidBrush(Color.FromArgb(100, 116, 139)))
+                                using (var hdrBg = new SolidBrush(Color.FromArgb(232, 242, 255)))
+                                using (var altBg = new SolidBrush(Color.FromArgb(248, 250, 252)))
+                                using (var textBrush = new SolidBrush(Color.FromArgb(15, 23, 42)))
+                                using (var borderPen = new Pen(Color.FromArgb(203, 213, 225), 1.5f))
+                                using (var titlePen = new Pen(Color.FromArgb(0, 120, 255), 3f))
+                                {
+                                    g.DrawString(sh.Name ?? "Sheet", fontTitle, navyBrush, margin, 32f);
+                                    g.DrawLine(titlePen, margin, 68f, imgW - margin, 68f);
+
+                                    float y = 84f;
+                                    float maxBottom = imgH - 56f;
+
+                                    // Draw header row on page 1 and repeat on continuation pages if >1 row
+                                    bool drawHdr = (rowCursor == 0) || (sh.Rows.Count > 1);
+                                    if (drawHdr)
+                                    {
+                                        float hh = MeasureRowHeight(g, headerRow, colCount, colWidths, fontHeader);
+                                        if (y + hh <= maxBottom)
+                                        {
+                                            DrawTableRow(g, headerRow, colCount, colWidths, margin, y, hh, fontHeader, hdrBg, navyBrush, borderPen);
+                                            y += hh;
+                                            if (rowCursor == 0) rowCursor = 1;
+                                        }
+                                    }
+
+                                    while (rowCursor < sh.Rows.Count)
+                                    {
+                                        var row = sh.Rows[rowCursor];
+                                        float rh = MeasureRowHeight(g, row, colCount, colWidths, fontCell);
+                                        if (y + rh > maxBottom && rowCursor > 1) break;
+                                        if (y + rh > maxBottom) rh = Math.Max(28f, maxBottom - y);
+                                        Brush bg = (rowCursor % 2 == 0) ? altBg : Brushes.White;
+                                        DrawTableRow(g, row, colCount, colWidths, margin, y, rh, fontCell, bg, textBrush, borderPen);
+                                        y += rh;
+                                        rowCursor++;
+                                        if (y >= maxBottom - 20f) break;
+                                    }
+
+                                    g.DrawString((sh.Name ?? "Sheet") + " • Page " + sheetPage.ToString(CultureInfo.InvariantCulture),
+                                        fontMeta, mutedBrush, margin, imgH - 38f);
+                                }
+
+                                using (var ms = new MemoryStream())
+                                {
+                                    if (jpegEnc != null)
+                                    {
+                                        using (var ep = new EncoderParameters(1))
+                                        {
+                                            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 92L);
+                                            bmp.Save(ms, jpegEnc, ep);
+                                        }
+                                    }
+                                    else bmp.Save(ms, ImageFormat.Jpeg);
+
+                                    pages.Add(new ImagePageData
+                                    {
+                                        PixelWidth = bmp.Width,
+                                        PixelHeight = bmp.Height,
+                                        JpegBytes = ms.ToArray()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        fontTitle.Dispose();
+                        fontHeader.Dispose();
+                        fontCell.Dispose();
+                        fontMeta.Dispose();
+                    }
+                }
+
+                WriteMultiPageImagePdf(finalPath, pages, pdfW, pdfH);
+                _logger.Info("Conversion", "Built-in Spreadsheet renderer converted " + Path.GetFileName(sourcePath) + " -> " + Path.GetFileName(finalPath));
+                return new ConversionResult
+                {
+                    Success = true,
+                    OutputPath = finalPath,
+                    OutputFilename = Path.GetFileName(finalPath),
+                    OutputSizeBytes = new FileInfo(finalPath).Length,
+                    EngineUsed = "Built-in Spreadsheet PDF Renderer"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("Conversion", "Native spreadsheet PDF failed: " + ex.Message);
+                return Fail("Spreadsheet PDF conversion failed: " + ex.Message);
+            }
+        }
+
+        private static float[] ComputeColumnWidths(List<List<string>> rows, int colCount, float totalW)
+        {
+            float[] weights = new float[colCount];
+            for (int c = 0; c < colCount; c++) weights[c] = 8f;
+            int limit = Math.Min(rows.Count, 80);
+            for (int r = 0; r < limit; r++)
+            {
+                var row = rows[r];
+                for (int c = 0; c < Math.Min(colCount, row.Count); c++)
+                {
+                    int len = (row[c] ?? "").Trim().Length;
+                    float w = Math.Max(6f, Math.Min(42f, len + 3f));
+                    if (w > weights[c]) weights[c] = w;
+                }
+            }
+            float sum = 0f;
+            for (int c = 0; c < colCount; c++) sum += weights[c];
+            float[] widths = new float[colCount];
+            for (int c = 0; c < colCount; c++) widths[c] = totalW * (weights[c] / Math.Max(1f, sum));
+            return widths;
+        }
+
+        private static float MeasureRowHeight(Graphics g, List<string> row, int colCount, float[] colWidths, Font font)
+        {
+            float maxH = 30f;
+            for (int c = 0; c < colCount; c++)
+            {
+                string val = c < row.Count ? (row[c] ?? "") : "";
+                if (string.IsNullOrEmpty(val)) continue;
+                float availW = Math.Max(12f, colWidths[c] - 12f);
+                SizeF sz = g.MeasureString(val, font, (int)availW);
+                float h = sz.Height + 12f;
+                if (h > maxH) maxH = h;
+            }
+            return Math.Min(220f, maxH);
+        }
+
+        private static void DrawTableRow(Graphics g, List<string> row, int colCount, float[] colWidths, float x0, float y, float h, Font font, Brush bgBrush, Brush textBrush, Pen borderPen)
+        {
+            float cx = x0;
+            for (int c = 0; c < colCount; c++)
+            {
+                float cw = colWidths[c];
+                g.FillRectangle(bgBrush, cx, y, cw, h);
+                g.DrawRectangle(borderPen, cx, y, cw, h);
+                string val = c < row.Count ? (row[c] ?? "") : "";
+                if (!string.IsNullOrEmpty(val))
+                {
+                    var rect = new RectangleF(cx + 6f, y + 5f, Math.Max(6f, cw - 12f), Math.Max(10f, h - 8f));
+                    g.DrawString(val, font, textBrush, rect);
+                }
+                cx += cw;
+            }
+        }
+
+        private static List<NativeSheetData> ParseCsvFile(string path)
+        {
+            var sh = new NativeSheetData { Name = Path.GetFileNameWithoutExtension(path) };
+            string raw = File.ReadAllText(path, Encoding.UTF8);
+            var curRow = new List<string>();
+            var cell = new StringBuilder();
+            bool inQuotes = false;
+            for (int i = 0; i < raw.Length; i++)
+            {
+                char ch = raw[i];
+                if (inQuotes)
+                {
+                    if (ch == '"' && i + 1 < raw.Length && raw[i + 1] == '"') { cell.Append('"'); i++; }
+                    else if (ch == '"') inQuotes = false;
+                    else cell.Append(ch);
+                }
+                else
+                {
+                    if (ch == '"') inQuotes = true;
+                    else if (ch == ',') { curRow.Add(cell.ToString()); cell.Length = 0; }
+                    else if (ch == '\r' || ch == '\n')
+                    {
+                        if (ch == '\r' && i + 1 < raw.Length && raw[i + 1] == '\n') i++;
+                        curRow.Add(cell.ToString()); cell.Length = 0;
+                        sh.Rows.Add(curRow);
+                        curRow = new List<string>();
+                    }
+                    else cell.Append(ch);
+                }
+            }
+            if (cell.Length > 0 || curRow.Count > 0)
+            {
+                curRow.Add(cell.ToString());
+                sh.Rows.Add(curRow);
+            }
+            var list = new List<NativeSheetData>();
+            list.Add(sh);
+            return list;
+        }
+
+        private static List<NativeSheetData> ParseXlsxFile(string path)
+        {
+            var result = new List<NativeSheetData>();
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Read))
+            {
+                var sharedStrings = new List<string>();
+                var ssEntry = zip.GetEntry("xl/sharedStrings.xml");
+                if (ssEntry != null)
+                {
+                    using (var s = ssEntry.Open())
+                    {
+                        var xdoc = XDocument.Load(s);
+                        XNamespace ns = xdoc.Root != null ? xdoc.Root.Name.Namespace : "";
+                        foreach (var si in xdoc.Descendants(ns + "si"))
+                        {
+                            var sb = new StringBuilder();
+                            foreach (var t in si.Descendants(ns + "t")) sb.Append(t.Value);
+                            sharedStrings.Add(sb.ToString());
+                        }
+                    }
+                }
+
+                var sheetTargets = new List<KeyValuePair<string, string>>();
+                var relMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var relsEntry = zip.GetEntry("xl/_rels/workbook.xml.rels");
+                if (relsEntry != null)
+                {
+                    using (var s = relsEntry.Open())
+                    {
+                        var rdoc = XDocument.Load(s);
+                        foreach (var rel in rdoc.Descendants())
+                        {
+                            if (rel.Name.LocalName != "Relationship") continue;
+                            var idAttr = rel.Attribute("Id");
+                            var tgtAttr = rel.Attribute("Target");
+                            if (idAttr != null && tgtAttr != null)
+                            {
+                                string target = tgtAttr.Value.Replace('\\', '/').TrimStart('/');
+                                if (!target.StartsWith("xl/", StringComparison.OrdinalIgnoreCase)) target = "xl/" + target;
+                                relMap[idAttr.Value] = target;
+                            }
+                        }
+                    }
+                }
+
+                var wbEntry = zip.GetEntry("xl/workbook.xml");
+                if (wbEntry != null)
+                {
+                    using (var s = wbEntry.Open())
+                    {
+                        var wdoc = XDocument.Load(s);
+                        int idx = 1;
+                        foreach (var shEl in wdoc.Descendants())
+                        {
+                            if (shEl.Name.LocalName != "sheet") continue;
+                            string name = shEl.Attribute("name") != null ? shEl.Attribute("name").Value : ("Sheet" + idx);
+                            XAttribute ridAttr = null;
+                            foreach (var a in shEl.Attributes())
+                            {
+                                if (a.Name.LocalName == "id") { ridAttr = a; break; }
+                            }
+                            string target = (ridAttr != null && relMap.ContainsKey(ridAttr.Value))
+                                ? relMap[ridAttr.Value]
+                                : ("xl/worksheets/sheet" + idx.ToString(CultureInfo.InvariantCulture) + ".xml");
+                            sheetTargets.Add(new KeyValuePair<string, string>(name, target));
+                            idx++;
+                        }
+                    }
+                }
+
+                if (sheetTargets.Count == 0)
+                {
+                    foreach (var e in zip.Entries)
+                    {
+                        if (e.FullName.StartsWith("xl/worksheets/sheet", StringComparison.OrdinalIgnoreCase) && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                            sheetTargets.Add(new KeyValuePair<string, string>(Path.GetFileNameWithoutExtension(e.Name), e.FullName));
+                    }
+                }
+
+                foreach (var pair in sheetTargets)
+                {
+                    var entry = zip.GetEntry(pair.Value);
+                    if (entry == null) continue;
+                    var shData = new NativeSheetData { Name = pair.Key };
+                    using (var s = entry.Open())
+                    {
+                        var sdoc = XDocument.Load(s);
+                        foreach (var rowEl in sdoc.Descendants())
+                        {
+                            if (rowEl.Name.LocalName != "row") continue;
+                            var cellsMap = new Dictionary<int, string>();
+                            int maxCol = -1;
+                            int fallbackCol = 0;
+                            foreach (var cEl in rowEl.Elements())
+                            {
+                                if (cEl.Name.LocalName != "c") continue;
+                                var rAttr = cEl.Attribute("r");
+                                int colIdx = rAttr != null ? ParseExcelColumnIndex(rAttr.Value, fallbackCol) : fallbackCol;
+                                fallbackCol = colIdx + 1;
+                                string tType = cEl.Attribute("t") != null ? cEl.Attribute("t").Value : "";
+                                string val = "";
+                                if (tType == "inlineStr")
+                                {
+                                    var isEl = cEl.Elements().FirstOrDefault(x => x.Name.LocalName == "is");
+                                    if (isEl != null)
+                                    {
+                                        var sb = new StringBuilder();
+                                        foreach (var te in isEl.Descendants()) if (te.Name.LocalName == "t") sb.Append(te.Value);
+                                        val = sb.ToString();
+                                    }
+                                }
+                                else
+                                {
+                                    var vEl = cEl.Elements().FirstOrDefault(x => x.Name.LocalName == "v");
+                                    string rawV = vEl != null ? vEl.Value : "";
+                                    if (tType == "s")
+                                    {
+                                        int si;
+                                        if (int.TryParse(rawV, out si) && si >= 0 && si < sharedStrings.Count)
+                                            val = sharedStrings[si];
+                                    }
+                                    else if (tType == "b")
+                                    {
+                                        val = rawV == "1" ? "TRUE" : "FALSE";
+                                    }
+                                    else
+                                    {
+                                        val = rawV;
+                                    }
+                                }
+                                cellsMap[colIdx] = val;
+                                if (colIdx > maxCol) maxCol = colIdx;
+                            }
+                            if (maxCol >= 0)
+                            {
+                                var rowList = new List<string>(maxCol + 1);
+                                bool anyNonEmpty = false;
+                                for (int ci = 0; ci <= maxCol; ci++)
+                                {
+                                    string cv = cellsMap.ContainsKey(ci) ? cellsMap[ci] : "";
+                                    if (!string.IsNullOrWhiteSpace(cv)) anyNonEmpty = true;
+                                    rowList.Add(cv);
+                                }
+                                if (anyNonEmpty) shData.Rows.Add(rowList);
+                            }
+                        }
+                    }
+                    result.Add(shData);
+                }
+            }
+            return result;
+        }
+
+        private static int ParseExcelColumnIndex(string cellRef, int fallback)
+        {
+            if (string.IsNullOrWhiteSpace(cellRef)) return fallback;
+            int col = 0;
+            bool hasLetters = false;
+            for (int i = 0; i < cellRef.Length; i++)
+            {
+                char ch = char.ToUpperInvariant(cellRef[i]);
+                if (ch >= 'A' && ch <= 'Z')
+                {
+                    hasLetters = true;
+                    col = col * 26 + (ch - 'A' + 1);
+                }
+                else break;
+            }
+            return hasLetters ? (col - 1) : fallback;
         }
 
         /// <summary>

@@ -681,10 +681,29 @@ namespace ScanDrop.Native
                             if (pubLocalCode != 404)
                                 throw new Exception("Public receiver MUST block /api/local-files with 404, got " + pubLocalCode);
                             Console.WriteLine("  [PASS] 21. Local PC Downloads browser API, traversal block & public isolation verified");
+
+                            // Test 22: Native XLSX & CSV -> PDF renderer (zero-dependency fallback when LibreOffice/Excel absent)
+                            string sampleXlsx = Path.Combine(paths.TempDir, "sample_sheet.xlsx");
+                            CreateSampleXlsx(sampleXlsx);
+                            var convEngine = new ConversionEngine(paths, logger);
+                            var xlsxNativeRes = convEngine.ConvertSpreadsheetNativeToPdf(sampleXlsx, ".xlsx", "sample_sheet_native.pdf");
+                            if (!xlsxNativeRes.Success || !File.Exists(xlsxNativeRes.OutputPath) || xlsxNativeRes.OutputSizeBytes < 1000)
+                                throw new Exception("Native .xlsx -> PDF failed: " + xlsxNativeRes.ErrorMessage);
+                            byte[] xlsxPdfHead = new byte[5];
+                            using (var rfs = File.OpenRead(xlsxNativeRes.OutputPath)) rfs.Read(xlsxPdfHead, 0, 5);
+                            if (Encoding.ASCII.GetString(xlsxPdfHead) != "%PDF-")
+                                throw new Exception("Native .xlsx output is not a valid PDF header!");
+
+                            string sampleCsv = Path.Combine(paths.TempDir, "students.csv");
+                            File.WriteAllText(sampleCsv, "Roll No,Name,Course,Marks\r\n101,Diksha Bisht,BCA,92\r\n102,\"Sharma, Rahul\",MCA,88\r\n", Encoding.UTF8);
+                            var csvNativeRes = convEngine.ConvertSpreadsheetNativeToPdf(sampleCsv, ".csv", "students_native.pdf");
+                            if (!csvNativeRes.Success || !File.Exists(csvNativeRes.OutputPath) || csvNativeRes.OutputSizeBytes < 1000)
+                                throw new Exception("Native .csv -> PDF failed: " + csvNativeRes.ErrorMessage);
+                            Console.WriteLine("  [PASS] 22. Built-in zero-dependency XLSX & CSV -> PDF table renderer verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 21 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + LOCAL-PC SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 22 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + EXCEL SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)
@@ -707,6 +726,50 @@ namespace ScanDrop.Native
                 g.Clear(Color.CornflowerBlue);
                 bmp.Save(ms, ImageFormat.Png);
                 return ms.ToArray();
+            }
+        }
+
+        private static void CreateSampleXlsx(string outPath)
+        {
+            using (var fs = new FileStream(outPath, FileMode.Create, FileAccess.Write))
+            using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                WriteZipText(zip, "[Content_Types].xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                    "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+                    "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>" +
+                    "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" +
+                    "<Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>" +
+                    "</Types>");
+                WriteZipText(zip, "_rels/.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
+                    "</Relationships>");
+                WriteZipText(zip, "xl/_rels/workbook.xml.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>" +
+                    "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>" +
+                    "</Relationships>");
+                WriteZipText(zip, "xl/workbook.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
+                    "<sheets><sheet name=\"Fee Sheet\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+                WriteZipText(zip, "xl/sharedStrings.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"4\" uniqueCount=\"4\">" +
+                    "<si><t>Student Name</t></si><si><t>Roll No</t></si><si><t>Amount</t></si><si><t>Diksha Bisht</t></si>" +
+                    "</sst>");
+                WriteZipText(zip, "xl/worksheets/sheet1.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+                    "<sheetData>" +
+                    "<row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c><c r=\"C1\" t=\"s\"><v>2</v></c></row>" +
+                    "<row r=\"2\"><c r=\"A2\" t=\"s\"><v>3</v></c><c r=\"B2\"><v>2106044</v></c><c r=\"C2\"><v>1500</v></c></row>" +
+                    "</sheetData></worksheet>");
             }
         }
 

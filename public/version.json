@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.5",
-    "releaseDate":  "2026-11-25",
-    "releaseNotes":  "Fixed File Manager flex-shrink clipping so Local PC Storage \u0026 Cleanup, Local PC User Downloads \u0026 Folders, and Converted PDF \u0026 Word (.docx) Outputs all display at full height with dedicated scrollable file lists, item count badges, and instant search filters.",
-    "sha256":  "cc40dfd94751d67f862fe324bec29ea03364e2c55ec557bb31958f0e7ab6b434",
+    "version":  "4.9.6",
+    "releaseDate":  "2026-11-26",
+    "releaseNotes":  "Fixed Excel (.xlsx/.xls/.csv) and PowerPoint (.pptx/.ppt) conversion, preview, Pages, Print, and Merge: adds Microsoft Excel \u0026 PowerPoint COM automation plus a zero-dependency built-in .xlsx/.csv OpenXML-to-PDF table renderer fallback so Excel files work on every laptop.",
+    "sha256":  "fe3ad30483d019b6f44cff089a2fc8eaca57f3e7c8bdf589d6d2a3097db8637d",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

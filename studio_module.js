@@ -615,10 +615,12 @@ const studioJs = `
         openPdfStudio(fileId, fileName, activeUrl, submissionId, origUrl);
       } else if (e === '.docx' || e === '.doc') {
         openDocxStudio(fileId, fileName);
+      } else if (['.xlsx', '.xls', '.csv', '.pptx', '.ppt'].includes(e)) {
+        openFileNative(fileId);
       } else if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(e)) {
         openImageCanvas(fileId, fileName, submissionId);
       } else {
-        alert('Direct editing supports PDF, DOCX/DOC, and Images. Use "Open" for ' + e + ' files.');
+        openFileNative(fileId);
       }
     }
 
@@ -2421,7 +2423,7 @@ const studioJs = `
     function openMergeModal(submissionId) {
       const sub = (cloudState.submissions || []).find(s => s.id === submissionId || s.receiptCode === submissionId);
       if (!sub) return;
-      const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
+      const printableExts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
       const prevRanges = new Map((mergeQueue.submissionId === sub.id ? mergeQueue.items : []).map(i => [i.file.id, i.pageRange || '']));
       mergeQueue.submissionId = sub.id;
       mergeQueue.receiptCode = sub.receiptCode || sub.id;
@@ -3316,7 +3318,7 @@ const studioJs = `
           '</div>' +
           '<div class="tray-chip-actions">' +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="previewUrl(\\'' + esc(it.url) + '\\',\\'' + safeName + '\\',\\'' + esc(it.fileExtension) + '\\',null)" title="Preview">👁</button>' +
-            (['.pdf', '.docx', '.doc'].includes((it.fileExtension || '').toLowerCase()) ? '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="openTrayPageManager(\\'' + safeId + '\\')" title="Pick / Manage Pages">📑</button>' : '') +
+            (['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt'].includes((it.fileExtension || '').toLowerCase()) ? '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="openTrayPageManager(\\'' + safeId + '\\')" title="Pick / Manage Pages">📑</button>' : '') +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="openTrayFileNative(\\'' + safeId + '\\')" title="Open in Windows App">↗</button>' +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="directPrint(\\'' + esc(it.url) + '\\',\\'' + safeName + '\\')" title="Print">🖨</button>' +
             '<button class="mini-btn" style="padding:2px 6px;font-size:10px;" onclick="downloadFile(null,\\'' + safeName + '\\',\\'' + esc(it.url) + '\\')" title="Download">⬇</button>' +

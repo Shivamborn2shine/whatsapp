@@ -232,6 +232,7 @@ module.exports = `<!DOCTYPE html>
     .ft-pdf { background: linear-gradient(135deg, #F43F5E, #DC2626); }
     .ft-img { background: linear-gradient(135deg, #10B981, #059669); }
     .ft-doc { background: linear-gradient(135deg, #218BFF, #0060D1); }
+    .ft-xls { background: linear-gradient(135deg, #16A34A, #15803D); }
     .ft-other { background: #64748b; }
 
     .field-input { width: 100%; padding: 9px 11px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font-size: 13px; }
@@ -456,8 +457,9 @@ ${studioHtml}
     function getFileBadge(ext) {
       const e = (ext || '').toLowerCase();
       if (e === '.pdf') return ['ft-pdf', 'PDF'];
-      if (['.jpg', '.jpeg', '.png', '.webp', '.bmp'].includes(e)) return ['ft-img', e.replace('.', '').toUpperCase()];
-      if (['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt'].includes(e)) return ['ft-doc', e.replace('.', '').toUpperCase()];
+      if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(e)) return ['ft-img', e.replace('.', '').toUpperCase()];
+      if (['.xls', '.xlsx', '.csv'].includes(e)) return ['ft-xls', e.replace('.', '').toUpperCase()];
+      if (['.doc', '.docx', '.ppt', '.pptx', '.txt', '.rtf'].includes(e)) return ['ft-doc', e.replace('.', '').toUpperCase()];
       return ['ft-other', (e || 'FILE').replace('.', '').toUpperCase().slice(0, 4)];
     }
 
@@ -744,26 +746,56 @@ ${studioHtml}
       previewUrl(url, fileName, ext, fileId);
     }
 
-    function previewUrl(fileUrl, fileName, ext, fileId) {
+    async function previewUrl(fileUrl, fileName, ext, fileId) {
       const body = document.getElementById('previewBody');
       document.getElementById('previewTitle').textContent = fileName;
       const e = (ext || '').toLowerCase();
+      const officePreviewExts = ['.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt', '.rtf', '.txt'];
+      const openBtn = document.getElementById('previewOpenBtn');
+      openBtn.style.display = fileId ? 'inline-flex' : 'none';
+      if (fileId) openBtn.onclick = () => openFileNative(fileId);
+
       if (e === '.pdf') {
         body.innerHTML = '<iframe id="previewPdfFrame" src="' + fileUrl + '" style="width:100%;height:100%;border:none;"></iframe>';
-      } else if (['.jpg', '.jpeg', '.png', '.webp', '.bmp'].includes(e)) {
+        document.getElementById('previewPrintBtn').onclick = () => directPrint(fileUrl, fileName);
+        openModal('previewModal');
+      } else if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(e)) {
         body.innerHTML = '<img src="' + fileUrl + '" style="max-width:100%;max-height:100%;object-fit:contain;">';
+        document.getElementById('previewPrintBtn').onclick = () => directPrint(fileUrl, fileName);
+        openModal('previewModal');
+      } else if (fileId && officePreviewExts.includes(e)) {
+        body.innerHTML = '<div style="text-align:center;padding:36px;color:var(--muted);font-size:13px;">⏳ Converting <strong>' + esc(fileName) + '</strong> to live PDF preview...</div>';
+        document.getElementById('previewPrintBtn').onclick = () => openPrintModal(fileId, fileName, null, e);
+        openModal('previewModal');
+        try {
+          const prepRes = await fetch('/api/file/prepare-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId })
+          });
+          const prep = await prepRes.json();
+          if (prepRes.ok && prep.success && prep.url) {
+            body.innerHTML = '<iframe id="previewPdfFrame" src="' + prep.url + '?t=' + Date.now() + '" style="width:100%;height:100%;border:none;"></iframe>';
+            document.getElementById('previewPrintBtn').onclick = () => directPrint(prep.url, prep.filename || (fileName + '.pdf'));
+            return;
+          }
+          throw new Error(prep.error || 'Could not render preview');
+        } catch (err) {
+          body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">' +
+            '<p style="margin-bottom:14px;">Could not render inline preview for <strong>' + esc(fileName) + '</strong>: ' + esc(err.message) + '</p>' +
+            '<button class="btn" onclick="openFileNative(\\'' + esc(fileId) + '\\')">↗ Open in Default Windows App</button> ' +
+            '<button class="btn btn-outline" onclick="convertFileToPdfServer(\\'' + esc(fileId) + '\\')">📄 Convert to PDF</button>' +
+            '</div>';
+        }
       } else {
         body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">' +
           '<p style="margin-bottom:14px;">Browser preview is not available for <strong>' + esc(e) + '</strong> files.</p>' +
           (fileId ? '<button class="btn" onclick="openFileNative(\\'' + esc(fileId) + '\\')">↗ Open in Default Windows App</button> ' : '') +
           (fileId ? '<button class="btn btn-outline" onclick="convertFileToPdfServer(\\'' + esc(fileId) + '\\')">📄 Convert to PDF</button>' : '') +
           '</div>';
+        document.getElementById('previewPrintBtn').onclick = () => directPrint(fileUrl, fileName);
+        openModal('previewModal');
       }
-      document.getElementById('previewPrintBtn').onclick = () => directPrint(fileUrl, fileName);
-      const openBtn = document.getElementById('previewOpenBtn');
-      openBtn.style.display = fileId ? 'inline-flex' : 'none';
-      if (fileId) openBtn.onclick = () => openFileNative(fileId);
-      openModal('previewModal');
     }
 
     // 1-Click Direct Print — bypasses any extra modal step and opens system print dialog immediately!
@@ -807,8 +839,30 @@ ${studioHtml}
       }
     }
 
-    function openPrintModal(fileId, fileName, directUrl) {
-      directPrint(directUrl || ('/api/file?id=' + encodeURIComponent(fileId)), fileName);
+    async function openPrintModal(fileId, fileName, directUrl, ext) {
+      if (directUrl) {
+        directPrint(directUrl, fileName);
+        return;
+      }
+      const lower = ((ext || '') || (fileName || '')).toLowerCase();
+      const needsPdfPrep = ['.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt', '.rtf', '.txt'].some(x => lower.endsWith(x));
+      if (fileId && needsPdfPrep) {
+        if (typeof showToast === 'function') showToast('⏳ Preparing "' + fileName + '" PDF for printing...', null, null, 3500);
+        try {
+          const prepRes = await fetch('/api/file/prepare-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId })
+          });
+          const prep = await prepRes.json();
+          if (!prepRes.ok || !prep.success || !prep.url) throw new Error(prep.error || 'Could not prepare PDF');
+          directPrint(prep.url, prep.filename || (fileName + '.pdf'));
+        } catch (err) {
+          alert('Print preparation failed: ' + err.message);
+        }
+        return;
+      }
+      directPrint('/api/file?id=' + encodeURIComponent(fileId), fileName);
     }
 
     function downloadFile(fileId, fileName, directUrl) {
@@ -1079,7 +1133,10 @@ ${studioHtml}
             const fExt = (f.fileExtension || '').toLowerCase();
             const isPdf = fExt === '.pdf';
             const isWord = fExt === '.docx' || fExt === '.doc';
+            const isExcel = fExt === '.xlsx' || fExt === '.xls' || fExt === '.csv';
+            const isPpt = fExt === '.pptx' || fExt === '.ppt';
             const isImg = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'].includes(fExt);
+            const isOfficeDoc = isWord || isExcel || isPpt || fExt === '.rtf' || fExt === '.txt';
             const isEdited = f.conversionStatus === 'edited' && !!f.convertedUrl;
             return \`
               <div class="insp-file-card" draggable="true"
@@ -1106,19 +1163,25 @@ ${studioHtml}
                     ? \`<button class="mini-btn mini-btn-edit" onclick="convertPdfToWord('\${esc(f.id)}', '\${esc(f.originalName)}', this)" title="Convert PDF to editable Word (.docx) and download">📝 To Word</button>\`
                     : isWord
                       ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open directly in Microsoft Word">↗ Edit in Word</button>\`
-                      : isImg
-                        ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>\`
-                        : \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open file">↗ Open</button>\`}
-                  \${(isPdf || isWord)
+                      : isExcel
+                        ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open directly in Microsoft Excel">📊 Open Excel</button>\`
+                        : isPpt
+                          ? \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open in PowerPoint">📽️ Open PPT</button>\`
+                          : isImg
+                            ? \`<button class="mini-btn mini-btn-edit" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Resize &amp; arrange on A4 / 4x6 Print Canvas">🖼️ Canvas</button>\`
+                            : \`<button class="mini-btn mini-btn-edit" onclick="openFileNative('\${esc(f.id)}')" title="Open file">↗ Open</button>\`}
+                  \${(isPdf || isOfficeDoc)
                     ? \`<button class="mini-btn mini-btn-pages" onclick="openPageManager('\${esc(f.id)}', false)" title="Choose exact pages, reorder, rotate, duplicate or delete pages">📑 Pages</button>\`
                     : \`<button class="mini-btn mini-btn-pages" onclick="convertFileToPdfServer('\${esc(f.id)}')" title="Convert to PDF">📄 To PDF</button>\`}
                   \${isEdited
                     ? \`<button class="mini-btn" onclick="previewUrl('\${esc(f.convertedUrl)}', '\${esc(f.originalName)} (Edited)', '.pdf', '\${esc(f.id)}')">👁 Preview</button>
                        <button class="mini-btn" onclick="directPrint('\${esc(f.convertedUrl)}', '\${esc(f.originalName)}.pdf')">🖨 Print</button>\`
                     : \`<button class="mini-btn" onclick="previewFile('\${esc(f.id)}', '\${esc(f.originalName)}', '\${esc(f.fileExtension)}')">👁 Preview</button>
-                       <button class="mini-btn" onclick="openPrintModal('\${esc(f.id)}', '\${esc(f.originalName)}')">🖨 Print</button>\`}
+                       <button class="mini-btn" onclick="openPrintModal('\${esc(f.id)}', '\${esc(f.originalName)}', null, '\${esc(f.fileExtension)}')">🖨 Print</button>\`}
                   <button class="mini-btn" onclick="downloadFile('\${esc(f.id)}', '\${esc(f.originalName)}')" title="Download file">⬇ Save</button>
-                  <button class="mini-btn mini-btn-quick" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Quick Edit in Studio">✏️ Quick Edit</button>
+                  \${(isPdf || isWord || isImg)
+                    ? \`<button class="mini-btn mini-btn-quick" onclick="openSmartEditorById('\${esc(f.id)}', '\${esc(selectedSub.id)}')" title="Quick Edit in Studio">✏️ Quick Edit</button>\`
+                    : \`<button class="mini-btn mini-btn-quick" onclick="convertFileToPdfServer('\${esc(f.id)}')" title="Convert to PDF">📄 To PDF</button>\`}
                   <button class="mini-btn" onclick="renameFilePrompt('\${esc(f.id)}', '\${esc(f.originalName)}')" title="Rename file">🏷️ Rename</button>
                   <button class="mini-btn more-trigger-btn" id="more_btn_\${esc(f.id)}" onclick="toggleCardMore('\${esc(f.id)}', event)" title="More actions">⋯ More <span class="more-chevron-char">▾</span></button>
                 </div>
@@ -1130,7 +1193,7 @@ ${studioHtml}
                     <span class="card-more-item-left"><span class="card-more-item-icon">📁</span><span>Open With</span></span>
                     <span class="card-more-chevron">›</span>
                   </button>
-                  \${isWord ? \`<button class="card-more-item" onclick="convertFileToPdfServer('\${esc(f.id)}')">
+                  \${isOfficeDoc ? \`<button class="card-more-item" onclick="convertFileToPdfServer('\${esc(f.id)}')">
                     <span class="card-more-item-left"><span class="card-more-item-icon">📄</span><span>Convert to PDF</span></span>
                   </button>\` : ''}
                   \${isEdited ? \`<button class="card-more-item" style="color:#FBBF24;" onclick="fetch('/api/file/reset-edited',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:'\${esc(f.id)}'})}).then(()=>{fetchCloudState(true);showToast('↩ Reverted to original file');})">
@@ -1170,7 +1233,7 @@ ${studioHtml}
 
           const isArchivedSub = (selectedSub.status || '').toLowerCase() === 'archived';
           const remHrs = Math.max(0, (new Date(selectedSub.expiresAt).getTime() - Date.now()) / 3600000).toFixed(1);
-          const printableExts = ['.pdf', '.docx', '.doc', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
+          const printableExts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt', '.rtf', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'];
           const printableCount = (selectedSub.files || []).filter(f => printableExts.includes((f.fileExtension || '').toLowerCase())).length;
           inspectorHtml = \`
             <aside class="inspector-panel">
