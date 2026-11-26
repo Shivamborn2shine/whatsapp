@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "4.9.6",
+    "version":  "4.9.7",
     "releaseDate":  "2026-11-26",
-    "releaseNotes":  "Fixed Excel (.xlsx/.xls/.csv) and PowerPoint (.pptx/.ppt) conversion, preview, Pages, Print, and Merge: adds Microsoft Excel \u0026 PowerPoint COM automation plus a zero-dependency built-in .xlsx/.csv OpenXML-to-PDF table renderer fallback so Excel files work on every laptop.",
-    "sha256":  "fe3ad30483d019b6f44cff089a2fc8eaca57f3e7c8bdf589d6d2a3097db8637d",
+    "releaseNotes":  "Added topbar \u0027+ Create Print\u0027 dialog for direct drag-and-drop/upload print orders without QR scanning, plus Local PC Storage sorting (Newest, Oldest, Largest, Smallest, A-Z, Z-A, File Type) with expandable File Type filtering (PDF, Word, Excel/CSV, PowerPoint, Images, Text, Archives, Folders).",
+    "sha256":  "74fe56564c2ba2ffe2e99f3d5128e7791a93ca240805c507e49d56bf8cbb1be4",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }

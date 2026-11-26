@@ -178,6 +178,9 @@ module.exports = `<!DOCTYPE html>
     .btn-undo-gold { background: rgba(255, 193, 7, 0.18); color: #8A5A00; border: 1px solid rgba(255, 193, 7, 0.55); box-shadow: none; border-radius: 999px; padding: 6px 12px; font-size: 11.5px; }
     body.dark .btn-undo-gold { color: #FFD54F; background: rgba(255, 193, 7, 0.15); }
     .btn-undo-gold:hover { background: #FFC107; color: #0B2545; }
+    .btn-create-print { background: linear-gradient(135deg, #16a34a 0%, #059669 100%); color: #fff; border: none; border-radius: 999px; padding: 9px 18px; font-size: 13px; font-weight: 800; letter-spacing: -0.01em; box-shadow: 0 4px 14px rgba(22, 163, 74, 0.34); }
+    .btn-create-print:hover { background: linear-gradient(135deg, #15803d 0%, #047857 100%); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(22, 163, 74, 0.42); }
+    body.dark .btn-create-print { background: linear-gradient(135deg, #22c55e 0%, #10b981 100%); color: #052e16; box-shadow: 0 4px 14px rgba(34, 197, 94, 0.30); }
     .btn-danger-soft { background: #FFF1F2; color: #DC2626; border: 1px solid #FECDD3; box-shadow: none; }
     body.dark .btn-danger-soft { background: rgba(220, 38, 38, 0.14); color: #F87171; border-color: rgba(220, 38, 38, 0.35); }
     .btn-danger-soft:hover { background: #FFE4E6; color: #B91C1C; }
@@ -302,6 +305,7 @@ ${studioCss}
       </div>
 
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button id="createPrintTopBtn" class="btn btn-create-print" onclick="openCreatePrintModal()" title="Create a new print order from PC files">🖨️ + Create Print</button>
         <button id="globalUndoBtn" class="btn btn-undo-gold" style="display:none;" onclick="performGlobalUndo()" title="Undo last action (Ctrl+Z)">↩ Undo</button>
         <span id="storageTunnelBadge" class="badge badge-blue" style="font-size:11px;padding:6px 11px;">Connecting...</span>
         <button id="pauseToggleBtn" class="btn btn-outline" onclick="togglePauseReceiving()" style="padding:6px 11px;font-size:11.5px;border-radius:999px;">⏸ Pause</button>
@@ -1373,7 +1377,7 @@ ${studioHtml}
               </div>
             </div>
 
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
               <div class="local-folder-tabs">
                 <button class="local-folder-pill active" data-folder="downloads" onclick="setLocalPcFolder('downloads')">📥 Downloads</button>
                 <button class="local-folder-pill" data-folder="desktop" onclick="setLocalPcFolder('desktop')">🖥️ Desktop</button>
@@ -1381,8 +1385,16 @@ ${studioHtml}
                 <button class="local-folder-pill" data-folder="pictures" onclick="setLocalPcFolder('pictures')">🖼️ Pictures</button>
                 <button id="localPcUpBtn" class="btn btn-outline" style="display:none;padding:5px 10px;font-size:11.5px;">← Up</button>
               </div>
-              <input id="localPcSearchInput" class="field-input" style="max-width:250px;padding:6px 10px;font-size:12px;" placeholder="Filter files in folder..." value="\${esc(typeof localPcState !== 'undefined' ? (localPcState.q || '') : '')}" oninput="onLocalPcSearchInput(this.value)">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div class="lpc-sort-wrap" id="localPcSortWrap">
+                  <button type="button" id="localPcSortBtn" class="lpc-sort-btn" onclick="toggleLocalPcSortMenu(event)">⇅ Sort: Newest First ▾</button>
+                  <div id="localPcSortMenu" class="lpc-sort-menu" onclick="event.stopPropagation()"></div>
+                </div>
+                <input id="localPcSearchInput" class="field-input" style="width:220px;max-width:100%;padding:6px 10px;font-size:12px;" placeholder="Filter files in folder..." value="\${esc(typeof localPcState !== 'undefined' ? (localPcState.q || '') : '')}" oninput="onLocalPcSearchInput(this.value)">
+              </div>
             </div>
+
+            <div id="localPcTypeQuickBar" class="lpc-type-quickbar" style="display:none;"></div>
 
             <div id="localPcBrowserBody" class="local-file-list">
               <div style="padding:26px;text-align:center;color:var(--muted);font-size:12.5px;">Loading local Downloads folder...</div>
@@ -1641,6 +1653,8 @@ ${studioJs}
         if (zoom && zoom.classList.contains('open')) { zoom.classList.remove('open'); return; }
         closePreview();
         closeStudioModal('mergePrintModal');
+        closeStudioModal('createPrintModal');
+        if (typeof closeLocalPcSortMenu === 'function') closeLocalPcSortMenu();
       }
     });
 

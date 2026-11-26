@@ -182,6 +182,36 @@ const studioCss = `
     .pm-icon-btn:hover { background:var(--primary-soft); color:var(--primary); border-color:rgba(0,120,255,0.35); }
     .pm-zoom-overlay { display:none; position:fixed; inset:0; background:rgba(11,37,69,0.82); backdrop-filter:blur(4px); z-index:320; align-items:center; justify-content:center; padding:20px; }
     .pm-zoom-overlay.open { display:flex; }
+
+    /* Create Print Order Modal */
+    .cp-modal-box { width:94vw; max-width:650px; max-height:90vh; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:18px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.35); }
+    .cp-dropzone { border:2.5px dashed rgba(22,163,74,0.5); background:rgba(22,163,74,0.06); border-radius:14px; padding:28px 20px; text-align:center; cursor:pointer; transition:all 0.16s; display:flex; flex-direction:column; align-items:center; gap:7px; }
+    .cp-dropzone:hover, .cp-dropzone.drag-active { border-color:#16a34a; background:rgba(22,163,74,0.14); box-shadow:0 0 0 4px rgba(22,163,74,0.14); transform:scale(1.005); }
+    body.dark .cp-dropzone { background:rgba(34,197,94,0.08); border-color:rgba(34,197,94,0.45); }
+    .cp-file-queue { max-height:210px; overflow-y:auto; display:flex; flex-direction:column; gap:7px; padding-right:2px; }
+    .cp-file-row { padding:8px 11px; border:1px solid var(--border); border-radius:10px; background:var(--surface-alt); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .cp-progress-bar { height:7px; background:var(--surface-alt); border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+    .cp-progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#16a34a,#22c55e); transition:width 0.15s; }
+
+    /* Local PC Storage Sort & Expandable File Type Filter */
+    .lpc-sort-wrap { position:relative; display:inline-flex; align-items:center; }
+    .lpc-sort-btn { border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:12px; font-weight:700; padding:6px 12px; border-radius:999px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; transition:all 0.14s; }
+    .lpc-sort-btn:hover, .lpc-sort-btn.filtered { border-color:#0078FF; color:#0078FF; background:var(--primary-soft); }
+    .lpc-sort-menu { position:absolute; top:calc(100% + 6px); right:0; width:275px; max-height:440px; overflow-y:auto; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:13px; padding:6px; box-shadow:0 16px 40px rgba(11,37,69,0.22); z-index:260; display:none; }
+    .lpc-sort-menu.open { display:block; animation:sdPopIn 0.12s ease-out; }
+    body.dark .lpc-sort-menu { box-shadow:0 18px 44px rgba(0,0,0,0.65); }
+    .lpc-sort-opt { width:100%; border:none; background:transparent; color:var(--text); padding:7px 10px; border-radius:8px; font-size:12px; font-weight:700; text-align:left; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; transition:background 0.12s, color 0.12s; }
+    .lpc-sort-opt:hover { background:var(--primary-soft); color:var(--primary); }
+    .lpc-sort-opt.active { background:#0078FF; color:#fff; }
+    .lpc-sort-divider { height:1px; background:var(--border); margin:6px 4px; }
+    .lpc-ft-header { font-size:10.5px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; padding:4px 10px 3px; }
+    .lpc-ft-sublist { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px 4px 2px; }
+    .lpc-ft-chip { border:1px solid var(--border); background:var(--surface-alt); color:var(--text-secondary); padding:5px 8px; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:4px; transition:all 0.12s; text-align:left; }
+    .lpc-ft-chip:hover { border-color:#0078FF; color:#0078FF; background:var(--primary-soft); }
+    .lpc-ft-chip.active { background:#0078FF; border-color:#0078FF; color:#fff; }
+    .lpc-ft-cnt { font-size:10px; opacity:0.8; font-weight:800; }
+    .lpc-type-quickbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; padding:7px 10px; border-radius:10px; background:var(--surface-alt); border:1px solid var(--border); }
+    .lpc-group-hdr { font-size:11px; font-weight:800; color:var(--primary); background:var(--primary-soft); border:1px solid rgba(0,120,255,0.22); border-radius:8px; padding:4px 10px; margin-top:4px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
 `;
 
 const studioHtml = `
@@ -579,6 +609,65 @@ const studioHtml = `
       </div>
       <div style="overflow:auto;display:flex;justify-content:center;background:#e2e8f0;padding:12px;border-radius:10px;max-height:78vh;">
         <canvas id="pmZoomCanvas" style="background:#fff;box-shadow:0 6px 24px rgba(0,0,0,0.25);"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE PRINT ORDER MODAL (Local PC Files Direct Order) -->
+  <div id="createPrintModal" class="studio-overlay" onclick="if(event.target===this)closeStudioModal('createPrintModal')">
+    <div class="cp-modal-box">
+      <div class="studio-topbar">
+        <div>
+          <strong style="font-size:15.5px;">🖨️ Create Print Order</strong>
+          <div style="font-size:11.5px;color:var(--muted);">Upload or drag and drop files directly from this PC to create a print order &amp; print immediately</div>
+        </div>
+        <button class="btn btn-outline" onclick="closeStudioModal('createPrintModal')">✕ Close</button>
+      </div>
+
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;">
+        <input type="file" id="cpFileInput" multiple style="display:none;" onchange="if(this.files&&this.files.length){cpAddFiles(this.files);this.value='';}">
+        <div id="cpDropzone" class="cp-dropzone"
+          onclick="document.getElementById('cpFileInput').click()"
+          ondragover="cpHandleDragOver(event)"
+          ondragleave="cpHandleDragLeave(event)"
+          ondrop="cpHandleDrop(event)">
+          <div style="font-size:34px;line-height:1;">📤</div>
+          <div style="font-size:14.5px;font-weight:800;color:var(--text);">Upload or drag and drop the files here for printing</div>
+          <div style="font-size:11.5px;color:var(--muted);">PDF, Word (.docx/.doc), Excel (.xlsx/.csv), PowerPoint (.pptx), Images &amp; Text — multiple files supported</div>
+          <span class="btn" style="margin-top:4px;background:#16a34a;padding:6px 14px;font-size:12px;">📁 Browse Files on PC</span>
+        </div>
+
+        <div id="cpQueueWrap" style="display:none;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong id="cpQueueSummary" style="font-size:12.5px;color:var(--text);">0 files selected</strong>
+            <button type="button" class="mini-btn" style="color:var(--danger);" onclick="cpClearFiles()">🧹 Clear All</button>
+          </div>
+          <div id="cpFileQueue" class="cp-file-queue"></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="studio-lbl">Order / Customer Name (Optional)</label>
+            <input id="cpCustomerName" class="field-input" placeholder="e.g. Walk-in Customer or Order #12">
+          </div>
+          <div>
+            <label class="studio-lbl">Print Note / Instructions (Optional)</label>
+            <input id="cpCustomerNote" class="field-input" placeholder="e.g. 2 copies, color, A4, duplex">
+          </div>
+        </div>
+
+        <div id="cpProgressWrap" style="display:none;flex-direction:column;gap:5px;">
+          <div style="font-size:12px;font-weight:700;color:var(--primary);" id="cpProgressText">Creating print order...</div>
+          <div class="cp-progress-bar"><div id="cpProgressFill" class="cp-progress-fill"></div></div>
+        </div>
+      </div>
+
+      <div style="padding:12px 18px;border-top:1px solid var(--border);background:var(--surface-alt);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-outline" onclick="closeStudioModal('createPrintModal')">Cancel</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" id="cpSubmitBtn" class="btn" disabled onclick="submitCreatePrintOrder(false)">📂 Create Print Order</button>
+          <button type="button" id="cpSubmitPrintBtn" class="btn" style="background:linear-gradient(135deg,#16a34a,#059669);" disabled onclick="submitCreatePrintOrder(true)">🖨️ Create &amp; Print Now</button>
+        </div>
       </div>
     </div>
   </div>
@@ -4363,12 +4452,218 @@ const studioJs = `
     }
 
     // ========================================================================
-    // 10. LOCAL PC STORAGE BROWSER (C:\Users\<User>\Downloads, Desktop, Docs, Pictures)
+    // 10. CREATE PRINT DIALOG + LOCAL PC STORAGE BROWSER & SORTING
     // ========================================================================
+    const cpState = {
+      files: [],
+      submitting: false
+    };
+
+    function openCreatePrintModal() {
+      if (cpState.submitting) return;
+      cpState.files = [];
+      const nameEl = document.getElementById('cpCustomerName');
+      const noteEl = document.getElementById('cpCustomerNote');
+      const progWrap = document.getElementById('cpProgressWrap');
+      const progFill = document.getElementById('cpProgressFill');
+      if (nameEl) nameEl.value = '';
+      if (noteEl) noteEl.value = '';
+      if (progWrap) progWrap.style.display = 'none';
+      if (progFill) progFill.style.width = '0%';
+      renderCreatePrintQueue();
+      const modal = document.getElementById('createPrintModal');
+      if (modal) modal.classList.add('open');
+    }
+
+    function cpHandleDragOver(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const dz = document.getElementById('cpDropzone');
+      if (dz) dz.classList.add('drag-active');
+    }
+
+    function cpHandleDragLeave(ev) {
+      const dz = document.getElementById('cpDropzone');
+      if (dz) dz.classList.remove('drag-active');
+    }
+
+    function cpHandleDrop(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const dz = document.getElementById('cpDropzone');
+      if (dz) dz.classList.remove('drag-active');
+      if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+        cpAddFiles(ev.dataTransfer.files);
+      }
+    }
+
+    function cpAddFiles(fileList) {
+      if (cpState.submitting || !fileList) return;
+      for (const f of Array.from(fileList)) {
+        if (!f || f.size <= 0) continue;
+        const dup = cpState.files.some(x => x.name === f.name && x.size === f.size);
+        if (!dup) cpState.files.push(f);
+      }
+      renderCreatePrintQueue();
+    }
+
+    function cpRemoveFile(idx) {
+      if (cpState.submitting) return;
+      cpState.files.splice(idx, 1);
+      renderCreatePrintQueue();
+    }
+
+    function cpClearFiles() {
+      if (cpState.submitting) return;
+      cpState.files = [];
+      renderCreatePrintQueue();
+    }
+
+    function renderCreatePrintQueue() {
+      const wrap = document.getElementById('cpQueueWrap');
+      const listEl = document.getElementById('cpFileQueue');
+      const sumEl = document.getElementById('cpQueueSummary');
+      const btn1 = document.getElementById('cpSubmitBtn');
+      const btn2 = document.getElementById('cpSubmitPrintBtn');
+      const hasFiles = cpState.files.length > 0;
+      if (btn1) btn1.disabled = !hasFiles || cpState.submitting;
+      if (btn2) btn2.disabled = !hasFiles || cpState.submitting;
+      if (!wrap || !listEl) return;
+      if (!hasFiles) {
+        wrap.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+      }
+      wrap.style.display = 'flex';
+      const totalBytes = cpState.files.reduce((acc, f) => acc + (f.size || 0), 0);
+      if (sumEl) sumEl.textContent = cpState.files.length + ' file' + (cpState.files.length === 1 ? '' : 's') + ' ready • ' + formatSize(totalBytes);
+      listEl.innerHTML = cpState.files.map((f, idx) => {
+        const ext = f.name.includes('.') ? ('.' + f.name.split('.').pop().toLowerCase()) : '';
+        const [cls, lbl] = getFileBadge(ext);
+        return '<div class="cp-file-row">' +
+          '<div style="display:flex;align-items:center;gap:9px;min-width:0;flex:1;">' +
+            '<div class="file-type-box ' + cls + '">' + lbl + '</div>' +
+            '<div style="min-width:0;">' +
+              '<div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(f.name) + '</div>' +
+              '<div style="font-size:11px;color:var(--muted);">' + formatSize(f.size) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="mini-btn" style="color:var(--danger);" onclick="cpRemoveFile(' + idx + ')" title="Remove">✕</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function submitCreatePrintOrder(printImmediately) {
+      if (cpState.submitting || cpState.files.length === 0) return;
+      cpState.submitting = true;
+      renderCreatePrintQueue();
+
+      const progWrap = document.getElementById('cpProgressWrap');
+      const progText = document.getElementById('cpProgressText');
+      const progFill = document.getElementById('cpProgressFill');
+      if (progWrap) progWrap.style.display = 'flex';
+      if (progText) progText.textContent = 'Creating print order...';
+      if (progFill) progFill.style.width = '8%';
+
+      try {
+        const customerName = ((document.getElementById('cpCustomerName') || {}).value || '').trim() || 'Walk-in Print';
+        const customerNote = ((document.getElementById('cpCustomerNote') || {}).value || '').trim();
+
+        const createRes = await fetch('/api/submission/create-local', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerName, customerNote })
+        });
+        const createData = await createRes.json();
+        if (!createRes.ok || !createData.success || !createData.receiptCode) {
+          throw new Error(createData.error || 'Could not create print order');
+        }
+
+        const rc = createData.receiptCode;
+        const uploaded = [];
+        for (let i = 0; i < cpState.files.length; i++) {
+          const f = cpState.files[i];
+          if (progText) progText.textContent = 'Adding (' + (i + 1) + '/' + cpState.files.length + '): ' + f.name;
+          const upRes = await fetch('/api/submission/add-file', {
+            method: 'POST',
+            headers: {
+              'X-Submission-Id': rc,
+              'X-File-Name': encodeURIComponent(f.name),
+              'Content-Type': f.type || 'application/octet-stream'
+            },
+            body: f
+          });
+          const upData = await upRes.json().catch(() => ({}));
+          if (!upRes.ok || !upData.success) {
+            throw new Error(upData.error || ('Failed adding ' + f.name));
+          }
+          if (upData.file) uploaded.push(upData.file);
+          if (progFill) progFill.style.width = Math.round(((i + 1) / cpState.files.length) * 92 + 8) + '%';
+        }
+
+        cpState.submitting = false;
+        cpState.files = [];
+        closeStudioModal('createPrintModal');
+
+        subFilter = 'all';
+        selectedSubId = rc;
+        inspectorTab = 'files';
+        if (currentTab !== 'inbox' && typeof setTab === 'function') {
+          setTab('inbox');
+        }
+        await fetchCloudState(true);
+        showToast('🖨️ Created Print Order ' + rc + ' (' + uploaded.length + ' file' + (uploaded.length === 1 ? '' : 's') + ')', null, null, 5000);
+
+        if (printImmediately && uploaded.length > 0) {
+          const first = uploaded[0];
+          const ext = (first.fileExtension || '').toLowerCase();
+          const directExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'];
+          if (uploaded.length === 1 && directExts.includes(ext)) {
+            directPrint('/api/file?id=' + encodeURIComponent(first.id), first.originalName);
+          } else {
+            openMergeModal(rc);
+          }
+        }
+      } catch (err) {
+        cpState.submitting = false;
+        renderCreatePrintQueue();
+        if (progWrap) progWrap.style.display = 'none';
+        alert('Create Print Error: ' + err.message);
+      }
+    }
+
+    const LOCAL_PC_SORT_LABELS = {
+      newest: '🕒 Newest First',
+      oldest: '🕰️ Oldest First',
+      largest: '📦 Largest First',
+      smallest: '🪶 Smallest First',
+      az: '🔤 Name (A → Z)',
+      za: '🔤 Name (Z → A)',
+      type: '📄 File Type'
+    };
+
+    const LOCAL_PC_FILE_TYPES = [
+      { key: 'pdf', icon: '📕', label: 'PDF', exts: ['.pdf'] },
+      { key: 'word', icon: '📘', label: 'Word (DOCX)', exts: ['.docx', '.doc', '.rtf', '.odt'] },
+      { key: 'excel', icon: '📗', label: 'Excel / CSV', exts: ['.xlsx', '.xls', '.csv', '.ods'] },
+      { key: 'ppt', icon: '📙', label: 'PowerPoint', exts: ['.pptx', '.ppt', '.odp'] },
+      { key: 'image', icon: '🖼️', label: 'Images', exts: ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.heic', '.heif', '.tif', '.tiff', '.svg'] },
+      { key: 'text', icon: '📝', label: 'Text', exts: ['.txt', '.md', '.log', '.json', '.xml', '.html', '.htm'] },
+      { key: 'archive', icon: '🗜️', label: 'Archives', exts: ['.zip', '.rar', '.7z', '.tar', '.gz'] },
+      { key: 'folder', icon: '📁', label: 'Folders', exts: [] }
+    ];
+
+    const LOCAL_PC_TYPE_ORDER = {
+      folder: 0, pdf: 1, word: 2, excel: 3, ppt: 4, image: 5, text: 6, archive: 7, other: 8
+    };
+
     const localPcState = {
       folder: 'downloads',
       sub: '',
       q: '',
+      sort: 'newest',
+      fileType: 'all',
+      sortMenuOpen: false,
       loading: false,
       loadedOnce: false,
       data: null,
@@ -4376,6 +4671,123 @@ const studioJs = `
     };
 
     let localPcSearchTimer = null;
+
+    function classifyLocalPcItem(it) {
+      if (!it) return 'other';
+      if (it.isDir) return 'folder';
+      const e = (it.ext || '').toLowerCase();
+      for (const ft of LOCAL_PC_FILE_TYPES) {
+        if (ft.key !== 'folder' && ft.exts.includes(e)) return ft.key;
+      }
+      return 'other';
+    }
+
+    function getLocalPcTypeMeta(key) {
+      return LOCAL_PC_FILE_TYPES.find(t => t.key === key) || { key: 'other', icon: '📄', label: 'Other Files', exts: [] };
+    }
+
+    function toggleLocalPcSortMenu(ev) {
+      if (ev) ev.stopPropagation();
+      localPcState.sortMenuOpen = !localPcState.sortMenuOpen;
+      const menu = document.getElementById('localPcSortMenu');
+      if (menu) menu.classList.toggle('open', localPcState.sortMenuOpen);
+    }
+
+    function closeLocalPcSortMenu() {
+      localPcState.sortMenuOpen = false;
+      const menu = document.getElementById('localPcSortMenu');
+      if (menu) menu.classList.remove('open');
+    }
+
+    document.addEventListener('click', (ev) => {
+      if (!localPcState.sortMenuOpen) return;
+      const wrap = document.getElementById('localPcSortWrap');
+      if (wrap && !wrap.contains(ev.target)) closeLocalPcSortMenu();
+    });
+
+    function setLocalPcSort(sortKey, fileTypeKey) {
+      if (sortKey) localPcState.sort = sortKey;
+      if (fileTypeKey !== undefined) localPcState.fileType = fileTypeKey;
+      localPcState.sortMenuOpen = false;
+      renderLocalPcBrowser();
+    }
+
+    function stripSortEmoji(lbl) {
+      const idx = String(lbl || '').indexOf(' ');
+      return idx >= 0 ? lbl.slice(idx + 1) : lbl;
+    }
+
+    function renderLocalPcSortControls(rawItems) {
+      const btn = document.getElementById('localPcSortBtn');
+      const menu = document.getElementById('localPcSortMenu');
+      const quickBar = document.getElementById('localPcTypeQuickBar');
+      const counts = { all: rawItems.length, pdf: 0, word: 0, excel: 0, ppt: 0, image: 0, text: 0, archive: 0, folder: 0, other: 0 };
+      for (const it of rawItems) {
+        const k = classifyLocalPcItem(it);
+        counts[k] = (counts[k] || 0) + 1;
+      }
+
+      if (btn) {
+        const sLbl = LOCAL_PC_SORT_LABELS[localPcState.sort] || '🕒 Newest First';
+        if (localPcState.fileType && localPcState.fileType !== 'all') {
+          const meta = getLocalPcTypeMeta(localPcState.fileType);
+          btn.textContent = '⇅ ' + meta.icon + ' ' + meta.label + (localPcState.sort !== 'type' ? (' (' + stripSortEmoji(sLbl) + ')') : '') + ' ▾';
+          btn.classList.add('filtered');
+        } else {
+          btn.textContent = '⇅ Sort: ' + stripSortEmoji(sLbl) + ' ▾';
+          btn.classList.toggle('filtered', localPcState.sort !== 'newest');
+        }
+      }
+
+      if (menu) {
+        menu.classList.toggle('open', !!localPcState.sortMenuOpen);
+        const mainSorts = ['newest', 'oldest', 'largest', 'smallest', 'az', 'za'];
+        const mainHtml = mainSorts.map(k => {
+          const active = localPcState.sort === k && localPcState.fileType === 'all';
+          return '<button type="button" class="lpc-sort-opt' + (active ? ' active' : '') + '" onclick="setLocalPcSort(\\'' + k + '\\',\\'all\\')">' +
+            '<span>' + LOCAL_PC_SORT_LABELS[k] + '</span>' + (active ? '<span>✓</span>' : '') +
+          '</button>';
+        }).join('');
+
+        const typeAllActive = localPcState.sort === 'type' && localPcState.fileType === 'all';
+        const typeChipsHtml = LOCAL_PC_FILE_TYPES.map(ft => {
+          const active = localPcState.fileType === ft.key;
+          const cnt = counts[ft.key] || 0;
+          return '<button type="button" class="lpc-ft-chip' + (active ? ' active' : '') + '" onclick="setLocalPcSort(\\'' + (localPcState.sort === 'type' ? 'type' : localPcState.sort) + '\\',\\'' + ft.key + '\\')">' +
+            '<span>' + ft.icon + ' ' + ft.label.split(' ')[0] + '</span>' +
+            '<span class="lpc-ft-cnt">' + cnt + '</span>' +
+          '</button>';
+        }).join('');
+
+        menu.innerHTML =
+          '<div class="lpc-ft-header">Sort Standard</div>' +
+          mainHtml +
+          '<div class="lpc-sort-divider"></div>' +
+          '<div class="lpc-ft-header">Sort / Filter by File Type</div>' +
+          '<button type="button" class="lpc-sort-opt' + (typeAllActive ? ' active' : '') + '" onclick="setLocalPcSort(\\'type\\',\\'all\\')">' +
+            '<span>📄 Group &amp; Sort All by File Type</span>' + (typeAllActive ? '<span>✓</span>' : '') +
+          '</button>' +
+          '<div class="lpc-ft-sublist">' + typeChipsHtml + '</div>';
+      }
+
+      if (quickBar) {
+        if (localPcState.sort === 'type' || localPcState.fileType !== 'all') {
+          quickBar.style.display = 'flex';
+          const allActive = localPcState.fileType === 'all';
+          const chips = '<button type="button" class="lpc-ft-chip' + (allActive ? ' active' : '') + '" onclick="setLocalPcSort(\\'type\\',\\'all\\')">📄 All Types <span class="lpc-ft-cnt">' + rawItems.length + '</span></button>' +
+            LOCAL_PC_FILE_TYPES.filter(ft => (counts[ft.key] || 0) > 0 || localPcState.fileType === ft.key).map(ft => {
+              const act = localPcState.fileType === ft.key;
+              return '<button type="button" class="lpc-ft-chip' + (act ? ' active' : '') + '" onclick="setLocalPcSort(\\'' + localPcState.sort + '\\',\\'' + ft.key + '\\')">' +
+                ft.icon + ' ' + ft.label + ' <span class="lpc-ft-cnt">' + (counts[ft.key] || 0) + '</span></button>';
+            }).join('') +
+            '<button type="button" class="mini-btn" style="margin-left:auto;" onclick="setLocalPcSort(\\'newest\\',\\'all\\')">✕ Reset</button>';
+          quickBar.innerHTML = chips;
+        } else {
+          quickBar.style.display = 'none';
+          quickBar.innerHTML = '';
+        }
+      }
+    }
 
     function setLocalPcFolder(folderKey) {
       localPcState.folder = folderKey || 'downloads';
@@ -4427,11 +4839,11 @@ const studioJs = `
       });
 
       const d = localPcState.data;
+      const rawItems = (d && d.items) || [];
+      renderLocalPcSortControls(rawItems);
+
       if (pathTag) {
         pathTag.textContent = (d && d.currentPath) ? d.currentPath : ('C:\\\\Users\\\\...\\\\' + localPcState.folder);
-      }
-      if (countBadge) {
-        countBadge.textContent = localPcState.loading ? 'Loading...' : (((d && d.items) ? d.items.length : 0) + ' item(s)');
       }
       if (backBtn) {
         if (d && d.subPath) {
@@ -4443,27 +4855,90 @@ const studioJs = `
       }
 
       if (localPcState.loading && !d) {
+        if (countBadge) countBadge.textContent = 'Loading...';
         host.innerHTML = '<div style="padding:26px;text-align:center;color:var(--muted);font-size:12.5px;">Loading local Windows folder...</div>';
         return;
       }
       if (localPcState.error) {
+        if (countBadge) countBadge.textContent = '0 item(s)';
         host.innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger);font-size:12.5px;">⚠️ ' + esc(localPcState.error) + '</div>';
         return;
       }
 
-      const items = (d && d.items) || [];
+      let items = rawItems.slice();
+      if (localPcState.fileType && localPcState.fileType !== 'all') {
+        items = items.filter(it => classifyLocalPcItem(it) === localPcState.fileType);
+      }
+
+      if (countBadge) {
+        countBadge.textContent = localPcState.loading ? 'Loading...' :
+          (localPcState.fileType !== 'all' ? (items.length + ' / ' + rawItems.length + ' item(s)') : (items.length + ' item(s)'));
+      }
+
+      const byTime = (x) => Date.parse(x.modifiedUtc || '') || 0;
+      const byName = (a, b) => (a.name || '').localeCompare((b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+      const sMode = localPcState.sort || 'newest';
+      items.sort((a, b) => {
+        if (sMode === 'largest' || sMode === 'smallest') {
+          if (a.isDir !== b.isDir) return a.isDir ? 1 : -1;
+          if (!a.isDir && !b.isDir) {
+            const diff = sMode === 'largest' ? ((b.sizeBytes || 0) - (a.sizeBytes || 0)) : ((a.sizeBytes || 0) - (b.sizeBytes || 0));
+            if (diff !== 0) return diff;
+          }
+          return byName(a, b);
+        }
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        if (sMode === 'oldest') return (byTime(a) - byTime(b)) || byName(a, b);
+        if (sMode === 'az') return byName(a, b);
+        if (sMode === 'za') return byName(b, a);
+        if (sMode === 'type') {
+          const ka = classifyLocalPcItem(a);
+          const kb = classifyLocalPcItem(b);
+          const oa = LOCAL_PC_TYPE_ORDER[ka] !== undefined ? LOCAL_PC_TYPE_ORDER[ka] : 99;
+          const ob = LOCAL_PC_TYPE_ORDER[kb] !== undefined ? LOCAL_PC_TYPE_ORDER[kb] : 99;
+          if (oa !== ob) return oa - ob;
+          const ea = (a.ext || '').toLowerCase();
+          const eb = (b.ext || '').toLowerCase();
+          if (ea !== eb) return ea.localeCompare(eb);
+          return (byTime(b) - byTime(a)) || byName(a, b);
+        }
+        return (byTime(b) - byTime(a)) || byName(a, b);
+      });
+
       if (items.length === 0) {
-        host.innerHTML = '<div style="padding:28px;text-align:center;color:var(--muted);font-size:12.5px;">No matching files found in this folder.</div>';
+        host.innerHTML = '<div style="padding:28px;text-align:center;color:var(--muted);font-size:12.5px;">' +
+          (localPcState.fileType !== 'all'
+            ? ('No ' + esc(getLocalPcTypeMeta(localPcState.fileType).label) + ' files in this folder. <button class="mini-btn" style="margin-left:6px;" onclick="setLocalPcSort(\\'newest\\',\\'all\\')">Show All Files</button>')
+            : 'No matching files found in this folder.') +
+          '</div>';
         return;
       }
 
       const activeSubCode = selectedSubId || (((cloudState && cloudState.submissions) || []).find(s => s.status !== 'expired') || {}).receiptCode || '';
+      const showTypeGroups = (sMode === 'type' && localPcState.fileType === 'all');
+      const groupCounts = {};
+      if (showTypeGroups) {
+        for (const it of items) {
+          const k = classifyLocalPcItem(it);
+          groupCounts[k] = (groupCounts[k] || 0) + 1;
+        }
+      }
 
+      let lastGroup = null;
       host.innerHTML = items.map(it => {
+        let groupHdr = '';
+        if (showTypeGroups) {
+          const gKey = classifyLocalPcItem(it);
+          if (gKey !== lastGroup) {
+            lastGroup = gKey;
+            const gm = getLocalPcTypeMeta(gKey);
+            groupHdr = '<div class="lpc-group-hdr"><span>' + gm.icon + ' ' + esc(gm.label) + '</span><span>' + (groupCounts[gKey] || 0) + '</span></div>';
+          }
+        }
         const safeRel = esc(it.relPath).replace(/'/g, '&#39;');
         const safeName = esc(it.name).replace(/'/g, '&#39;');
         if (it.isDir) {
-          return '<div class="local-file-row is-dir" onclick="openLocalPcSubfolder(\\'' + safeRel + '\\')">' +
+          return groupHdr + '<div class="local-file-row is-dir" onclick="openLocalPcSubfolder(\\'' + safeRel + '\\')">' +
             '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">' +
               '<div class="file-type-box ft-other" style="background:linear-gradient(135deg,#FEF3C7,#FDE68A);color:#92400E;">📁</div>' +
               '<div style="min-width:0;">' +
@@ -4477,7 +4952,7 @@ const studioJs = `
 
         const [cls, lbl] = getFileBadge(it.ext);
         const isPdfOrImg = it.canPreview;
-        return '<div class="local-file-row">' +
+        return groupHdr + '<div class="local-file-row">' +
           '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">' +
             '<div class="file-type-box ' + cls + '">' + lbl + '</div>' +
             '<div style="min-width:0;">' +

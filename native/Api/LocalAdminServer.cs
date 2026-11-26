@@ -310,6 +310,12 @@ namespace ScanDrop.Native.Api
                     return;
                 }
 
+                if (path == "/api/submission/create-local" && req.HttpMethod == "POST")
+                {
+                    HandleCreateLocalSubmission(req, res);
+                    return;
+                }
+
                 // Native Windows File Operations (PRD Sec 5.2)
                 if (path == "/api/file/open" && req.HttpMethod == "POST")
                 {
@@ -1822,6 +1828,66 @@ namespace ScanDrop.Native.Api
             });
         }
 
+        private void HandleCreateLocalSubmission(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var body = HttpHelpers.ReadJsonBody(req);
+            string rawName = HttpHelpers.GetStr(body, "customerName");
+            string customerName = string.IsNullOrWhiteSpace(rawName) ? "Walk-in Print" : rawName.Trim();
+            if (customerName.Length > 80) customerName = customerName.Substring(0, 80);
+            string customerNote = (HttpHelpers.GetStr(body, "customerNote") ?? "").Trim();
+            if (customerNote.Length > 300) customerNote = customerNote.Substring(0, 300);
+
+            var settings = _db.LoadSettings(_storage.Paths.DataRootDir);
+            var shop = _db.GetPrimaryShop();
+
+            string receiptCode = null;
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                string cand = SecretProtector.GenerateReceiptCode();
+                if (!_db.ReceiptCodeExists(cand))
+                {
+                    receiptCode = cand;
+                    break;
+                }
+            }
+            if (string.IsNullOrEmpty(receiptCode))
+                receiptCode = Guid.NewGuid().ToString("N").Substring(0, 6).ToUpperInvariant();
+
+            string nowIso = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            string expIso = DateTime.UtcNow.AddHours(Math.Max(1, settings.RetentionHours)).ToString("o", CultureInfo.InvariantCulture);
+            string submissionId = "sub_" + Guid.NewGuid().ToString("N");
+
+            var subRecord = new SubmissionRecord
+            {
+                SubmissionId = submissionId,
+                ShopId = shop != null ? shop.ShopId : "shop_local",
+                ReceiptCode = receiptCode,
+                CustomerName = customerName,
+                CustomerNote = customerNote,
+                Status = "received",
+                IdempotencyKey = null,
+                CreatedAt = nowIso,
+                ExpiresAt = expIso,
+                TotalSize = 0
+            };
+
+            _db.InsertSubmission(subRecord);
+            string subDir = Path.Combine(_storage.Paths.ReceivedDir, submissionId);
+            if (!Directory.Exists(subDir)) Directory.CreateDirectory(subDir);
+
+            _db.AddActivity("LOCAL_PRINT_CREATED", "shopkeeper", submissionId,
+                "Created local print order " + receiptCode + " (" + customerName + ")");
+            FireStateChanged();
+
+            HttpHelpers.WriteJson(res, 200, new Dictionary<string, object>
+            {
+                { "success", true },
+                { "submissionId", submissionId },
+                { "receiptCode", receiptCode },
+                { "customerName", customerName }
+            });
+        }
+
         private void HandleAddFileToSubmission(HttpListenerRequest req, HttpListenerResponse res)
         {
             string subKey = req.Headers["X-Submission-Id"];
@@ -2312,7 +2378,7 @@ namespace ScanDrop.Native.Api
                         { "canPreview", false },
                         { "streamUrl", "" }
                     });
-                    if (items.Count >= 60) break;
+                    if (items.Count >= 400) break;
                 }
             }
             catch { }
@@ -2341,7 +2407,7 @@ namespace ScanDrop.Native.Api
                         { "canPreview", canPreview },
                         { "streamUrl", streamUrl }
                     });
-                    if (items.Count >= 220) break;
+                    if (items.Count >= 2000) break;
                 }
             }
             catch { }

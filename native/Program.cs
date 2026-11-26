@@ -700,10 +700,44 @@ namespace ScanDrop.Native
                             if (!csvNativeRes.Success || !File.Exists(csvNativeRes.OutputPath) || csvNativeRes.OutputSizeBytes < 1000)
                                 throw new Exception("Native .csv -> PDF failed: " + csvNativeRes.ErrorMessage);
                             Console.WriteLine("  [PASS] 22. Built-in zero-dependency XLSX & CSV -> PDF table renderer verified");
+
+                            // Test 23: Create Print local order API (/api/submission/create-local) + file upload + public port isolation
+                            string createLocalJson = HttpPostJson(admBase + "/api/submission/create-local", ser.Serialize(new Dictionary<string, object>
+                            {
+                                { "customerName", "Walk-in Customer" },
+                                { "customerNote", "Color print" }
+                            }));
+                            var createLocalDict = ser.Deserialize<Dictionary<string, object>>(createLocalJson);
+                            string localRc = createLocalDict.ContainsKey("receiptCode") ? Convert.ToString(createLocalDict["receiptCode"]) : "";
+                            if (string.IsNullOrEmpty(localRc) || localRc.Length != 6)
+                                throw new Exception("POST /api/submission/create-local did not return 6-char receiptCode: " + createLocalJson);
+
+                            var cpAddReq = (HttpWebRequest)WebRequest.Create(admBase + "/api/submission/add-file");
+                            cpAddReq.Method = "POST";
+                            cpAddReq.ContentType = "image/png";
+                            cpAddReq.Headers["X-Submission-Id"] = localRc;
+                            cpAddReq.Headers["X-File-Name"] = Uri.EscapeDataString("walkin_test.png");
+                            byte[] cpPngBytes = CreateTinyValidPng();
+                            cpAddReq.ContentLength = cpPngBytes.Length;
+                            using (var s = cpAddReq.GetRequestStream()) s.Write(cpPngBytes, 0, cpPngBytes.Length);
+                            using (var resp = (HttpWebResponse)cpAddReq.GetResponse())
+                            {
+                                if ((int)resp.StatusCode != 200)
+                                    throw new Exception("Expected 200 uploading file to local print order, got " + (int)resp.StatusCode);
+                            }
+
+                            string stateAfterCreate = HttpGet(admBase + "/api/state");
+                            if (!stateAfterCreate.Contains(localRc) || !stateAfterCreate.Contains("walkin_test.png"))
+                                throw new Exception("Created local print order or uploaded file missing from /api/state");
+
+                            int pubCreateStatus = HttpPostJsonStatus(pubBase + "/api/submission/create-local", "{}");
+                            if (pubCreateStatus != 404)
+                                throw new Exception("Public receiver MUST block /api/submission/create-local with 404, got " + pubCreateStatus);
+                            Console.WriteLine("  [PASS] 23. Create Print local order API, file upload & public isolation verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 22 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + EXCEL SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 23 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + EXCEL + CREATE-PRINT SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)
