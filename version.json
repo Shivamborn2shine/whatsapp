@@ -1,8 +1,8 @@
-﻿{
+{
     "version":  "4.9.8",
     "releaseDate":  "2026-11-26",
     "releaseNotes":  "Fixed Cloudflare Quick Tunnel false-positive HTTP 429 classification on API timeouts, eliminated the re-entrant double-retry bug (PID crash + 429 firing twice), and replaced the immediate 300s lockout with a smart 35s progressive cooldown and clearer error diagnostics.",
-    "sha256":  "9670287d43f25549e9be89094d9543c24a094a1da7be420a515229e70df33c86",
+    "sha256":  "pending",
     "downloadUrl":  "https://scandrop-xi.vercel.app/downloads/ScanDrop.exe",
     "fallbackUrl":  "https://raw.githubusercontent.com/Shivamborn2shine/whatsapp/main/downloads/ScanDrop.exe"
 }
