@@ -89,6 +89,8 @@ namespace ScanDrop.Native
         private int _verificationStartedGen;
         private DateTime? _lastSuccessfulHealthCheckUtc;
         private string _lastFailureReason;
+        private string _lastStderrError;
+        private int _lastStderrErrorGen;
         private int _retryCount;
         private int _rateLimitHits;
         private int _consecutiveHealthFailures;
@@ -233,16 +235,26 @@ namespace ScanDrop.Native
             retryAfterSeconds = 0;
             if (string.IsNullOrWhiteSpace(line)) return false;
 
-            bool isRateLimited =
+            bool hasExplicitRateLimit =
                 line.IndexOf("status 429", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("429 Too Many Requests", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("429 too many requests", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 line.IndexOf("too many requests", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 line.IndexOf("rate limit", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("quick tunnel provisioning failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("failed to unmarshal quick Tunnel", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("failed to request quick Tunnel", StringComparison.OrdinalIgnoreCase) >= 0;
+                line.IndexOf("ratelimit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("tunnelstore request failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("\"code\":10000", StringComparison.OrdinalIgnoreCase) >= 0;
 
-            if (!isRateLimited) return false;
+            bool isNetworkOrTimeoutError =
+                line.IndexOf("context deadline exceeded", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("i/o timeout", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("dial tcp", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("connection refused", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("connection reset", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("no such host", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("tls handshake timeout", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (isNetworkOrTimeoutError && !hasExplicitRateLimit) return false;
+            if (!hasExplicitRateLimit) return false;
 
             var m = RetryAfterSecondsRegex.Match(line);
             if (m.Success)
@@ -254,6 +266,24 @@ namespace ScanDrop.Native
                 }
             }
             return true;
+        }
+
+        private static string ExtractStderrSummary(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return null;
+            if (line.IndexOf("ERR", StringComparison.OrdinalIgnoreCase) < 0 &&
+                line.IndexOf("failed to", StringComparison.OrdinalIgnoreCase) < 0 &&
+                line.IndexOf("context deadline", StringComparison.OrdinalIgnoreCase) < 0 &&
+                line.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) < 0 &&
+                line.IndexOf("error", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                return null;
+            }
+            string clean = line.Trim();
+            int errIdx = clean.IndexOf("failed to ", StringComparison.OrdinalIgnoreCase);
+            if (errIdx > 0 && errIdx < 40) clean = clean.Substring(errIdx);
+            if (clean.Length > 160) clean = clean.Substring(0, 157) + "...";
+            return clean;
         }
 
         public int ComputeBackoffWithJitterMs(int retryCount, int baseDelayMs = 3000, int maxDelayMs = 120000)
@@ -545,6 +575,8 @@ namespace ScanDrop.Native
             _pendingCandidateUrl = null;
             _edgeRegisteredGen = 0;
             _verificationStartedGen = 0;
+            _lastStderrError = null;
+            _lastStderrErrorGen = 0;
             _processId = null;
             _usingWindowsService = false;
             _consecutiveHealthFailures = 0;
@@ -664,6 +696,13 @@ namespace ScanDrop.Native
                     return;
                 }
 
+                string errSummary = ExtractStderrSummary(line);
+                if (!string.IsNullOrEmpty(errSummary))
+                {
+                    _lastStderrError = errSummary;
+                    _lastStderrErrorGen = gen;
+                }
+
                 if (line.IndexOf("Registered tunnel connection", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     if (IsValidPublicTunnelUrl(staticUrl))
@@ -758,6 +797,13 @@ namespace ScanDrop.Native
                 {
                     ScheduleCloudflareRetryLocked(gen, "Cloudflare Quick Tunnel rate-limited (HTTP 429)", true, retryAfterSec);
                     return;
+                }
+
+                string errSummary = ExtractStderrSummary(line);
+                if (!string.IsNullOrEmpty(errSummary))
+                {
+                    _lastStderrError = errSummary;
+                    _lastStderrErrorGen = gen;
                 }
 
                 var match = CloudflareQuickUrlRegex.Match(line);
@@ -874,7 +920,10 @@ namespace ScanDrop.Native
                 _publicUrl = null;
                 _pendingCandidateUrl = null;
                 shouldNotifyClear = hadUrl;
-                ScheduleCloudflareRetryLocked(gen, reason + (oldPid.HasValue ? " (PID " + oldPid.Value + ")" : ""), false, 0);
+                string detail = (_lastStderrErrorGen == gen && !string.IsNullOrWhiteSpace(_lastStderrError))
+                    ? (_lastStderrError + (oldPid.HasValue ? " (PID " + oldPid.Value + ")" : ""))
+                    : (reason + (oldPid.HasValue ? " (PID " + oldPid.Value + ")" : ""));
+                ScheduleCloudflareRetryLocked(gen, detail, false, 0);
             }
 
             if (shouldNotifyClear)
@@ -925,16 +974,18 @@ namespace ScanDrop.Native
         {
             if (_disposed || _generation != expectedGen) return;
 
+            // Advance generation BEFORE stopping the process so synchronous Exited callbacks cannot re-enter and double-count
+            int scheduledGen = Interlocked.Increment(ref _generation);
             CancelStartupGuardLocked();
             CancelRetryTimerLocked();
             StopOwnedProcessOnlyLocked();
 
-            // Advance generation so any remaining async stdout/probe events from the dead process are strictly ignored
-            int scheduledGen = Interlocked.Increment(ref _generation);
             _publicUrl = null;
             _pendingCandidateUrl = null;
             _edgeRegisteredGen = 0;
             _verificationStartedGen = 0;
+            _lastStderrError = null;
+            _lastStderrErrorGen = 0;
             _processId = null;
             _usingWindowsService = false;
             _lastFailureReason = failureReason;
@@ -945,10 +996,17 @@ namespace ScanDrop.Native
             if (isRateLimit)
             {
                 _rateLimitHits++;
-                int cooldownSec = retryAfterSeconds > 0
-                    ? retryAfterSeconds
-                    : Math.Min(900, 300 * _rateLimitHits); // 5m -> 10m -> 15m cap
-                delayMs = cooldownSec * 1000;
+                if (retryAfterSeconds > 0)
+                {
+                    delayMs = retryAfterSeconds * 1000;
+                }
+                else
+                {
+                    int[] quickCooldownSecs = new[] { 35, 75, 150, 300 };
+                    int baseSec = quickCooldownSecs[Math.Min(_rateLimitHits - 1, quickCooldownSecs.Length - 1)];
+                    double jitter = 0.85 + (_rng.NextDouble() * 0.30);
+                    delayMs = (int)Math.Round(baseSec * 1000.0 * jitter);
+                }
                 _cooldownUntilUtc = DateTime.UtcNow.AddMilliseconds(delayMs);
                 nextState = TunnelState.COOLDOWN;
             }
@@ -970,6 +1028,10 @@ namespace ScanDrop.Native
                 failureReason,
                 _retryCount,
                 delayMs / 1000.0));
+            if (isRateLimit && _currentMode == "development_quick" && _rateLimitHits <= 2)
+            {
+                Log("Tip: Add a free Cloudflare Named Tunnel token in Tunnel Settings for permanent zero-429 uptime.");
+            }
 
             _retryTimer = new Timer(_ =>
             {
@@ -1163,7 +1225,10 @@ namespace ScanDrop.Native
                 _processId = fakePid;
                 _consecutiveHealthFailures = 0;
                 _lastFailureReason = null;
+                _lastStderrError = null;
+                _lastStderrErrorGen = 0;
                 _retryCount = 0;
+                _rateLimitHits = 0;
                 _nextRetryUtc = null;
                 _cooldownUntilUtc = DateTime.MinValue;
                 if (state == TunnelState.CONNECTED) _lastSuccessfulHealthCheckUtc = DateTime.UtcNow;
@@ -1511,13 +1576,18 @@ namespace ScanDrop.Native
                 _tunnelProcess = null;
                 return;
             }
-            try
-            {
-                if (_tunnelProcess != null && !_tunnelProcess.HasExited)
-                    _tunnelProcess.Kill();
-            }
-            catch { }
+            var proc = _tunnelProcess;
             _tunnelProcess = null;
+            if (proc != null)
+            {
+                try { proc.EnableRaisingEvents = false; } catch { }
+                try
+                {
+                    if (!proc.HasExited)
+                        proc.Kill();
+                }
+                catch { }
+            }
         }
 
         private void TransitionStateLocked(TunnelState newState)

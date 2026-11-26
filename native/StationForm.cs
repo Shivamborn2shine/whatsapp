@@ -625,7 +625,7 @@ namespace ScanDrop.Native
                     Location = new Point(20, 14),
                     Size = new Size(484, 44),
                     ForeColor = Color.FromArgb(71, 85, 105),
-                    Text = "Cloudflare-only connectivity. Auto mode prefers Production Named Tunnel (permanent hostname / Windows Service) when configured, otherwise uses Development Quick Tunnel."
+                    Text = "Cloudflare-only connectivity. Auto mode prefers Production Named Tunnel when configured (zero trycloudflare.com HTTP 429 limits + permanent uptime), otherwise uses Development Quick Tunnel."
                 };
 
                 dlg.Controls.Add(new Label { Text = "Cloudflare Mode:", Location = new Point(20, 66), Size = new Size(146, 22), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });

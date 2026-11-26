@@ -734,10 +734,25 @@ namespace ScanDrop.Native
                             if (pubCreateStatus != 404)
                                 throw new Exception("Public receiver MUST block /api/submission/create-local with 404, got " + pubCreateStatus);
                             Console.WriteLine("  [PASS] 23. Create Print local order API, file upload & public isolation verified");
+
+                            // Test 24: Cloudflare timeout vs HTTP 429 classification, single-retry guard & progressive cooldown
+                            int parsedSec;
+                            if (TunnelManager.IsCloudflareRateLimit("failed to request quick Tunnel: Post \"https://api.trycloudflare.com/tunnel\": context deadline exceeded", out parsedSec))
+                                throw new Exception("Network timeout line must NOT be misclassified as HTTP 429 rate-limit!");
+                            if (!TunnelManager.IsCloudflareRateLimit("{\"errors\":[{\"code\":10000,\"message\":\"Tunnelstore request failed\"}]}", out parsedSec) || parsedSec != 0)
+                                throw new Exception("Tunnelstore HTTP 429 payload must be detected as rate limit with 0 Retry-After!");
+
+                            sup.InjectStateForSelfTest(TunnelState.CONNECTING, null, 8888);
+                            sup.SimulateRateLimitForSelfTest("{\"errors\":[{\"code\":10000,\"message\":\"Tunnelstore request failed\"}]}");
+                            var s24 = sup.GetStatusSnapshot();
+                            double remSec24 = s24.NextRetryUtc.HasValue ? (s24.NextRetryUtc.Value - DateTime.UtcNow).TotalSeconds : -1;
+                            if (s24.State != TunnelState.COOLDOWN || s24.RetryCount != 1 || remSec24 < 20 || remSec24 > 60)
+                                throw new Exception(string.Format(CultureInfo.InvariantCulture, "Unexpected 429 smart cooldown state: State={0}, RetryCount={1}, RemSec={2:F1}", s24.State, s24.RetryCount, remSec24));
+                            Console.WriteLine("  [PASS] 24. Cloudflare timeout vs 429 classification, single-retry guard & smart cooldown verified");
                         }
                     }
                 }
-                Console.WriteLine("ALL 23 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + EXCEL + CREATE-PRINT SELF-TESTS PASSED!");
+                Console.WriteLine("ALL 24 PRD v2.0 + CLOUDFLARE + WORKFLOW + AUTO-UPDATE + PDF-DOCX + EXCEL + CREATE-PRINT + TUNNEL-429 SELF-TESTS PASSED!");
                 return 0;
             }
             catch (Exception ex)
